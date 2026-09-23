@@ -90,16 +90,22 @@ package runs it first.
 
 ## Commits
 
-One change per commit, with a message in the imperative that says what
-changed and, in the body, why:
+One change per commit. The subject is one line in the imperative, saying
+what changed:
+
+```
+describe every package for npm
+```
+
+Add a body only when the reason is not obvious from the diff — a bug with
+a subtle cause, a choice that looks wrong without context — and keep it to
+a few sentences:
 
 ```
 check a path's rules at startup in the compiler's order
 
-assertValidPath checked each rule over every segment in turn; ValidatePath
-checks ? and braces first, then walks the segments left to right. A path
-breaking two rules was reported as one by the compiler and as the other
-at startup.
+The compiler and the runtime checked the rules in different orders, so a
+path breaking two of them got a different error from each.
 ```
 
 ## Security
