@@ -1,0 +1,39 @@
+{
+  "name": "@tetsujs/rate-limit",
+  "version": "0.1.0",
+  "license": "MIT",
+  "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/rate-limit#readme",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/rate-limit"
+  },
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "dependencies": {
+    "@tetsujs/core": "workspace:*",
+    "@tetsujs/openapi": "workspace:*"
+  },
+  "devDependencies": {
+    "@tetsujs/core": "workspace:*"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}

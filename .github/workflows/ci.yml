@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (bun ${{ matrix.bun }})
+    runs-on: ubuntu-latest
+
+    # The pinned version is the gate. `latest` runs alongside it and is
+    # allowed to fail: this framework is built on Bun's own router, cookies
+    # and server, and several of its guarantees rest on measured Bun
+    # behaviour — a regression there is worth seeing early, and worth not
+    # turning the branch red for.
+    continue-on-error: ${{ matrix.experimental == true }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Quoted on purpose: a bare 1.5 would be read as a number and
+          # reach setup-bun as "1.5".
+          - bun: "1.4.2"
+          - bun: "latest"
+            experimental: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Types are a feature here, not a build step: `.test-d.ts` files hold
+      # the contract tests for inference and for the compile errors the
+      # framework promises, and `tsc` is the only thing that runs them.
+      - name: Types
+        run: bun run check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun test
+
+      # The packages as the tarballs a user installs: `prepack` builds each
+      # one, `publint` reads the manifest and `attw` resolves the types; then
+      # all of them go into a fresh project outside the repository, which
+      # imports every entry point, serves a request and runs `tsc` on them.
+      - name: Packages
+        run: bun run verify:packages
+
+  typescript:
+    name: types (typescript ${{ matrix.typescript }})
+    runs-on: ubuntu-latest
+
+    # The main job gates on the compiler the repository pins. These are the
+    # other ones a user may bring: the oldest promised, and the newest of
+    # the line most users are on. 5.7 is the floor because Bun 1.4's own
+    # types need it.
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: ["5.7", "5"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Types
+        run: bunx -p typescript@${{ matrix.typescript }} tsc --noEmit
+
+      # The repository compiles with skipLibCheck; a user's project may not.
+      # The published declarations, checked in a fresh consumer by this
+      # compiler with skipLibCheck off — built, as published, by the pinned one.
+      - name: Packages
+        run: bun run verify:packages --typescript ${{ matrix.typescript }}
+
+  strictest:
+    name: types (@tsconfig/strictest)
+    runs-on: ubuntu-latest
+
+    # A user's flags reach their own code, not the published `.d.ts`: this
+    # is where `exactOptionalPropertyTypes` breaks a hook the user mounted.
+    # The sources and the type tests are checked; the runtime tests read
+    # JSON bodies with dots, which says nothing about the API.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Types
+        run: bun run check:strictest
+
+  type-cost:
+    name: type cost
+    runs-on: ubuntu-latest
+
+    # The compiler's work for a generated 200-route application, held to a
+    # budget of instantiations. It is deterministic for a given compiler,
+    # so a change that doubles what the types cost fails here instead of in
+    # a user's editor. bench/README.md has the numbers.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Type cost
+        run: bun run --cwd bench types --check

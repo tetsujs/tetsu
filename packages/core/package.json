@@ -1,0 +1,38 @@
+{
+  "name": "@tetsujs/core",
+  "version": "0.1.0",
+  "description": "Class-based, decorator-free HTTP framework core for Bun: lifecycle hooks, full type inference, Standard Schema validation",
+  "license": "MIT",
+  "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./testing": {
+      "types": "./dist/test-utils/index.d.ts",
+      "default": "./dist/test-utils/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "test-utils",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}

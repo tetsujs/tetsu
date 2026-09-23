@@ -1,0 +1,32 @@
+/**
+ * The composition root: every instance the application runs on, built
+ * here once and handed to what needs it. There is no container; this file
+ * is the whole of the wiring.
+ *
+ * `buildApp` takes the database rather than opening it, so `main.ts` opens
+ * a file and the tests open one in memory — and where the access log
+ * goes, so the tests can keep it out of their output.
+ *
+ * @module
+ */
+
+import type { Database } from "bun:sqlite";
+import { createApp, group } from "@tetsujs/core";
+import { docs } from "@tetsujs/openapi";
+import type { AccessLogOptions } from "@tetsujs/request-id";
+import { accessLog, requestId } from "@tetsujs/request-id";
+import { secureHeaders } from "@tetsujs/secure-headers";
+import { NotesController } from "./notes/routes.ts";
+import { NoteStore } from "./notes/store.ts";
+
+export function buildApp(db: Database, log: AccessLogOptions = {}) {
+  const notes = new NoteStore(db);
+
+  return createApp({
+    hooks: [requestId(), accessLog(log), secureHeaders()],
+    routes: [
+      group("/api", { children: [new NotesController(notes)] }),
+      docs({ info: { title: "Notes", version: "1.0.0" } }),
+    ],
+  });
+}

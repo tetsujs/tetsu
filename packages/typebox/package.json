@@ -1,0 +1,38 @@
+{
+  "name": "@tetsujs/typebox",
+  "version": "0.1.0",
+  "license": "MIT",
+  "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/typebox#readme",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/typebox"
+  },
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "dependencies": {
+    "@tetsujs/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "typebox": "^1.3.34"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}

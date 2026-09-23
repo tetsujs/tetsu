@@ -1,0 +1,30 @@
+{
+  "name": "tetsu-workspace",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples",
+    "bench"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json && bun run scripts/build.ts",
+    "check": "tsc --noEmit",
+    "check:strictest": "tsc --noEmit -p tsconfig.strictest.json",
+    "verify:packages": "bun run scripts/verify-packages.ts",
+    "readme": "bun run scripts/readme.ts",
+    "lint": "bunx --bun @biomejs/biome check",
+    "lint:fix": "bunx --bun @biomejs/biome check --write",
+    "test": "bun test",
+    "ci": "bun run check && bun run lint && bun test"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "2.5.14",
+    "@tsconfig/strictest": "^2.0.8",
+    "@types/bun": "1.4.2",
+    "publint": "^0.3.24",
+    "typescript": "7.0.2"
+  }
+}

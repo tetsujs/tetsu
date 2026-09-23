@@ -1,0 +1,45 @@
+# planning and review notes: design log, roadmap, review rounds, handoff.
+# Kept out of the published tree on purpose — they are written for whoever
+# is building this, not for whoever is using it.
+.internal
+
+# dependencies (bun install)
+node_modules
+
+# output
+out
+dist
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# local Claude Code settings and worktrees
+.claude/
+
+# Finder (MacOS) folder config
+.DS_Store
+
+# local databases the examples create
+*.sqlite
