@@ -1,7 +1,19 @@
 {
   "name": "@tetsujs/core",
   "version": "0.1.0",
-  "description": "Class-based, decorator-free HTTP framework core for Bun: lifecycle hooks, full type inference, Standard Schema validation",
+  "description": "An HTTP framework for Bun: controllers as plain classes, lifecycle hooks and end-to-end type inference, without decorators or dependencies",
+  "keywords": [
+    "bun",
+    "http",
+    "framework",
+    "web-framework",
+    "typescript",
+    "server",
+    "router",
+    "controller",
+    "standard-schema"
+  ],
+  "author": "tetsuodev",
   "license": "MIT",
   "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/core#readme",
   "bugs": {
@@ -13,6 +25,9 @@
     "directory": "packages/core"
   },
   "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
   "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"

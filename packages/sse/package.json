@@ -1,6 +1,16 @@
 {
   "name": "@tetsujs/sse",
   "version": "0.1.0",
+  "description": "Server-sent events and streamed responses for Tetsu, from an async generator",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "sse",
+    "server-sent-events",
+    "streaming",
+    "ndjson"
+  ],
+  "author": "tetsuodev",
   "license": "MIT",
   "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/sse#readme",
   "bugs": {
@@ -12,6 +22,9 @@
     "directory": "packages/sse"
   },
   "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
   "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"

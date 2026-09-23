@@ -1,6 +1,15 @@
 {
   "name": "@tetsujs/lifecycle",
   "version": "0.1.0",
+  "description": "Graceful shutdown for Tetsu: drain requests, then close what the server used",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "graceful-shutdown",
+    "shutdown",
+    "kubernetes"
+  ],
+  "author": "tetsuodev",
   "license": "MIT",
   "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/lifecycle#readme",
   "bugs": {
@@ -12,6 +21,9 @@
     "directory": "packages/lifecycle"
   },
   "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
   "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"

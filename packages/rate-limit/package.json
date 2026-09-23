@@ -1,6 +1,15 @@
 {
   "name": "@tetsujs/rate-limit",
   "version": "0.1.0",
+  "description": "Fixed-window rate limiting for Tetsu, with a replaceable store",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "rate-limit",
+    "rate-limiting",
+    "http"
+  ],
+  "author": "tetsuodev",
   "license": "MIT",
   "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/rate-limit#readme",
   "bugs": {
@@ -12,6 +21,9 @@
     "directory": "packages/rate-limit"
   },
   "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
   "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"
