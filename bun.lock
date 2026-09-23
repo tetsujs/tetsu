@@ -56,11 +56,11 @@
     "packages/cors": {
       "name": "@tetsujs/cors",
       "version": "0.1.0",
-      "dependencies": {
-        "@tetsujs/core": "workspace:*",
-      },
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/lifecycle": {
@@ -70,55 +70,64 @@
     "packages/openapi": {
       "name": "@tetsujs/openapi",
       "version": "0.1.0",
-      "dependencies": {
+      "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/rate-limit": {
       "name": "@tetsujs/rate-limit",
       "version": "0.1.0",
       "dependencies": {
-        "@tetsujs/core": "workspace:*",
-        "@tetsujs/openapi": "workspace:*",
+        "@tetsujs/openapi": "workspace:^",
       },
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/request-id": {
       "name": "@tetsujs/request-id",
       "version": "0.1.0",
-      "dependencies": {
+      "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/secure-headers": {
       "name": "@tetsujs/secure-headers",
       "version": "0.1.0",
-      "dependencies": {
-        "@tetsujs/core": "workspace:*",
-      },
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/sse": {
       "name": "@tetsujs/sse",
       "version": "0.1.0",
-      "dependencies": {
-        "@tetsujs/core": "workspace:*",
-      },
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
       },
     },
     "packages/typebox": {
       "name": "@tetsujs/typebox",
       "version": "0.1.0",
-      "dependencies": {
+      "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
       "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
         "typebox": "^1.3.34",
       },
     },

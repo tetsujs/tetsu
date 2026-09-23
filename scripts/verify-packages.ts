@@ -177,6 +177,10 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
     Object.assign(peers, manifest.peerDependencies);
   }
 
+  for (const name of Object.keys(tarballs)) {
+    delete peers[name];
+  }
+
   await Bun.write(
     join(consumer, "package.json"),
     JSON.stringify({
@@ -284,14 +288,16 @@ try {
 
 /**
  * Whether `@tetsujs/core` resolves to one file from the consumer and from
- * every installed package that depends on it.
+ * every installed package that depends on it — as a peer, which is how the
+ * packages declare it, or as a dependency, which is how a second copy would
+ * get in.
  */
 async function hasOneCore(manifests: Manifest[]): Promise<boolean> {
   const core = "@tetsujs/core";
   const expected = await realpath(Bun.resolveSync(core, consumer));
 
   for (const manifest of manifests) {
-    if (!manifest.dependencies?.[core]) {
+    if (!manifest.peerDependencies?.[core] && !manifest.dependencies?.[core]) {
       continue;
     }
 

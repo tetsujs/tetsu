@@ -24,7 +24,6 @@
   "engines": {
     "bun": ">=1.4"
   },
-  "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"
   },
@@ -33,6 +32,9 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",

@@ -24,7 +24,6 @@
   "engines": {
     "bun": ">=1.4"
   },
-  "private": true,
   "scripts": {
     "prepack": "bun run --cwd ../.. build"
   },
@@ -34,11 +33,15 @@
       "default": "./dist/src/index.js"
     }
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@tetsujs/core": "workspace:^",
+    "typebox": "^1.3.34"
+  },
+  "devDependencies": {
     "@tetsujs/core": "workspace:*"
   },
-  "peerDependencies": {
-    "typebox": "^1.3.34"
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",
