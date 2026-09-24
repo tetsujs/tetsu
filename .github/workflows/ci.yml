@@ -32,7 +32,7 @@ jobs:
             experimental: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -74,7 +74,7 @@ jobs:
         typescript: ["5.7", "5"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -101,7 +101,7 @@ jobs:
     # The sources and the type tests are checked; the runtime tests read
     # JSON bodies with dots, which says nothing about the API.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -122,7 +122,7 @@ jobs:
     # so a change that doubles what the types cost fails here instead of in
     # a user's editor. bench/README.md has the numbers.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
