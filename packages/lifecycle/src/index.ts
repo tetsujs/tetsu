@@ -213,6 +213,28 @@ export interface SignalOptions extends ShutdownOptions {
    * reads it learns whether the stop was clean.
    */
   readonly exit?: boolean;
+
+  /**
+   * Receives each closer that threw, in place of `console.error`.
+   *
+   * The same shape `createApp({ reportError })` takes, so one receiver
+   * serves both: a report here is `source: "shutdown"`, with no `ctx`.
+   * {@link shutdown} itself reports nothing — it returns its failures to
+   * the caller; only these handlers, which have no caller to return to,
+   * need somewhere to put them.
+   */
+  readonly reportError?: (report: ShutdownFailure) => unknown;
+}
+
+/**
+ * A closer that threw while the process was stopping.
+ *
+ * Shaped like the core's `FailureReport`, without depending on it: this
+ * package stops any `Bun.serve` server, not only a Tetsu application.
+ */
+export interface ShutdownFailure {
+  readonly source: "shutdown";
+  readonly error: unknown;
 }
 
 /**
@@ -283,7 +305,7 @@ export function onShutdownSignals(
     const clean = !result.forced && result.failures.length === 0;
 
     for (const failure of result.failures) {
-      console.error("[tetsu] shutdown step failed:", failure);
+      report(options.reportError, failure);
     }
 
     if (options.exit ?? true) {
@@ -334,5 +356,26 @@ async function within(
     return await Promise.race(racers);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Hands one failure to the receiver, or prints it without one.
+ *
+ * A receiver that throws is printed together with what it was handed: the
+ * process is on its way out, and a failure lost here is lost for good.
+ */
+function report(receive: SignalOptions["reportError"], error: unknown): void {
+  if (receive === undefined) {
+    console.error("[tetsu] shutdown step failed:", error);
+
+    return;
+  }
+
+  try {
+    receive({ source: "shutdown", error });
+  } catch (failure) {
+    console.error("[tetsu] reportError failed:", failure);
+    console.error("[tetsu] shutdown step failed:", error);
   }
 }

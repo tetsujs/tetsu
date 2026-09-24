@@ -115,6 +115,7 @@ keeps a failed run from ending the schedule.
 | `forceMs` | `1000` | how long to wait for the forced close |
 | `signals` | `["SIGTERM", "SIGINT"]` | `onShutdownSignals` only: which signals start it |
 | `exit` | `true` | `onShutdownSignals` only: whether to end the process when done |
+| `reportError` | `console.error` | `onShutdownSignals` only: receives each closer that threw, as `{ source: "shutdown", error }` — the same receiver `createApp` takes |
 
 `onShutdownSignals` returns `{ stopping, detach }`: the signal that aborts
 when shutdown begins, and a function that removes the signal handlers (for

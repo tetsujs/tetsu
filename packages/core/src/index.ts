@@ -7,6 +7,7 @@
 export type {
   App,
   AppConfig,
+  AppContext,
   AppOptions,
   AppRoutes,
   FallbackHandler,
@@ -49,6 +50,12 @@ export type {
   ValidatePrefix,
 } from "./path.ts";
 export type { MergedHooks } from "./pipeline.ts";
+export type {
+  FailureReport,
+  FailureSource,
+  ReportError,
+} from "./report.ts";
+export { ResponseContractError, reportFailure } from "./report.ts";
 export type {
   HandlerMustReturn,
   HandlerResult,

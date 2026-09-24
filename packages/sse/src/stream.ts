@@ -25,6 +25,7 @@
  */
 
 import type { BaseCtx } from "@tetsujs/core";
+import { reportFailure } from "@tetsujs/core";
 
 /** How a stream ended. */
 export type StreamReason =
@@ -113,7 +114,8 @@ export interface StreamOptions {
  * generator keeps yielding, or if it waits on the signal.** A generator
  * that does neither leaks, and no amount of care out here can collect it.
  *
- * A generator that fails instead of ending is logged and the stream is
+ * A generator that fails instead of ending is reported — to the
+ * application's `reportError`, with `source: "stream"` — and the stream is
  * closed where it stood, so what already went out stays valid and the
  * client sees an ordinary end of stream. Letting the failure escape
  * instead would reach no one the application can hear: the platform prints
@@ -172,9 +174,9 @@ export function stream(
       /**
        * The response left long ago, so there is nothing to map this to and
        * nobody to answer — the same reason the generator's own failure is
-       * printed rather than raised.
+       * reported rather than raised.
        */
-      console.error("[tetsu] stream onEnd failed:", error);
+      reportFailure(ctx, "stream", error);
     }
   };
 
@@ -273,7 +275,7 @@ export function stream(
 
         emit(controller, next.value);
       } catch (error) {
-        console.error("[tetsu] stream generator failed:", error);
+        reportFailure(ctx, "stream", error);
 
         done("failed");
         close(controller);

@@ -18,6 +18,7 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import type { ValidationIssue } from "./error.ts";
 import { isThenable } from "./internal.ts";
+import type { Reporter } from "./report.ts";
 import type { AnySchema, StandardResult } from "./schema.ts";
 import { normalizePath } from "./validate.ts";
 import type { WsDef } from "./ws.ts";
@@ -60,23 +61,26 @@ interface Handlers {
  *
  * One handler, however many endpoints: the dispatch is a property lookup
  * on the socket's own data, which is what Bun's design asks for.
+ *
+ * `report` is the application's: a handler that throws has no response to
+ * become, so its failure goes where every such failure goes.
  */
-export function socketHandler(): WebSocketHandler<SocketState> {
+export function socketHandler(report: Reporter): WebSocketHandler<SocketState> {
   return {
-    open: (socket) => run(socket, "open", (on) => on.open?.(socket)),
+    open: (socket) => run(report, socket, "open", (on) => on.open?.(socket)),
 
-    message: (socket, message) => deliver(socket, message),
+    message: (socket, message) => deliver(report, socket, message),
 
     close: (socket, code, reason) =>
-      run(socket, "close", (on) => on.close?.(socket, code, reason)),
+      run(report, socket, "close", (on) => on.close?.(socket, code, reason)),
 
-    drain: (socket) => run(socket, "drain", (on) => on.drain?.(socket)),
+    drain: (socket) => run(report, socket, "drain", (on) => on.drain?.(socket)),
 
     ping: (socket, data) =>
-      run(socket, "ping", (on) => on.ping?.(socket, data)),
+      run(report, socket, "ping", (on) => on.ping?.(socket, data)),
 
     pong: (socket, data) =>
-      run(socket, "pong", (on) => on.pong?.(socket, data)),
+      run(report, socket, "pong", (on) => on.pong?.(socket, data)),
   };
 }
 
@@ -88,17 +92,21 @@ export function socketHandler(): WebSocketHandler<SocketState> {
  * JSON, so a binary frame is as much a violation as unparsable text: both
  * take the refusal path rather than reaching a handler typed for neither.
  */
-function deliver(socket: AnySocket, message: string | Buffer): void {
+function deliver(
+  report: Reporter,
+  socket: AnySocket,
+  message: string | Buffer,
+): void {
   const schema = endpointOf(socket).schema?.message;
 
   if (!schema) {
-    run(socket, "message", (on) => on.message?.(socket, message));
+    run(report, socket, "message", (on) => on.message?.(socket, message));
 
     return;
   }
 
   if (typeof message !== "string") {
-    refuse(socket, [
+    refuse(report, socket, [
       { message: "a binary frame is not valid for this endpoint", path: [] },
     ]);
 
@@ -110,7 +118,9 @@ function deliver(socket: AnySocket, message: string | Buffer): void {
   try {
     parsed = JSON.parse(message);
   } catch {
-    refuse(socket, [{ message: "message is not valid JSON", path: [] }]);
+    refuse(report, socket, [
+      { message: "message is not valid JSON", path: [] },
+    ]);
 
     return;
   }
@@ -120,20 +130,20 @@ function deliver(socket: AnySocket, message: string | Buffer): void {
   try {
     checked = check(schema, parsed);
   } catch (error) {
-    failed(socket, error);
+    failed(report, socket, error);
 
     return;
   }
 
   if (isThenable(checked)) {
     void checked
-      .then((result) => settle(socket, result))
-      .catch((error: unknown) => failed(socket, error));
+      .then((result) => settle(report, socket, result))
+      .catch((error: unknown) => failed(report, socket, error));
 
     return;
   }
 
-  settle(socket, checked);
+  settle(report, socket, checked);
 }
 
 /** A frame that passed the schema, or the reasons it did not. */
@@ -187,20 +197,20 @@ function asChecked(result: StandardResult<unknown>): Checked {
  * Without this the rejection would reach no one: Bun ends the process on
  * an unhandled one, taking every other socket with it.
  */
-function failed(socket: AnySocket, error: unknown): void {
-  console.error("[tetsu] websocket message schema failed:", error);
+function failed(report: Reporter, socket: AnySocket, error: unknown): void {
+  report({ source: "websocket", error }, "websocket message schema failed");
 
   socket.close(1011, "internal error");
 }
 
-function settle(socket: AnySocket, result: Checked): void {
+function settle(report: Reporter, socket: AnySocket, result: Checked): void {
   if ("issues" in result) {
-    refuse(socket, result.issues);
+    refuse(report, socket, result.issues);
 
     return;
   }
 
-  run(socket, "message", (on) => on.message?.(socket, result.value));
+  run(report, socket, "message", (on) => on.message?.(socket, result.value));
 }
 
 /**
@@ -210,9 +220,13 @@ function settle(socket: AnySocket, result: Checked): void {
  * leaves a client sending malformed data with nothing to tell it so.
  * `1007` is the code the protocol reserves for exactly this.
  */
-function refuse(socket: AnySocket, issues: readonly ValidationIssue[]): void {
+function refuse(
+  report: Reporter,
+  socket: AnySocket,
+  issues: readonly ValidationIssue[],
+): void {
   if (endpointOf(socket).invalid) {
-    run(socket, "invalid", (on) => on.invalid?.(socket, issues));
+    run(report, socket, "invalid", (on) => on.invalid?.(socket, issues));
 
     return;
   }
@@ -224,10 +238,11 @@ function refuse(socket: AnySocket, issues: readonly ValidationIssue[]): void {
  * Runs one socket handler, keeping its failure off the connection.
  *
  * There is no response to map an error onto and no request left to hand
- * to `onError`, so a throwing handler is logged and the socket lives on —
- * the same trade `afterResponse` makes.
+ * to `onError`, so a throwing handler is reported and the socket lives on
+ * — the same trade `afterResponse` makes.
  */
 function run(
+  report: Reporter,
   socket: AnySocket,
   event: string,
   call: (on: Handlers) => unknown,
@@ -237,11 +252,14 @@ function run(
 
     if (isThenable(result)) {
       void Promise.resolve(result).catch((error: unknown) => {
-        console.error(`[tetsu] websocket ${event} handler failed:`, error);
+        report(
+          { source: "websocket", error },
+          `websocket ${event} handler failed`,
+        );
       });
     }
   } catch (error) {
-    console.error(`[tetsu] websocket ${event} handler failed:`, error);
+    report({ source: "websocket", error }, `websocket ${event} handler failed`);
   }
 }
 

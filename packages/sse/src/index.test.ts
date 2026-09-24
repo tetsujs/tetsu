@@ -571,9 +571,7 @@ describe("a generator that fails", () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("data: first\n\n");
-    expect(errors.lines.join("\n")).toContain(
-      "[tetsu] stream generator failed:",
-    );
+    expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("source exploded");
   });
 
@@ -582,9 +580,7 @@ describe("a generator that fails", () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");
-    expect(errors.lines.join("\n")).toContain(
-      "[tetsu] stream generator failed:",
-    );
+    expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("subscription never opened");
   });
 
@@ -594,9 +590,7 @@ describe("a generator that fails", () => {
 
     expect(body).toBe("data: first\n\n");
     expect(body).not.toContain("event: admin");
-    expect(errors.lines.join("\n")).toContain(
-      "[tetsu] stream generator failed:",
-    );
+    expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("an SSE id cannot contain");
   });
 });
@@ -807,6 +801,6 @@ describe("what a finished stream reports", () => {
     const res = await reporting("/noisy");
 
     expect(await res.text()).toBe("data: one\n\n");
-    expect(errors.lines.join("\n")).toContain("stream onEnd failed");
+    expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
   });
 });
