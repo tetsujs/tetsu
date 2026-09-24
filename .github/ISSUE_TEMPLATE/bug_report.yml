@@ -1,0 +1,27 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest application that shows the problem — a single file is ideal.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Bun, TypeScript and the `@tetsujs/*` packages involved.
+      placeholder: "Bun 1.4.2, TypeScript 7.0.2, @tetsujs/core 0.1.0"
+    validations:
+      required: true

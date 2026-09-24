@@ -1,0 +1,22 @@
+name: Feature request
+description: Something Tetsu could do that it does not.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and why it is hard or impossible today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How it could look in code. Rough is fine.
+      render: ts
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What you do instead today, or what you considered.
