@@ -108,6 +108,12 @@ The compiler and the runtime checked the rules in different orders, so a
 path breaking two of them got a different error from each.
 ```
 
+Pull requests are squash-merged, so a pull request is one change and
+lands on `main` as one commit. Its title becomes that commit's subject and
+follows the rules above; the description is the body, and is kept to what
+a body would say. Commits inside the branch are for review and do not
+reach `main`.
+
 ## Security
 
 Please do not open a public issue for a vulnerability. Report it privately
