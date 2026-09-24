@@ -4,7 +4,7 @@
  * ```ts
  * const secure = secureHeaders();
  *
- * createApp({ hooks: [secure], routes });
+ * createApp({ hooks: { beforeResponse: [secure] }, routes });
  * ```
  *
  * Four of them are on without being asked for, because none of the four
@@ -112,13 +112,13 @@ export const apiPolicy =
   "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 /**
- * The hooks of this package, ready to be spread into an application's own.
+ * The hook of this package.
  *
  * Read off `secureHeaders()` rather than written by hand: an annotation of
  * `AnyHook` would erase which slot the hook belongs to, and the stack
  * validation would then reject the hook it was handed.
  */
-export type SecureHeadersHooks = ReturnType<typeof secureHeaders>;
+export type SecureHeadersHook = ReturnType<typeof secureHeaders>;
 
 const defaultMaxAge = 15_552_000;
 
@@ -155,7 +155,7 @@ export function secureHeaders(options: SecureHeadersOptions = {}) {
     return undefined;
   });
 
-  return { beforeResponse: [decorate] } as const;
+  return decorate;
 }
 
 /** Turns the options into the pairs every response will carry. */

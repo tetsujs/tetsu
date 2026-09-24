@@ -42,7 +42,7 @@ const secure = secureHeaders();
 
 const request = serve(
   createApp({
-    hooks: { beforeResponse: [...secure.beforeResponse] },
+    hooks: { beforeResponse: [secure] },
     routes: new Controller(),
   }),
 );
@@ -97,12 +97,12 @@ describe("what the options change", () => {
       createApp({
         hooks: {
           beforeResponse: [
-            ...secureHeaders({
+            secureHeaders({
               hsts: false,
               frameOptions: false,
               referrerPolicy: false,
               noSniff: false,
-            }).beforeResponse,
+            }),
           ],
         },
         routes: new Controller(),
@@ -121,10 +121,7 @@ describe("what the options change", () => {
     const strict = serve(
       createApp({
         hooks: {
-          beforeResponse: [
-            ...secureHeaders({ contentSecurityPolicy: apiPolicy })
-              .beforeResponse,
-          ],
+          beforeResponse: [secureHeaders({ contentSecurityPolicy: apiPolicy })],
         },
         routes: new Controller(),
       }),
@@ -140,9 +137,9 @@ describe("what the options change", () => {
       createApp({
         hooks: {
           beforeResponse: [
-            ...secureHeaders({
+            secureHeaders({
               hsts: { maxAge: 63_072_000, includeSubDomains: true },
-            }).beforeResponse,
+            }),
           ],
         },
         routes: new Controller(),
@@ -187,13 +184,13 @@ describe("the combination the preload list would drop", () => {
       createApp({
         hooks: {
           beforeResponse: [
-            ...secureHeaders({
+            secureHeaders({
               hsts: {
                 preload: true,
                 includeSubDomains: true,
                 maxAge: 63_072_000,
               },
-            }).beforeResponse,
+            }),
           ],
         },
         routes: new Controller(),
@@ -215,7 +212,7 @@ describe("one route that needs an exception", () => {
 
   const mixed = serve(
     createApp({
-      hooks: { beforeResponse: [...secure.beforeResponse] },
+      hooks: { beforeResponse: [secure] },
       routes: {
         framed: route({
           method: "GET",
@@ -275,7 +272,7 @@ describe("one path that serves a document", () => {
     createApp({
       hooks: {
         beforeResponse: [
-          ...secureHeaders({ contentSecurityPolicy: apiPolicy }).beforeResponse,
+          secureHeaders({ contentSecurityPolicy: apiPolicy }),
           exempt,
         ],
       },

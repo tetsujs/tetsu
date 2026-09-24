@@ -8,7 +8,7 @@
  *   key: (ctx) => ctx.server.requestIP(ctx.req)?.address ?? undefined,
  * });
  *
- * createApp({ hooks: [limit], routes });
+ * createApp({ hooks: { beforeParse: [limit] }, routes });
  * ```
  *
  * The refusal is a returned `Response`, not a thrown `HttpError`. Both
@@ -94,13 +94,13 @@ export interface RateLimitOptions {
 }
 
 /**
- * The hooks of this package, ready to be spread into an application's own.
+ * The hook of this package.
  *
- * Read off `rateLimit()` rather than written by hand: annotating the tuple
- * as `AnyHook[]` would erase which slot the hook belongs to, and the stack
+ * Read off `rateLimit()` rather than written by hand: an annotation of
+ * `AnyHook` would erase which slot the hook belongs to, and the stack
  * validation would reject it.
  */
-export type RateLimitHooks = ReturnType<typeof rateLimit>;
+export type RateLimitHook = ReturnType<typeof rateLimit>;
 
 /**
  * Builds the rate-limiting hook.
@@ -151,17 +151,13 @@ export function rateLimit(options: RateLimitOptions) {
     );
   });
 
-  return {
-    beforeParse: [
-      documented(guard, {
-        responses: [
-          {
-            status,
-            description: "Too many requests within the configured window",
-            error: "RATE_LIMITED",
-          },
-        ],
-      }),
+  return documented(guard, {
+    responses: [
+      {
+        status,
+        description: "Too many requests within the configured window",
+        error: "RATE_LIMITED",
+      },
     ],
-  } as const;
+  });
 }

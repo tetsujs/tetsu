@@ -3,10 +3,13 @@
  * traceable.
  *
  * ```ts
- * const tracing = requestId();
+ * const id = requestId();
  * const log = accessLog();
  *
- * createApp({ hooks: [tracing, log], routes });
+ * createApp({
+ *   hooks: { beforeParse: [id], afterResponse: [log] },
+ *   routes,
+ * });
  * ```
  *
  * This is the package that shows a **typed contribution**: `requestId()`
@@ -16,9 +19,11 @@
  * Mounted on the application, as above, the field is there at runtime but
  * not in the types of a route's handler — an application does not know
  * which routes it will hold, so it cannot type them, the same reason a
- * group cannot. Two ways to read it typed: mount the hook on the route
- * that needs it, or declare the requirement with `Requires<{ requestId:
- * string }>` on the hook that reads it, which the core then checks.
+ * group cannot. Three ways to read it typed: mount the hook on the route
+ * that needs it; read it from an application hook mounted after it, which
+ * sees what the application's earlier hooks contributed; or declare the
+ * requirement with `Requires<{ requestId: string }>` on the hook that
+ * reads it, which the core then checks.
  *
  * @module
  */
@@ -49,27 +54,28 @@ export interface RequestIdOptions {
 }
 
 /**
- * The hooks of this package, ready to be spread into an application's own.
+ * The hook {@link requestId} returns.
  *
  * Read off the factory rather than written by hand: an annotation of
  * `AnyHook` would erase both the slot and the contribution, and the stack
- * validation would reject the hooks it was handed.
+ * validation would reject the hook it was handed.
  */
-export type RequestIdHooks = ReturnType<typeof requestId>;
+export type RequestIdHook = ReturnType<typeof requestId>;
 
-/** The hooks of {@link accessLog}. */
-export type AccessLogHooks = ReturnType<typeof accessLog>;
+/** The hook {@link accessLog} returns. */
+export type AccessLogHook = ReturnType<typeof accessLog>;
 
 /**
  * Gives every request an id, in the context and on the response.
  *
  * @example
  * ```ts
- * const tracing = requestId({ trustIncoming: true });
+ * const id = requestId({ trustIncoming: true });
  *
  * route({
  *   method: "GET",
  *   path: "/orders",
+ *   hooks: { beforeParse: [id] },
  *   handler: (ctx) => logger.info({ requestId: ctx.requestId }, "listing"),
  *   //                                    ^? string
  * });
@@ -79,7 +85,7 @@ export function requestId(options: RequestIdOptions = {}) {
   const header = options.header ?? "x-request-id";
   const generate = options.generate ?? (() => crypto.randomUUID());
 
-  const stamp = hook.beforeParse((ctx) => {
+  return hook.beforeParse((ctx) => {
     const incoming = options.trustIncoming ? ctx.req.headers.get(header) : null;
 
     const id = incoming || generate();
@@ -88,8 +94,6 @@ export function requestId(options: RequestIdOptions = {}) {
 
     return { requestId: id };
   });
-
-  return { beforeParse: [stamp] } as const;
 }
 
 /** What a finished request is written as. */
@@ -130,16 +134,12 @@ export interface AccessRecord {
    * How long the request took inside the pipeline, in milliseconds,
    * rounded to the microsecond.
    *
-   * From the first `beforeParse` hook to `afterResponse`, which is the
-   * span this package can see: the response is handed to the runtime
-   * before `afterResponse` runs, so writing it to the socket is not in
-   * here, and neither is anything that happened before the pipeline
-   * started.
-   *
-   * Absent when only the `afterResponse` half of this package is mounted,
-   * because then nothing started the clock — spread both slots.
+   * From `ctx.startedAt`, which the core reads before any hook, to
+   * `afterResponse`: the response is handed to the runtime before
+   * `afterResponse` runs, so writing it to the socket is not in here, and
+   * neither is anything that happened before the pipeline started.
    */
-  readonly durationMs?: number;
+  readonly durationMs: number;
 
   /**
    * The name of whatever was thrown, when something was.
@@ -183,13 +183,10 @@ export function accessLog(options: AccessLogOptions = {}) {
   const write =
     options.write ?? ((record: AccessRecord) => console.log(record));
 
-  const clock = hook.beforeParse(() => ({ startedAt: performance.now() }));
-
-  const observe = hook.afterResponse((ctx) => {
+  return hook.afterResponse((ctx) => {
     const carrying = ctx as BaseCtx & {
       readonly res: Response;
       readonly requestId?: unknown;
-      readonly startedAt?: unknown;
       readonly error?: unknown;
     };
 
@@ -198,17 +195,13 @@ export function accessLog(options: AccessLogOptions = {}) {
       path: new URL(ctx.req.url).pathname,
       ...(ctx.route === undefined ? {} : { route: ctx.route.path }),
       status: carrying.res.status,
-      ...(typeof carrying.startedAt === "number"
-        ? { durationMs: elapsed(carrying.startedAt) }
-        : {}),
+      durationMs: elapsed(ctx.startedAt),
       ...("error" in carrying ? { thrown: nameOf(carrying.error) } : {}),
       ...(typeof carrying.requestId === "string"
         ? { requestId: carrying.requestId }
         : {}),
     });
   });
-
-  return { beforeParse: [clock], afterResponse: [observe] } as const;
 }
 
 /**
