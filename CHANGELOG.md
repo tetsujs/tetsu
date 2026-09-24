@@ -31,6 +31,16 @@ a class could not give its fields.
   variable that holds the factory, so renaming code changes no client.
 - `docs.operationId` on a route, for an id stated rather than derived.
 
+### Fixed
+
+- A `hooks` object the compiler would refuse is refused at startup too,
+  for code the compiler did not check — `as never`, plain JavaScript,
+  loose types. A slot element that is not a hook used to answer every
+  request with a `500`; a hook under another slot ran at the wrong moment;
+  a misspelled slot, `beforParse`, was never read, and the hook in it never
+  ran. Each now stops `createApp`, naming the level, the slot and the
+  position.
+
 ### Moving from 0.3
 
 ```ts
