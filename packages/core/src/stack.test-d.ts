@@ -437,7 +437,7 @@ export type responseCtxCases = [
 ];
 
 type WidenedMessage =
-  "A widened hook array loses its element types and cannot be checked — build the stack with stack(...) or inline the tuple";
+  "A widened hook array loses its element types and cannot be checked — write the hooks in the slot itself, or declare the array as const";
 
 type Widened = readonly HookStackError<WidenedMessage>[];
 

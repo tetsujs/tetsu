@@ -43,11 +43,11 @@ createApp({
 });
 
 createApp({
-  hooks: [
-    { beforeParse: [stamp] },
-    { beforeParse: [clock], afterResponse: [cleanup] },
-    { beforeHandle: [tenant] },
-  ],
+  hooks: {
+    beforeParse: [stamp, clock],
+    beforeHandle: [tenant],
+    afterResponse: [cleanup],
+  },
   reportError: ({ ctx }) => {
     const id: string | undefined = ctx?.requestId;
     const started: number | undefined = ctx?.startedAt;

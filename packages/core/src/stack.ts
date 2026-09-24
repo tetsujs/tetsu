@@ -132,7 +132,7 @@ export type ValidateStack<
         ]
   : Hooks extends readonly []
     ? Hooks
-    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — build the stack with stack(...) or inline the tuple">[];
+    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — write the hooks in the slot itself, or declare the array as const">[];
 
 /**
  * Validates one slot's hook tuple against a fixed context that does not
@@ -170,7 +170,7 @@ export type ValidateStaticStack<
         ]
   : Hooks extends readonly []
     ? Hooks
-    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — build the stack with stack(...) or inline the tuple">[];
+    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — write the hooks in the slot itself, or declare the array as const">[];
 
 /**
  * Validates one slot's hook tuple for a group or the application.
@@ -178,15 +178,14 @@ export type ValidateStaticStack<
  * A group does not know which routes it will contain, so a hook it carries
  * may require no more than what the slot itself guarantees (`SlotBases`)
  * and what the hooks before it **at the same level** contributed. Those
- * are known: a level's hooks are written in one call, joined in list
- * order, and run before anything of the routes below — `requestId()`
- * followed by a hook that reads `ctx.requestId` is a chain the compiler
- * can follow. A route's schemas and hooks stay out of reach, and so do an
+ * are known: a level's hooks are written in one object, slot by slot,
+ * and run before anything of the routes below — `requestId()` followed by
+ * a hook that reads `ctx.requestId` is a chain the compiler can follow. A route's schemas and hooks stay out of reach, and so do an
  * enclosing level's: a group is typed where it is written, not where it is
  * mounted.
  *
  * `Ctx` is what the slot sees before this tuple: the slot base merged with
- * what preceding sets of the level contributed (`ValidateGroupHooks` works
+ * what the level's earlier slots contributed (`ValidateGroupHooks` works
  * it out). In the slots that extend the context each hook's contribution
  * joins it for the hooks after it; the response slots and `onError` keep
  * it fixed, for the reason `ValidateStaticStack` gives.
@@ -198,7 +197,7 @@ export type ValidateStaticStack<
  * a group cannot satisfy.
  *
  * Internal to the core: applied by `group()` and `createApp()` through
- * `ValidateGroupHooksInput`.
+ * `ValidateGroupHooks`.
  */
 export type ValidateGroupStack<
   Hooks,
@@ -226,7 +225,7 @@ export type ValidateGroupStack<
         ]
   : Hooks extends readonly []
     ? Hooks
-    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — build the stack with stack(...) or inline the tuple">[];
+    : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — write the hooks in the slot itself, or declare the array as const">[];
 
 /** The slots whose hooks extend the context. */
 type ExtendingSlot = "beforeParse" | "beforeValidation" | "beforeHandle";
@@ -256,44 +255,10 @@ type LevelVisible<Ext> = [keyof Ext] extends [never]
     ? Ext
     : Omit<Ext, SchemaOwnedKey>;
 
-/** What one set contributes in one slot, as its level sees it. */
-type SetSlotExt<S, K extends SlotName> = LevelVisible<
-  ExtOfStack<StackOf<S, K>>
+/** What a level's hooks contribute in one slot, as the rest of it sees it. */
+type LevelSlotExt<H, K extends SlotName> = LevelVisible<
+  ExtOfStack<StackOf<H, K>>
 >;
-
-/** What a list of sets contributes in one slot, later sets winning. */
-type ListSlotExt<L, K extends SlotName, Acc = unknown> = L extends readonly [
-  infer S,
-  ...infer Rest,
-]
-  ? ListSlotExt<Rest, K, Merge<Acc, SetSlotExt<S, K>>>
-  : Acc;
-
-/** A level's hooks as a list of sets, whichever way they were written. */
-type SetsOf<H> = H extends readonly unknown[] ? H : readonly [H];
-
-/**
- * What a level contributes in each slot that extends the context — the
- * starting point of every slot that runs after it.
- */
-interface LevelTotals {
-  readonly beforeParse: unknown;
-  readonly beforeValidation: unknown;
-  readonly beforeHandle: unknown;
-}
-
-type TotalsOf<H> = {
-  readonly beforeParse: ListSlotExt<SetsOf<H>, "beforeParse">;
-  readonly beforeValidation: ListSlotExt<SetsOf<H>, "beforeValidation">;
-  readonly beforeHandle: ListSlotExt<SetsOf<H>, "beforeHandle">;
-};
-
-/** Nothing contributed: a set checked on its own. */
-type NoTotals = {
-  readonly beforeParse: unknown;
-  readonly beforeValidation: unknown;
-  readonly beforeHandle: unknown;
-};
 
 /**
  * Everything a group's or the application's own hooks contribute before
@@ -303,135 +268,94 @@ type NoTotals = {
  * find there, each field optional where it reads it. Internal to the core.
  */
 export type LevelExt<H> = Merge<
-  Merge<
-    ListSlotExt<SetsOf<H>, "beforeParse">,
-    ListSlotExt<SetsOf<H>, "beforeValidation">
-  >,
-  ListSlotExt<SetsOf<H>, "beforeHandle">
+  Merge<LevelSlotExt<H, "beforeParse">, LevelSlotExt<H, "beforeValidation">>,
+  LevelSlotExt<H, "beforeHandle">
 >;
 
 /** What a response slot of a level sees: its base, and the rest optional. */
-type LevelResponseCtx<T extends LevelTotals, K extends SlotName> = Merge<
-  Partial<
-    Merge<Merge<T["beforeParse"], T["beforeValidation"]>, T["beforeHandle"]>
-  >,
+type LevelResponseCtx<H, K extends SlotName> = Merge<
+  Partial<LevelExt<H>>,
   SlotBases[K]
 >;
 
 /**
- * Validates one set of a group-level (or application-level) hooks config,
- * each slot against what runs before it.
+ * The `hooks` a group or the application accepts at its call site: the
+ * object keyed by slot, or — so that the mistake gets a sentence instead of
+ * "no properties in common" — a list, which is refused.
  *
- * `T` is what the whole level contributes, `P` what the sets before this
- * one did — in the order the runtime joins them: every `beforeParse` hook
- * of the level runs before any `beforeValidation` hook, so a set's
- * `beforeValidation` sees the `beforeParse` of all sets and the
- * `beforeValidation` of the ones before it. The response slots and
- * `onError` see everything, optional: the hook that contributes a field
- * may never have run.
- *
- * Internal to the core: `group()` and `createApp()` apply it through
- * `ValidateGroupHooksInput`.
+ * A list of hook sets was the form before 0.3.0. Internal to the core.
  */
-export type ValidateGroupHooks<
-  H,
-  T extends LevelTotals = NoTotals,
-  P extends LevelTotals = NoTotals,
-> = {
+export type GroupHooksInput = HooksInput | readonly unknown[];
+
+/**
+ * Validates `hooks` as `group()` and `createApp()` take it: a list is
+ * refused with the form that replaced it, an object is checked slot by
+ * slot (`ValidateGroupHooks`). Internal to the core.
+ */
+export type ValidateGroupHooksInput<H> = H extends readonly unknown[]
+  ? HooksListError
+  : ValidateGroupHooks<H>;
+
+/**
+ * Compile-time error: `hooks` was given as a list.
+ *
+ * The sentence is a property name rather than a type argument on purpose:
+ * the compiler abbreviates a long source type and the arguments of the
+ * type it is compared with, and a branded message would print as
+ * `HookStackError<...>` — but a missing property is always named in full.
+ */
+export interface HooksListError {
+  readonly "hooks is an object keyed by slot, not a list — write { beforeParse: [a, b], afterResponse: [c] }": never;
+}
+
+/**
+ * Validates a group-level (or application-level) hooks config, each slot
+ * against what runs before it.
+ *
+ * The slots run in lifecycle order whatever order they are written in, so
+ * a slot sees the contributions of every earlier slot of the level whole:
+ * a `beforeHandle` hook of the application sees what its `beforeParse`
+ * hooks returned. Inside a slot the tuple is the order, and each hook sees
+ * the ones before it. The response slots and `onError` see everything,
+ * optional: the hook that contributes a field may never have run.
+ *
+ * Internal to the core: `group()` and `createApp()` intersect their
+ * `hooks` property with this type.
+ */
+export type ValidateGroupHooks<H> = {
   readonly beforeParse?: ValidateGroupStack<
     StackOf<H, "beforeParse">,
-    "beforeParse",
-    Merge<SlotBases["beforeParse"], P["beforeParse"]>
+    "beforeParse"
   >;
   readonly beforeValidation?: ValidateGroupStack<
     StackOf<H, "beforeValidation">,
     "beforeValidation",
-    Merge<
-      SlotBases["beforeValidation"],
-      Merge<T["beforeParse"], P["beforeValidation"]>
-    >
+    Merge<SlotBases["beforeValidation"], LevelSlotExt<H, "beforeParse">>
   >;
   readonly beforeHandle?: ValidateGroupStack<
     StackOf<H, "beforeHandle">,
     "beforeHandle",
     Merge<
       SlotBases["beforeHandle"],
-      Merge<Merge<T["beforeParse"], T["beforeValidation"]>, P["beforeHandle"]>
+      Merge<LevelSlotExt<H, "beforeParse">, LevelSlotExt<H, "beforeValidation">>
     >
   >;
   readonly beforeResponse?: ValidateGroupStack<
     StackOf<H, "beforeResponse">,
     "beforeResponse",
-    LevelResponseCtx<T, "beforeResponse">
+    LevelResponseCtx<H, "beforeResponse">
   >;
   readonly afterResponse?: ValidateGroupStack<
     StackOf<H, "afterResponse">,
     "afterResponse",
-    LevelResponseCtx<T, "afterResponse">
+    LevelResponseCtx<H, "afterResponse">
   >;
   readonly onError?: ValidateGroupStack<
     StackOf<H, "onError">,
     "onError",
-    LevelResponseCtx<T, "onError">
+    LevelResponseCtx<H, "onError">
   >;
 };
-
-/**
- * What `group()` and `createApp()` accept as `hooks`: one set, or a list
- * of sets.
- *
- * A hook package returns a set, and a list is how it is mounted whole.
- * Spreading it slot by slot into one set was the only way before, and a
- * slot left out went unnoticed — CORS that answers the preflight and then
- * forgets the header on the response it was for. Internal to the core.
- */
-export type GroupHooksInput = HooksInput | readonly HooksInput[];
-
-/**
- * Validates `hooks` as `group()` and `createApp()` take it: a lone set as
- * {@link ValidateGroupHooks} does, a list set by set, each set seeing what
- * the sets before it contributed.
- *
- * The order of a list is the order of execution — `combineHooks` joins the
- * sets slot by slot — so a hook package that reads what another one adds
- * goes after it: `[requestId(), { beforeParse: [scope] }]`. A list widened
- * to an array has no order to follow, and its sets are checked on their
- * own. Internal to the core.
- */
-export type ValidateGroupHooksInput<H> = H extends readonly unknown[]
-  ? ValidateGroupList<H, TotalsOf<H>, NoTotals>
-  : ValidateGroupHooks<H, TotalsOf<H>>;
-
-/** Walks a list of sets, carrying what the sets so far contributed. */
-type ValidateGroupList<
-  L,
-  T extends LevelTotals,
-  P extends LevelTotals,
-> = L extends readonly [infer S, ...infer Rest]
-  ? readonly [
-      ValidateGroupHooks<S, T, P>,
-      ...ValidateGroupList<
-        Rest,
-        T,
-        {
-          readonly beforeParse: Merge<
-            P["beforeParse"],
-            SetSlotExt<S, "beforeParse">
-          >;
-          readonly beforeValidation: Merge<
-            P["beforeValidation"],
-            SetSlotExt<S, "beforeValidation">
-          >;
-          readonly beforeHandle: Merge<
-            P["beforeHandle"],
-            SetSlotExt<S, "beforeHandle">
-          >;
-        }
-      >,
-    ]
-  : L extends readonly []
-    ? L
-    : { readonly [I in keyof L]: ValidateGroupHooks<L[I]> };
 
 /**
  * Reads one slot's tuple out of a hooks config, defaulting to an empty

@@ -7,7 +7,7 @@
 import { createApp } from "./app.ts";
 import type { Requires } from "./context.ts";
 import { group } from "./group.ts";
-import { hook, stack } from "./hook.ts";
+import { hook } from "./hook.ts";
 import type { HooksConfig } from "./stack.ts";
 
 const metrics = hook.beforeParse(() => undefined);
@@ -176,65 +176,34 @@ createApp({
 // @ts-expect-error a HooksConfig annotation widens every slot to an array
 createApp({ routes: [], hooks: zoneHooks });
 
-const zoneStack = stack(metrics, guard);
+const zoneTuple = [metrics, guard] as const;
 
-group("/stacked", { hooks: { beforeParse: zoneStack }, children: [] });
+group("/tupled", { hooks: { beforeParse: zoneTuple }, children: [] });
 
-createApp({ routes: [], hooks: { beforeParse: zoneStack } });
+createApp({ routes: [], hooks: { beforeParse: zoneTuple } });
 
-/** Shaped the way a hook package returns its hooks: a tuple per slot. */
+/** Shaped the way a hook package returned its hooks before 0.3.0. */
 const packaged = {
   beforeParse: [metrics],
   afterResponse: [accessLog],
 } as const;
 
 group("/listed", {
+  // @ts-expect-error hooks is an object keyed by slot, not a list of sets
   hooks: [packaged, { beforeParse: [guard] }],
-  children: [],
-});
-
-createApp({ routes: [], hooks: [packaged, { beforeParse: zoneStack }] });
-
-group("/listed-wrong-slot", {
-  hooks: [
-    packaged,
-    {
-      // @ts-expect-error each set in the list is checked like a lone one
-      beforeParse: [accessLog],
-    },
-  ],
   children: [],
 });
 
 createApp({
   routes: [],
-  hooks: [
-    {
-      // @ts-expect-error a set in the list cannot require what a group lacks
-      beforeParse: [needsUser],
-    },
-    packaged,
-  ],
+  // @ts-expect-error a list is refused on the application too
+  hooks: [packaged],
 });
 
-group("/listed-bare", {
-  hooks: [
-    {
-      // @ts-expect-error a bare function is not a hook, in a list as alone
-      beforeParse: [() => undefined],
-    },
-  ],
-  children: [],
-});
-
-group("/listed-widened", {
-  hooks: [
-    {
-      // @ts-expect-error a widened array has no element types left to check
-      beforeParse: sharedGuards,
-    },
-  ],
-  children: [],
+createApp({
+  routes: [],
+  // @ts-expect-error even a list of single hooks
+  hooks: [metrics, guard],
 });
 
 const stamp = hook.beforeParse(() => ({ requestId: "r" }));
@@ -283,53 +252,30 @@ const needsQuery = hook.beforeHandle(
   },
 );
 
-/** What a hook package such as `requestId()` returns. */
-const requestIdPackage = { beforeParse: [stamp] } as const;
-
-createApp({
-  routes: [],
-  hooks: [requestIdPackage, { beforeParse: [needsRequestId] }],
-});
-
-group("/scoped", {
-  hooks: [requestIdPackage, { beforeParse: [needsRequestId] }],
-  children: [],
+const parseNeedsTrace = hook.beforeParse((ctx: Requires<{ trace: string }>) => {
+  void ctx.trace;
 });
 
 createApp({ routes: [], hooks: { beforeParse: [stamp, needsRequestId] } });
 
-group("/scoped-set", {
+group("/scoped", {
   hooks: { beforeParse: [stamp, needsRequestId] },
   children: [],
 });
 
 createApp({
   routes: [],
-  hooks: [{ beforeHandle: [handleNeedsRequestId] }, requestIdPackage],
+  hooks: { beforeHandle: [handleNeedsRequestId], beforeParse: [stamp] },
 });
 
 createApp({
   routes: [],
-  hooks: [
-    { beforeValidation: [traces] },
-    { beforeValidation: [validationNeedsTrace] },
-  ],
+  hooks: { beforeValidation: [traces, validationNeedsTrace] },
 });
 
 createApp({
   routes: [],
-  hooks: [requestIdPackage, { afterResponse: [observesRequestId] }],
-});
-
-createApp({
-  routes: [],
-  hooks: [
-    {
-      // @ts-expect-error a hook cannot rely on a set that runs after it
-      beforeParse: [needsRequestId],
-    },
-    requestIdPackage,
-  ],
+  hooks: { beforeParse: [stamp], afterResponse: [observesRequestId] },
 });
 
 createApp({
@@ -342,13 +288,19 @@ createApp({
 
 createApp({
   routes: [],
-  hooks: [
-    {
-      // @ts-expect-error nor on a later set's hook in its own slot
-      beforeValidation: [validationNeedsTrace],
-    },
-    { beforeValidation: [traces] },
-  ],
+  hooks: {
+    // @ts-expect-error nor on a later hook of its own slot
+    beforeValidation: [validationNeedsTrace, traces],
+  },
+});
+
+createApp({
+  routes: [],
+  hooks: {
+    // @ts-expect-error nor on a slot that runs after its own, whatever the key order
+    beforeParse: [parseNeedsTrace],
+    beforeValidation: [traces],
+  },
 });
 
 createApp({
@@ -361,28 +313,24 @@ createApp({
 
 createApp({
   routes: [],
-  hooks: [
-    requestIdPackage,
-    {
-      // @ts-expect-error after the response, an earlier hook may never have run
-      afterResponse: [observesRequestIdSurely],
-    },
-  ],
+  hooks: {
+    beforeParse: [stamp],
+    // @ts-expect-error after the response, an earlier hook may never have run
+    afterResponse: [observesRequestIdSurely],
+  },
 });
 
 createApp({
   routes: [],
-  hooks: [
-    { beforeParse: [normalizesQuery] },
-    {
-      // @ts-expect-error a part a route's schema owns is not promised past validation
-      beforeHandle: [needsQuery],
-    },
-  ],
+  hooks: {
+    beforeParse: [normalizesQuery],
+    // @ts-expect-error a part a route's schema owns is not promised past validation
+    beforeHandle: [needsQuery],
+  },
 });
 
 group("/outer", {
-  hooks: requestIdPackage,
+  hooks: { beforeParse: [stamp] },
   children: [
     group("/inner", {
       hooks: {
