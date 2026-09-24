@@ -9,6 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# CI only reads the code: the token gets nothing more, whatever the
+# repository's default is.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: check (bun ${{ matrix.bun }})
