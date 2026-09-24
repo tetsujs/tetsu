@@ -1,14 +1,15 @@
 /**
- * Topology: prefixes, zone-wide guards, and hook packages mounted whole.
+ * Topology: prefixes, zone-wide guards, and hook packages mounted by slot.
  *
- * The application lists its packages beside its own hooks; the list is
- * joined slot by slot, in order. CORS belongs on the application rather
- * than a group, because a group's hooks do not run on the `OPTIONS`
- * preflight — no route of the group answered it.
+ * Every package is one hook, made once and mounted by name in the slot it
+ * runs in, beside the application's own. CORS belongs on the application
+ * rather than a group, because a group's hooks do not run on the `OPTIONS`
+ * preflight — no route of the group answered it — and first in its slot,
+ * so that a refusal after it still carries its headers.
  *
  * A group hook may guard, but what it contributes does not reach the
  * handlers' types: a route that reads a field mounts the hook itself. The
- * rate limit here is on the one route that needs it, spread into its slot.
+ * rate limit here is on the one route that needs it.
  *
  * ```sh
  * bun examples/groups.ts
@@ -42,6 +43,11 @@ const limit = rateLimit({
   key: (ctx) => ctx.server.requestIP(ctx.req)?.address,
 });
 
+const browser = cors({ origin: "http://localhost:5173" });
+const id = requestId();
+const log = accessLog();
+const secure = secureHeaders();
+
 class StatusController {
   status = route({
     method: "GET",
@@ -52,7 +58,7 @@ class StatusController {
   feedback = route({
     method: "POST",
     path: "/feedback",
-    hooks: { beforeParse: [...limit.beforeParse] },
+    hooks: { beforeParse: [limit] },
     handler: (ctx) => {
       ctx.out.status = 202;
 
@@ -70,12 +76,11 @@ class AdminController {
 }
 
 export default createApp({
-  hooks: [
-    cors({ origin: "http://localhost:5173" }),
-    requestId(),
-    accessLog(),
-    secureHeaders(),
-  ],
+  hooks: {
+    beforeParse: [browser, id],
+    beforeResponse: [secure],
+    afterResponse: [log],
+  },
   routes: group("/api", {
     children: [
       new StatusController(),

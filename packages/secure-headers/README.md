@@ -11,11 +11,14 @@ bun add @tetsujs/secure-headers
 ```ts
 import { secureHeaders } from "@tetsujs/secure-headers";
 
-createApp({ hooks: [secureHeaders()], routes });
+const secure = secureHeaders();
+
+createApp({ hooks: { beforeResponse: [secure] }, routes });
 ```
 
-Mount it on the application: its hook runs in `beforeResponse`, which sees
-every outgoing response, errors and `404`s included.
+`secureHeaders()` is one `beforeResponse` hook. Mount it on the
+application: that slot sees every outgoing response, errors and `404`s
+included.
 
 Sent by default — none of these can break a JSON API:
 
@@ -60,8 +63,10 @@ const allowDocs = hook.beforeResponse((ctx) => {
   if (ctx.route?.path === "/docs") ctx.out.headers.delete("content-security-policy");
 });
 
+const secure = secureHeaders({ contentSecurityPolicy: apiPolicy });
+
 createApp({
-  hooks: [secureHeaders({ contentSecurityPolicy: apiPolicy }), { beforeResponse: [allowDocs] }],
+  hooks: { beforeResponse: [secure, allowDocs] },
   routes: [docs({ info }), new ApiController()],
 });
 ```

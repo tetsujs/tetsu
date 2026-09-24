@@ -192,7 +192,10 @@ export interface AppConfig<
    * @example Into the application's logger, joined to the access log
    * ```ts
    * createApp({
-   *   hooks: [requestId(), accessLog({ write: (r) => logger.info(r) })],
+   *   hooks: {
+   *     beforeParse: [requestId()],
+   *     afterResponse: [accessLog({ write: (r) => logger.info(r) })],
+   *   },
    *   reportError: ({ source, error, ctx }) =>
    *     logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
    *   routes,
