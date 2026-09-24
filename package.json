@@ -14,6 +14,7 @@
     "check:strictest": "tsc --noEmit -p tsconfig.strictest.json",
     "verify:packages": "bun run scripts/verify-packages.ts",
     "readme": "bun run scripts/readme.ts",
+    "release": "bun run scripts/release.ts",
     "lint": "bunx --bun @biomejs/biome check",
     "lint:fix": "bunx --bun @biomejs/biome check --write",
     "test": "bun test",

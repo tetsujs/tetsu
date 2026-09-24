@@ -114,6 +114,29 @@ follows the rules above; the description is the body, and is kept to what
 a body would say. Commits inside the branch are for review and do not
 reach `main`.
 
+A change users will notice adds a line under `## Unreleased` in
+`CHANGELOG.md`, in the same pull request.
+
+## Releasing
+
+All packages share one version and are released together.
+
+1. `bun run release <version>` on a branch sets every package's version,
+   turns `## Unreleased` into the version and today's date, and updates
+   `bun.lock`. It goes in as a pull request titled `release <version>`.
+2. Once that is merged, tag the merge commit `v<version>` and push the
+   tag.
+3. The tag starts `.github/workflows/release.yml`. It waits for approval
+   in the `npm` environment, then checks, packs and publishes the packages
+   in dependency order through npm's trusted publishing, with provenance.
+   After that it creates the GitHub release from the version's changelog
+   section.
+
+A publish that fails half-way is finished by re-running the workflow:
+packages already in the registry at that version are skipped.
+`bun run scripts/publish.ts <version> --dry-run` shows what would be
+published without uploading anything.
+
 ## Security
 
 Please do not open a public issue for a vulnerability. Report it privately
