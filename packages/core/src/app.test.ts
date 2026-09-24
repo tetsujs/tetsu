@@ -593,6 +593,84 @@ describe("a hook mounted twice", () => {
   });
 });
 
+describe("hooks the compiler would have refused", () => {
+  const guard = hook.beforeParse(() => undefined);
+  const decorate = hook.beforeResponse(() => undefined);
+
+  const withHooks = (hooks: unknown) =>
+    route({
+      method: "GET",
+      path: "/x",
+      hooks: hooks as never,
+      handler: () => null,
+    });
+
+  test("an element that is not a hook stops the application, not a request", () => {
+    expect(() =>
+      createApp({ hooks: { beforeParse: [undefined] } as never, routes: [] }),
+    ).toThrow(
+      "The application: hooks.beforeParse[0] is not a hook but undefined — make it with hook.beforeParse(…)",
+    );
+  });
+
+  test("on a route, named by its method and path", () => {
+    expect(() =>
+      createApp({ routes: { x: withHooks({ beforeParse: [guard, null] }) } }),
+    ).toThrow("GET /x: hooks.beforeParse[1] is not a hook but null");
+  });
+
+  test("on a group, named by its full prefix", () => {
+    expect(() =>
+      createApp({
+        routes: group("/api", {
+          children: [
+            group("/zone", {
+              hooks: { beforeParse: [{}] } as never,
+              children: [],
+            }),
+          ],
+        }),
+      }),
+    ).toThrow(
+      'group("/api/zone"): hooks.beforeParse[0] is not a hook but an object',
+    );
+  });
+
+  test("a bare function is named as one", () => {
+    expect(() =>
+      createApp({
+        routes: { x: withHooks({ beforeParse: [() => undefined] }) },
+      }),
+    ).toThrow(
+      "is not a hook but a bare function — make it with hook.beforeParse(…)",
+    );
+  });
+
+  test("a hook under another slot is refused, naming its own", () => {
+    expect(() =>
+      createApp({ routes: { x: withHooks({ beforeParse: [decorate] }) } }),
+    ).toThrow(
+      "GET /x: hooks.beforeParse[0] is a beforeResponse hook — mount it under beforeResponse",
+    );
+  });
+
+  test("a misspelled slot is refused rather than never read", () => {
+    expect(() =>
+      createApp({ hooks: { beforParse: [guard] } as never, routes: [] }),
+    ).toThrow(
+      'The application: "beforParse" is not a slot — the slots are beforeParse',
+    );
+  });
+
+  test("a slot that is not a list is refused", () => {
+    expect(() =>
+      createApp({ routes: { x: withHooks({ beforeParse: guard }) } }),
+    ).toThrow(
+      "GET /x: hooks.beforeParse is not a list — write beforeParse: [hook]",
+    );
+  });
+});
+
 describe("resolved options", () => {
   test("app.options fills every default in", () => {
     expect(app.options).toEqual({

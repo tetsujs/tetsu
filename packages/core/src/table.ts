@@ -272,6 +272,8 @@ export function buildRouteTable(input: {
       );
     }
 
+    refuseMisplaced(key, def.hooks);
+
     const hooks = appendChains(chains, def.hooks);
 
     refuseTwice(key, hooks);
@@ -352,6 +354,8 @@ export function buildRouteTable(input: {
     }
 
     if (isGroup(node)) {
+      refuseMisplaced(`group("${prefix}${node.prefix}")`, node.hooks);
+
       walk(
         node.children,
         prefix + node.prefix,
@@ -425,6 +429,8 @@ export function buildRouteTable(input: {
       }
     }
   };
+
+  refuseMisplaced("The application", input.hooks);
 
   const appHooks = appendChains(emptyChains, input.hooks);
 
@@ -525,6 +531,86 @@ function joinPath(prefix: string, path: string): string {
   }
 
   return prefix + path;
+}
+
+/**
+ * Refuses a `hooks` object the compiler would have refused, before it
+ * reaches a request.
+ *
+ * Each of these compiles away under `as never`, in plain JavaScript or
+ * with loose types, and each fails later and quietly: a slot holding
+ * `undefined` answers every request with a `500`, a hook under the wrong
+ * slot runs at the wrong moment, and a misspelled slot — `beforParse` —
+ * is never read at all, so the authentication hook in it never runs. At
+ * startup each is one line to fix; in production the last one is a hole.
+ */
+function refuseMisplaced(
+  owner: string,
+  hooks: GroupHooks | HooksConfig | undefined,
+): void {
+  if (hooks === undefined) {
+    return;
+  }
+
+  for (const [slot, value] of Object.entries(hooks)) {
+    if (!(slotNames as readonly string[]).includes(slot)) {
+      throw new Error(
+        `${owner}: "${slot}" is not a slot — the slots are ${slotNames.join(", ")}`,
+      );
+    }
+
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `${owner}: hooks.${slot} is not a list — write ${slot}: [hook]`,
+      );
+    }
+
+    value.forEach((element: unknown, index: number) => {
+      const place = `${owner}: hooks.${slot}[${index}]`;
+
+      if (!isHook(element)) {
+        throw new Error(
+          `${place} is not a hook but ${described(element)} — make it with hook.${slot}(…)`,
+        );
+      }
+
+      if (element.slot !== slot) {
+        throw new Error(
+          `${place} is a ${element.slot} hook — mount it under ${element.slot}`,
+        );
+      }
+    });
+  }
+}
+
+/**
+ * What a hook is at runtime: `{ slot, fn }`, as the `hook.*` factories make
+ * it. Structural, because nothing more is carried — the typing is phantom.
+ */
+function isHook(value: unknown): value is AnyHook {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as { readonly slot?: unknown; readonly fn?: unknown };
+
+  return (
+    typeof candidate.fn === "function" &&
+    (slotNames as readonly unknown[]).includes(candidate.slot)
+  );
+}
+
+/** Names a value that should have been a hook, for the message above. */
+function described(value: unknown): string {
+  if (value === undefined || value === null) {
+    return String(value);
+  }
+
+  if (typeof value === "function") {
+    return "a bare function";
+  }
+
+  return typeof value === "object" ? "an object" : `a ${typeof value}`;
 }
 
 /**
