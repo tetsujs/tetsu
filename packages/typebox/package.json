@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/typebox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeBox schemas as Tetsu DTOs: compiled validation, type inference and OpenAPI",
   "keywords": [
     "bun",
