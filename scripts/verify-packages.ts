@@ -261,7 +261,8 @@ for (const [specifier, namespace] of entries) {
 const { controller, createApp, hook, route } = entry__tetsujs_core;
 const { cors } = entry__tetsujs_cors;
 const { rateLimit } = entry__tetsujs_rate_limit;
-const { accessLog, requestId } = entry__tetsujs_request_id;
+const { requestId } = entry__tetsujs_request_id;
+const { accessLog, arrivalLog } = entry__tetsujs_request_log;
 const { secureHeaders } = entry__tetsujs_secure_headers;
 
 const browser = cors({ origin: "https://app.example.com" });
@@ -270,6 +271,7 @@ const limit = rateLimit({ limit: 100, windowMs: 60_000, key: () => "all" });
 const headers = secureHeaders();
 const lines: unknown[] = [];
 const log = accessLog({ write: (record) => lines.push(record) });
+const arrived = arrivalLog({ write: (record) => lines.push(record) });
 
 const scope = hook.beforeParse((ctx: entry__tetsujs_core.Requires<{ requestId: string }>) => {
   void ctx.requestId;
@@ -291,7 +293,7 @@ const helloController = controller("Hello", () => ({
 const server = Bun.serve({
   ...createApp({
     hooks: {
-      beforeParse: [browser, id, scope, limit],
+      beforeParse: [browser, id, scope, limit, arrived],
       beforeResponse: [headers],
       afterResponse: [log],
     },
@@ -310,6 +312,10 @@ try {
 
   if (!response.headers.get("x-request-id") || !response.headers.get("x-content-type-options")) {
     throw new Error("the mounted hooks did not run");
+  }
+
+  if (!lines.some((line) => (line as { status?: unknown }).status === undefined)) {
+    throw new Error("arrivalLog wrote no line");
   }
 } finally {
   server.stop(true);

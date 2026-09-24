@@ -13,8 +13,9 @@
 import type { Database } from "bun:sqlite";
 import { createApp, group } from "@tetsujs/core";
 import { docs } from "@tetsujs/openapi";
-import type { AccessLogOptions } from "@tetsujs/request-id";
-import { accessLog, requestId } from "@tetsujs/request-id";
+import { requestId } from "@tetsujs/request-id";
+import type { AccessLogOptions } from "@tetsujs/request-log";
+import { accessLog } from "@tetsujs/request-log";
 import { secureHeaders } from "@tetsujs/secure-headers";
 import type { User } from "./auth.ts";
 import { demoTokens, Sessions } from "./auth.ts";

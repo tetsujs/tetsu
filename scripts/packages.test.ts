@@ -58,7 +58,7 @@ test("this repository publishes the core first and openapi before rate-limit", a
   expect(names.indexOf("@tetsujs/openapi")).toBeLessThan(
     names.indexOf("@tetsujs/rate-limit"),
   );
-  expect(names).toHaveLength(9);
+  expect(names).toHaveLength(10);
 });
 
 test("every published package shares one version", async () => {

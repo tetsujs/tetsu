@@ -20,6 +20,9 @@
       "path": "./packages/request-id/tsconfig.build.json"
     },
     {
+      "path": "./packages/request-log/tsconfig.build.json"
+    },
+    {
       "path": "./packages/secure-headers/tsconfig.build.json"
     },
     {

@@ -1,23 +1,24 @@
 {
-  "name": "@tetsujs/request-id",
+  "name": "@tetsujs/request-log",
   "version": "0.3.0",
-  "description": "Request ids for Tetsu",
+  "description": "Request logs for Tetsu: a line when a request arrives, and a line when it is done",
   "keywords": [
     "bun",
     "tetsu",
-    "request-id",
-    "tracing"
+    "access-log",
+    "request-log",
+    "logging"
   ],
   "author": "tetsuodev",
   "license": "MIT",
-  "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/request-id#readme",
+  "homepage": "https://github.com/tetsujs/tetsu/tree/main/packages/request-log#readme",
   "bugs": {
     "url": "https://github.com/tetsujs/tetsu/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tetsujs/tetsu.git",
-    "directory": "packages/request-id"
+    "directory": "packages/request-log"
   },
   "type": "module",
   "engines": {
@@ -36,7 +37,8 @@
     "@tetsujs/core": "workspace:^"
   },
   "devDependencies": {
-    "@tetsujs/core": "workspace:*"
+    "@tetsujs/core": "workspace:*",
+    "@tetsujs/request-id": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

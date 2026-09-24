@@ -12,6 +12,9 @@ a class could not give its fields.
 
 ### Breaking changes
 
+- `accessLog()` moved from `@tetsujs/request-id` to the new
+  `@tetsujs/request-log`, with `AccessRecord`, `AccessLogOptions` and
+  `AccessLogHook`. `@tetsujs/request-id` is `requestId()` alone.
 - `ctx.route.controller`, and `controller` on `app.entries`, are optional:
   an object literal and a route mounted on its own have no name, where
   they were `"Object"` and `"(standalone)"`.
@@ -26,6 +29,11 @@ a class could not give its fields.
 
 ### Added
 
+- `@tetsujs/request-log`, the request logs: `accessLog()`, and
+  `arrivalLog()` — a `beforeParse` hook that writes a line when a request
+  arrives, for the request that hangs or dies before `accessLog()` would
+  see it. Its record is `{ method, path, requestId? }`, under the same
+  rules as the access record: the pathname, no query, headers or body.
 - `controller(name, build)`, the form of a controller the README shows.
   The name is what every `operationId` is built from, apart from the
   variable that holds the factory, so renaming code changes no client.
@@ -63,6 +71,17 @@ createApp({ routes: ordersController({ orders }) });
 
 A class keeps working and is named after itself, `operationId`s included;
 `controller("Orders", …)` gives the same `ordersList` as `OrdersController`.
+
+`accessLog` is imported from its new package:
+
+```ts
+// 0.3
+import { accessLog, requestId } from "@tetsujs/request-id";
+
+// 0.4
+import { requestId } from "@tetsujs/request-id";
+import { accessLog } from "@tetsujs/request-log";
+```
 
 ## 0.3.0 — 2026-09-24
 
