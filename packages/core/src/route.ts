@@ -19,6 +19,7 @@ import type { AnySchema, InferOutput } from "./schema.ts";
 import type {
   HandlerCtx,
   HooksConfig,
+  HooksIndexError,
   HooksInput,
   ValidateHooks,
 } from "./stack.ts";
@@ -270,8 +271,13 @@ export interface RouteConfig<
   /** Documentation metadata for OpenAPI generation. */
   readonly docs?: RouteDocs;
 
-  /** Lifecycle hooks, validated against the context of their slot. */
-  readonly hooks?: H & ValidateHooks<H, Path, S, B>;
+  /**
+   * Lifecycle hooks keyed by slot, validated against the context of their
+   * slot. An object typed with an index signature is refused: none of its
+   * slots could be checked (`HooksIndexError`).
+   */
+  readonly hooks?: H &
+    (string extends keyof H ? HooksIndexError : ValidateHooks<H, Path, S, B>);
 
   /**
    * The endpoint logic; `ctx` is fully inferred, never annotate it.

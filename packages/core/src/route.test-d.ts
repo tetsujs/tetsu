@@ -782,3 +782,13 @@ route({
   maxBodySize: 5_000_000,
   handler: () => ({ ok: true }),
 });
+
+const indexedHooks: Record<string, (typeof auth)[]> = { beforeParse: [auth] };
+
+route({
+  method: "GET",
+  path: "/indexed",
+  // @ts-expect-error an object with an index signature has no slot that could be checked
+  hooks: indexedHooks,
+  handler: () => null,
+});

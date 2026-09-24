@@ -341,3 +341,17 @@ group("/outer", {
     }),
   ],
 });
+
+const indexed: Record<string, (typeof stamp)[]> = { beforeParse: [stamp] };
+
+createApp({
+  routes: [],
+  // @ts-expect-error an object with an index signature has no slot that could be checked
+  hooks: indexed,
+});
+
+group("/indexed", {
+  // @ts-expect-error nor on a group
+  hooks: indexed,
+  children: [],
+});

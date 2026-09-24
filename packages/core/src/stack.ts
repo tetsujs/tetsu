@@ -289,12 +289,29 @@ export type GroupHooksInput = HooksInput | readonly unknown[];
 
 /**
  * Validates `hooks` as `group()` and `createApp()` take it: a list is
- * refused with the form that replaced it, an object is checked slot by
- * slot (`ValidateGroupHooks`). Internal to the core.
+ * refused with the form that replaced it, an object whose keys are not
+ * known is refused because nothing in it could be checked, and an object
+ * of slots is checked slot by slot (`ValidateGroupHooks`). Internal to the
+ * core.
  */
 export type ValidateGroupHooksInput<H> = H extends readonly unknown[]
   ? HooksListError
-  : ValidateGroupHooks<H>;
+  : string extends keyof H
+    ? HooksIndexError
+    : ValidateGroupHooks<H>;
+
+/**
+ * Compile-time error: `hooks` is typed with an index signature.
+ *
+ * What a helper building the object with `Object.fromEntries` returns, or
+ * a `Record<string, …>` annotation. Its slots are not properties the
+ * compiler can see, so without this every check — slot, order, what a
+ * hook requires — would pass without having looked at anything. Named
+ * the way {@link HooksListError} is, for the same reason.
+ */
+export interface HooksIndexError {
+  readonly "hooks has an index signature, so no slot of it can be checked — write the slots out, or build it with a helper that keeps each slot a tuple": never;
+}
 
 /**
  * Compile-time error: `hooks` was given as a list.
