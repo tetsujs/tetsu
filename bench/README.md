@@ -182,17 +182,20 @@ application, read from `tsc --extendedDiagnostics`. `--check` is what CI
 runs: it fails when 200 routes cost more instantiations than the budget in
 `src/types.ts`.
 
-Each controller is a `GET` with `params`, `query`, a status map and two
-hooks, one of them reading through `Requires`, and a `POST` with a `body`;
-the core is read from `dist`, as a user's compiler reads it.
+Each controller — declared with `controller()` — is a `GET` with `params`,
+`query`, a status map and two hooks, one of them reading through
+`Requires`, and a `POST` with a `body`; the core is read from `dist`, as a
+user's compiler reads it.
 
 | routes | types | instantiations | memory | check |
 | --- | --- | --- | --- | --- |
-| 2 | 7 205 | 18 743 | 51 MB | 0.02 s |
-| 200 | 31 077 | 195 861 | 80 MB | 0.10 s |
-| 800 | 103 377 | 732 561 | 165 MB | 0.36 s |
+| 2 | 7 596 | 19 670 | 52 MB | 0.02 s |
+| 200 | 24 934 | 174 018 | 74 MB | 0.09 s |
+| 800 | 77 434 | 641 718 | 137 MB | 0.33 s |
 
-TypeScript 7.0.2, 2026-09-23. Types and instantiations are the same on every
+TypeScript 7.0.2, 2026-09-25. The same routes in controller classes cost
+198 615 instantiations at 200 routes and 740 115 at 800: every class is a
+type of its own for the checker, an object a factory returns is not. Types and instantiations are the same on every
 machine for a given compiler, which is why they are the gate; memory and
 time are not.
 
@@ -209,8 +212,10 @@ Instantiations, then memory:
 | 200, TS 5.6 | 259 k / 156 MB | 1.37 M / 211 MB | 1.12 M / 185 MB | 686 k / 204 MB |
 | 800, TS 5.6 | 979 k / 287 MB | stack overflow | stack overflow | stack overflow |
 
-Past a few routes Tetsu is the cheapest of the four, and it grows linearly
-— about 900 instantiations a route — where a chain grows faster, because
+Tetsu's column was measured on 2026-09-23 with controller classes; the
+`controller()` form above costs 12–13% less. Past a few routes Tetsu is the
+cheapest of the four, and it grows linearly — about 800 instantiations a
+route — where a chain grows faster, because
 each call's type carries every route before it. On TypeScript 5.6, whose
 checker runs on Node as the editor's language server does, an 800-call
 chain exceeds the checker's stack in all three; controllers in an array

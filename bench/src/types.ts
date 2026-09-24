@@ -13,7 +13,8 @@
  * noticing, because nothing counted. `Merge` in `packages/core/src/stack.ts`
  * has the story.
  *
- * The application is generated: per controller, a `GET` with `params`,
+ * The application is generated: per controller — declared with
+ * `controller()`, the form the README shows — a `GET` with `params`,
  * `query`, a status map and two hooks — one contributing, one reading
  * through `Requires` — and a `POST` with a `body` and a status of its own;
  * all of it mounted by one `createApp`. It imports the core from `dist`,
@@ -46,13 +47,14 @@ const ladder = [2, 200, 800] as const;
  * Instantiations the 200-route application may cost, on the compiler the
  * repository pins.
  *
- * Set a quarter above the last measured count (195 861), which leaves
- * room for honest growth and none for the doubling a careless type costs.
+ * Set a quarter above the last measured count (174 517, with controllers
+ * declared by `controller()`; classes cost 198 615), which leaves room for
+ * honest growth and none for the doubling a careless type costs.
  * Lower it when a change makes the types cheaper, so the room does not
  * accumulate; raising it is a decision to make on purpose, with the new
  * count in the commit message.
  */
-const budget = 245_000;
+const budget = 218_000;
 
 interface Cost {
   readonly routes: number;
@@ -65,7 +67,7 @@ interface Cost {
 function application(routes: number): string {
   const controllers = routes / 2;
   const lines = [
-    `import { createApp, hook, route, type Requires, type StandardSchemaV1 } from ${JSON.stringify(core)};`,
+    `import { controller, createApp, hook, route, type Requires, type StandardSchemaV1 } from ${JSON.stringify(core)};`,
     "declare const Params: StandardSchemaV1<unknown, { id: number }>;",
     "declare const Query: StandardSchemaV1<unknown, { page?: number }>;",
     "declare const Body: StandardSchemaV1<unknown, { name: string; qty: number }>;",
@@ -76,16 +78,16 @@ function application(routes: number): string {
   ];
 
   for (let index = 0; index < controllers; index += 1) {
-    lines.push(`class C${index} {
-  get = route({
+    lines.push(`const c${index} = controller("C${index}", () => ({
+  get: route({
     method: "GET",
     path: "/r${index}/:id",
     schema: { params: Params, query: Query, response: { 200: Item, 404: NotFound } },
     hooks: { beforeParse: [auth], beforeHandle: [owner] },
     handler: (ctx) => ({ id: ctx.params.id, name: ctx.owner, qty: ctx.query.page ?? 1 }),
-  });
+  }),
 
-  create = route({
+  create: route({
     method: "POST",
     path: "/r${index}",
     schema: { body: Body, response: { 201: Item } },
@@ -95,13 +97,13 @@ function application(routes: number): string {
 
       return { id: 1, name: ctx.body.name + ctx.user.id, qty: ctx.body.qty };
     },
-  });
-}`);
+  }),
+}));`);
   }
 
   const mounted = Array.from(
     { length: controllers },
-    (_, index) => `new C${index}()`,
+    (_, index) => `c${index}()`,
   );
 
   lines.push(
