@@ -265,11 +265,15 @@ export function buildRouteTable(input: {
       );
     }
 
+    const hooks = appendChains(chains, def.hooks);
+
+    refuseTwice(key, hooks);
+
     const entry: RouteTableEntry = {
       method: def.method,
       path,
       def,
-      hooks: appendChains(chains, def.hooks),
+      hooks,
       controller,
       route: {
         method: def.method,
@@ -407,6 +411,8 @@ export function buildRouteTable(input: {
 
   const appHooks = appendChains(emptyChains, input.hooks);
 
+  refuseTwice("The application", appHooks);
+
   walk(input.routes, "", appHooks);
 
   return { entries, appHooks, warnings, mounted: [...mounted] };
@@ -482,6 +488,32 @@ function joinPath(prefix: string, path: string): string {
   }
 
   return prefix + path;
+}
+
+/**
+ * Refuses a chain that runs the same hook twice.
+ *
+ * One instance mounted at two levels a route passes through — on its
+ * group and on itself — or twice in one slot runs twice for one request,
+ * and there is no case where that is meant: an `auth` goes to the
+ * database twice, a rate limit counts the request twice, a request id is
+ * generated and then replaced. The fix is one line, so it fails at
+ * startup rather than warning into a log nobody reads. A hook with state
+ * of its own that is wanted twice — two separate limits — is two
+ * instances, and those are not the same hook.
+ */
+function refuseTwice(owner: string, chains: MergedHooks): void {
+  for (const slot of slotNames) {
+    const hooks = chains[slot];
+
+    if (new Set(hooks).size === hooks.length) {
+      continue;
+    }
+
+    throw new Error(
+      `${owner}: the same hook is mounted twice in its ${slot} chain — on a group and a route it passes through, or twice in one slot. Mount it once; for separate state, such as two rate limits, create a second instance.`,
+    );
+  }
 }
 
 function appendChains(

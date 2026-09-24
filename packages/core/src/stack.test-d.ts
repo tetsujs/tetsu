@@ -142,14 +142,24 @@ export type handlerCtxCases = [
   Expect<
     Equal<
       keyof FullHandlerCtx,
-      "req" | "server" | "out" | "route" | "params" | "user" | "order"
+      | "req"
+      | "server"
+      | "out"
+      | "route"
+      | "startedAt"
+      | "params"
+      | "user"
+      | "order"
     >
   >,
   Expect<Equal<FullHandlerCtx["user"], { id: string }>>,
   Expect<Equal<FullHandlerCtx["order"], { id: string }>>,
   Expect<Equal<FullHandlerCtx["params"], { id: string }>>,
   Expect<
-    Equal<keyof EmptyHandlerCtx, "req" | "server" | "out" | "route" | "params">
+    Equal<
+      keyof EmptyHandlerCtx,
+      "req" | "server" | "out" | "route" | "startedAt" | "params"
+    >
   >,
 ];
 
@@ -368,7 +378,14 @@ export type staticStackCases = [
   Expect<
     Equal<
       keyof ErrorWithSchema,
-      "req" | "server" | "out" | "route" | "params" | "user" | "error"
+      | "req"
+      | "server"
+      | "out"
+      | "route"
+      | "startedAt"
+      | "params"
+      | "user"
+      | "error"
     >
   >,
   Expect<Equal<ErrorWithSchema["params"], { id: string } | { id: number }>>,

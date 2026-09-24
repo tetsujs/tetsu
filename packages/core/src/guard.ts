@@ -25,7 +25,8 @@ import type { PipelineCtx } from "./pipeline.ts";
  * `error` are owned by the pipeline; replacing them breaks stages
  * downstream — a forged `server` in particular would defeat every
  * `requestIP`-based rate limit behind it, and a forged `route` would let a
- * hook rename the endpoint in every log line and metric that trusts it.
+ * hook rename the endpoint in every log line and metric that trusts it,
+ * and a forged `startedAt` would shorten every duration measured from it.
  *
  * `params`, `query`, `body`, `headers` and `cookies` are deliberately
  * absent: hooks are expected to normalize those.
@@ -45,6 +46,7 @@ const protectedKeys = new Set([
   "route",
   "res",
   "error",
+  "startedAt",
 ]);
 
 /**

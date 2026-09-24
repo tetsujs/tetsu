@@ -54,6 +54,7 @@ export function testCtx<const Parts extends object>(
     server: stubServer,
     out: new OutgoingSettings(),
     route: stubRoute,
+    startedAt: performance.now(),
     ...parts,
   } as Parts & BaseCtx & { readonly route: RouteInfo };
 }

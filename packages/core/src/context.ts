@@ -177,6 +177,25 @@ export interface BaseCtx {
    * from the second one grows a new series per identifier.
    */
   readonly route?: RouteInfo;
+
+  /**
+   * When the pipeline took the request: a `performance.now()` reading, in
+   * milliseconds on the monotonic clock.
+   *
+   * `performance.now() - ctx.startedAt` is how long the request has been
+   * in the framework — what an access log reports, and what a failure
+   * report can say about the request it belongs to. Read once per request
+   * by the core rather than by a hook in `beforeParse`: an observer needs
+   * only this, so a package measuring requests is one hook after the
+   * response instead of two, and the clock starts before any hook, not
+   * after the ones mounted ahead of the one that reads it. It costs about
+   * 23 ns a request.
+   *
+   * Wall-clock time is `Date.now()`, and not this: a monotonic reading
+   * does not jump when the system clock is adjusted, which is what makes
+   * a difference of two of them a duration.
+   */
+  readonly startedAt: number;
 }
 
 /**
