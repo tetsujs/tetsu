@@ -1,0 +1,99 @@
+name: Release
+
+# A version tag publishes every package at that version, then turns the
+# version's CHANGELOG section into a GitHub release. The tag comes after a
+# "release x.y.z" pull request (`bun run release x.y.z`) has been merged:
+# the versions and the changelog are reviewed like any other change, and
+# the tag only says that this commit is the release.
+on:
+  push:
+    tags: ["v*"]
+
+# Nothing is granted by default; each job asks for what it uses.
+permissions:
+  contents: read
+
+# One release at a time, and never one cancelled half-way: a publish that
+# stopped is finished by running the workflow again, not by starting over.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+
+    # The environment holds the publish until its reviewer approves it, and
+    # npm's trusted publisher for every package names it: a run that did
+    # not go through it cannot publish, whatever else it can do.
+    environment: npm
+
+    permissions:
+      contents: read
+      # The OIDC token npm exchanges for a one-time publish credential;
+      # there is no npm token in this repository.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A tag can be pushed on any commit. Only one that `main` already
+      # contains — reviewed, merged, checked — is released.
+      - name: Tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      # Trusted publishing is npm's, and needs npm 11.5.1 or later; Node 24
+      # ships it. The packages are still packed by Bun, which rewrites
+      # `workspace:^` — see scripts/publish.ts.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: bun run ci
+
+      - name: Packages
+        run: bun run verify:packages
+
+      - name: Publish
+        run: bun run scripts/publish.ts "${GITHUB_REF_NAME#v}"
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      # The notes are the version's CHANGELOG section, word for word. A
+      # release that already exists — a re-run — is left as it is.
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "$GITHUB_REF_NAME already has a release"
+            exit 0
+          fi
+
+          bun run scripts/changelog.ts "${GITHUB_REF_NAME#v}" > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
