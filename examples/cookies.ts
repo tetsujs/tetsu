@@ -18,7 +18,7 @@
  * @module
  */
 
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 import { z } from "zod";
 
 const Login = z.object({ name: z.string().min(1) });
@@ -27,8 +27,8 @@ const Session = z.object({ session: z.string() });
 
 const cookie = { httpOnly: true, sameSite: "lax", path: "/" } as const;
 
-class SessionController {
-  login = route({
+const sessionController = controller("Session", () => ({
+  login: route({
     method: "POST",
     path: "/login",
     schema: { body: Login, response: { 204: null } },
@@ -39,16 +39,16 @@ class SessionController {
         maxAge: 3600,
       });
     },
-  });
+  }),
 
-  me = route({
+  me: route({
     method: "GET",
     path: "/me",
     schema: { cookies: Session },
     handler: (ctx) => ({ name: ctx.cookies.session }),
-  });
+  }),
 
-  logout = route({
+  logout: route({
     method: "POST",
     path: "/logout",
     schema: { response: { 204: null } },
@@ -56,8 +56,8 @@ class SessionController {
       ctx.out.status = 204;
       ctx.out.cookies.delete("session", cookie);
     },
-  });
-}
+  }),
+}));
 
 export default createApp({
   cookies: {
@@ -65,5 +65,5 @@ export default createApp({
       Bun.env.COOKIE_SECRET ?? "an example secret, never this in production",
     sign: ["session"],
   },
-  routes: new SessionController(),
+  routes: sessionController(),
 });

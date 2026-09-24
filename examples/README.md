@@ -33,8 +33,8 @@ And one application, to show how the pieces sit in a project:
 | --- | --- |
 | [`main.ts`](app/main.ts) | opens the database, serves, closes the database on shutdown |
 | [`app.ts`](app/app.ts) | the composition root: every instance built once and handed to what needs it |
-| [`auth.ts`](app/auth.ts) | the hook that says who is asking |
-| [`notes/routes.ts`](app/notes/routes.ts) | the controller |
+| [`auth.ts`](app/auth.ts) | the sessions service, and the hook built from it that says who is asking |
+| [`notes/routes.ts`](app/notes/routes.ts) | the controller: its routes, and the hook it builds from the sessions it is given |
 | [`notes/store.ts`](app/notes/store.ts) | notes in SQLite, through `bun:sqlite` |
 | [`notes/schemas.ts`](app/notes/schemas.ts) | the shapes in and out |
 | [`notes/routes.test.ts`](app/notes/routes.test.ts) | the API over HTTP, on a database in memory |
@@ -44,8 +44,8 @@ bun examples/app/main.ts
 ```
 
 Files are named for what they hold, not for a role: `notes/routes.ts`, not
-`notes.controller.ts`. The framework reads the fields of the objects it is
-given and nothing else, so how files are laid out is entirely yours.
+`notes.controller.ts`. The framework reads the routes of the controllers it
+is given and nothing else, so how files are laid out is entirely yours.
 
 `bun test examples` runs the tests here, including `recipes.test.ts`, which
 serves every recipe and asks it one question — an example that stops

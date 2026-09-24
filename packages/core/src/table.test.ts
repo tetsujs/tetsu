@@ -147,7 +147,7 @@ describe("buildRouteTable", () => {
     const { entries } = buildRouteTable({ routes: standalone });
 
     expect(entries[0]?.name).toBeUndefined();
-    expect(entries[0]?.controller).toBe("(standalone)");
+    expect(entries[0]?.controller).toBeUndefined();
   });
 
   test("throws on duplicate method + path naming both controllers", () => {
@@ -414,6 +414,6 @@ describe("buildRouteTable", () => {
     const { entries } = buildRouteTable({ routes: [ping] });
 
     expect(entries[0]?.path).toBe("/ping");
-    expect(entries[0]?.controller).toBe("(standalone)");
+    expect(entries[0]?.controller).toBeUndefined();
   });
 });

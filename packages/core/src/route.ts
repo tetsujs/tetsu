@@ -53,6 +53,18 @@ export interface RouteDocs {
    * is simply absent.
    */
   readonly hidden?: boolean;
+
+  /**
+   * The operation's id in the generated document, stated rather than
+   * derived.
+   *
+   * Without it the id is the controller's name joined with the route's
+   * field — `authRequestCode` — which is stable as long as those two are.
+   * State it where the id is a contract of its own: on a public API, a
+   * generated SDK names its methods after these, and an id written here
+   * is one a reviewer sees change.
+   */
+  readonly operationId?: string;
 }
 
 /**
@@ -341,18 +353,16 @@ export interface RouteDef<
  *
  * @example
  * ```ts
- * export class OrdersController {
- *   constructor(private orders: OrderService) {}
- *
- *   cancel = route({
+ * export const ordersController = controller("Orders", ({ orders }: OrdersDeps) => ({
+ *   cancel: route({
  *     method: "POST",
  *     path: "/orders/:id/cancel",
  *     hooks: { beforeParse: [auth], beforeHandle: [withOrder] },
  *     schema: { params: OrderParams, response: Order },
  *     docs: { summary: "Cancel an order", tags: ["orders"] },
- *     handler: (ctx) => this.orders.cancel(ctx.order),
- *   });
- * }
+ *     handler: (ctx) => orders.cancel(ctx.order),
+ *   }),
+ * }));
  * ```
  */
 export function route<

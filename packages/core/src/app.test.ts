@@ -523,7 +523,11 @@ describe("a hook mounted twice", () => {
     });
   }
 
-  class Plain {
+  class Left {
+    read = route({ method: "GET", path: "/read", handler: () => null });
+  }
+
+  class Right {
     read = route({ method: "GET", path: "/read", handler: () => null });
   }
 
@@ -560,11 +564,11 @@ describe("a hook mounted twice", () => {
         routes: [
           group("/left", {
             hooks: { beforeParse: [once] },
-            children: [new Plain()],
+            children: [new Left()],
           }),
           group("/right", {
             hooks: { beforeParse: [once] },
-            children: [new Plain()],
+            children: [new Right()],
           }),
         ],
       }),

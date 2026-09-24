@@ -67,7 +67,7 @@ const secure = secureHeaders({ contentSecurityPolicy: apiPolicy });
 
 createApp({
   hooks: { beforeResponse: [secure, allowDocs] },
-  routes: [docs({ info }), new ApiController()],
+  routes: [docs({ info }), apiController()],
 });
 ```
 

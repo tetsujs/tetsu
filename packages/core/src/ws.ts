@@ -20,8 +20,8 @@
  *
  * @example
  * ```ts
- * export class ChatController {
- *   room = ws({
+ * export const chatController = controller("Chat", () => ({
+ *   room: ws({
  *     path: "/chat/:room",
  *     hooks: { beforeParse: [auth] },
  *     schema: { message: ChatMessage },
@@ -32,8 +32,8 @@
  *         text: message.text,
  *       }));
  *     },
- *   });
- * }
+ *   }),
+ * }));
  * ```
  *
  * @module

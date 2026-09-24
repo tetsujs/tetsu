@@ -16,7 +16,7 @@
  * @module
  */
 
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 import { sse, stream } from "@tetsujs/sse";
 
 const rows = Array.from({ length: 1_000 }, (_, index) => ({
@@ -24,8 +24,8 @@ const rows = Array.from({ length: 1_000 }, (_, index) => ({
   total: (index * 7.5).toFixed(2),
 }));
 
-class FeedsController {
-  clock = route({
+const feedsController = controller("Feeds", () => ({
+  clock: route({
     method: "GET",
     path: "/clock",
     handler: (ctx) =>
@@ -35,9 +35,9 @@ class FeedsController {
           await Bun.sleep(1_000);
         }
       }),
-  });
+  }),
 
-  export = route({
+  export: route({
     method: "GET",
     path: "/export.csv",
     handler: (ctx) =>
@@ -52,7 +52,7 @@ class FeedsController {
         },
         { contentType: "text/csv" },
       ),
-  });
-}
+  }),
+}));
 
-export default createApp({ routes: new FeedsController() });
+export default createApp({ routes: feedsController() });

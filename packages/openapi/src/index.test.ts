@@ -10,11 +10,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { App, StandardSchemaV1 } from "@tetsujs/core";
-import { createApp, group, hook, route, ws } from "@tetsujs/core";
+import type { RouteDef, StandardSchemaV1 } from "@tetsujs/core";
+import { controller, createApp, group, hook, route, ws } from "@tetsujs/core";
 import { docsOf, securityOf } from "./annotations.ts";
 import type { OpenApiDocument } from "./document.ts";
-import { docsPage, documented, openapi, secured } from "./index.ts";
+import { docs, docsPage, documented, openapi, secured } from "./index.ts";
 
 /** A schema that both validates and describes itself. */
 const described = <T>(
@@ -1007,7 +1007,7 @@ describe("responses contributed by hooks", () => {
   });
 });
 
-describe("operation ids when the controller and field repeat", () => {
+describe("operation ids", () => {
   const info = { title: "Ids", version: "1" };
 
   /** Collects the ids of a document, in document order. */
@@ -1016,72 +1016,126 @@ describe("operation ids when the controller and field repeat", () => {
       Object.values(item).map((operation) => operation.operationId),
     );
 
-  class UsersController {
-    list = route({ method: "GET", path: "/", handler: () => [] });
-  }
+  const documentOf = (routes: object | readonly object[]) =>
+    openapi(createApp({ routes }), { info }).document;
 
-  test("one instance under two prefixes gets two ids", () => {
-    const users = new UsersController();
-
-    const app: App = createApp({
-      routes: [
-        group("/v1/users", { children: [users] }),
-        group("/v2/users", { children: [users] }),
-      ],
-    });
-
-    const ids = idsOf(openapi(app, { info }).document);
-
-    expect(ids).toHaveLength(2);
-    expect(new Set(ids).size).toBe(2);
-    expect(ids).toContain("usersList");
+  const users = (): { list: RouteDef } => ({
+    list: route({ method: "GET", path: "/", handler: () => [] }),
   });
 
-  test("two classes sharing a name get two ids", () => {
-    // The same class name from another module — nothing forbids it.
-    class Twin {
+  test("a named controller's route is the name and the field", () => {
+    const usersController = controller("Users", users);
+
+    expect(idsOf(documentOf(usersController()))).toEqual(["usersList"]);
+  });
+
+  test("a class is named by its constructor, without the Controller suffix", () => {
+    class UsersController {
       list = route({ method: "GET", path: "/", handler: () => [] });
     }
 
-    Object.defineProperty(Twin, "name", { value: "UsersController" });
-
-    const app: App = createApp({
-      routes: [
-        group("/users", { children: [new UsersController()] }),
-        group("/admin/users", { children: [new Twin()] }),
-      ],
-    });
-
-    const ids = idsOf(openapi(app, { info }).document);
-
-    expect(new Set(ids).size).toBe(2);
+    expect(idsOf(documentOf(new UsersController()))).toEqual(["usersList"]);
   });
 
-  test("the fallback is derived from the route, not from the visit order", () => {
-    const users = new UsersController();
+  test("an unnamed object's route is its field", () => {
+    expect(idsOf(documentOf(users()))).toEqual(["list"]);
+  });
 
-    const forward: App = createApp({
-      routes: [
-        group("/v1/users", { children: [users] }),
-        group("/v2/users", { children: [users] }),
-      ],
+  test("a standalone route is its method and path", () => {
+    const standalone = route({
+      method: "POST",
+      path: "/auth/code",
+      handler: () => null,
     });
 
-    const backward: App = createApp({
-      routes: [
-        group("/v2/users", { children: [users] }),
-        group("/v1/users", { children: [users] }),
-      ],
+    expect(idsOf(documentOf(standalone))).toEqual(["postAuthCode"]);
+  });
+
+  test("an id stated on the route wins", () => {
+    const merchants = controller("Merchants", () => ({
+      list: route({
+        method: "GET",
+        path: "/",
+        docs: { operationId: "listMerchants" },
+        handler: () => [],
+      }),
+    }));
+
+    expect(idsOf(documentOf(merchants()))).toEqual(["listMerchants"]);
+  });
+
+  test("two versions of one API are two controllers over one body", () => {
+    const usersV1 = controller("UsersV1", users);
+    const usersV2 = controller("UsersV2", users);
+
+    const document = documentOf([
+      group("/v1/users", { children: [usersV1()] }),
+      group("/v2/users", { children: [usersV2()] }),
+    ]);
+
+    expect(idsOf(document)).toEqual(["usersV1List", "usersV2List"]);
+  });
+
+  test("two routes arriving at one id are refused, naming both", () => {
+    const first = controller("First", () => ({
+      list: route({
+        method: "GET",
+        path: "/first",
+        docs: { operationId: "list" },
+        handler: () => [],
+      }),
+    }));
+
+    const second = controller("Second", () => ({
+      list: route({
+        method: "GET",
+        path: "/second",
+        docs: { operationId: "list" },
+        handler: () => [],
+      }),
+    }));
+
+    expect(() => documentOf([first(), second()])).toThrow(
+      'operationId "list" is taken by both GET /first and GET /second',
+    );
+  });
+
+  test("with docs() mounted, a collision stops the application at startup", () => {
+    const first = controller("Users", users);
+    const second = route({
+      method: "GET",
+      path: "/elsewhere",
+      docs: { operationId: "usersList" },
+      handler: () => [],
     });
 
-    const seen = [
-      ...idsOf(openapi(forward, { info }).document),
-      ...idsOf(openapi(backward, { info }).document),
-    ].filter((id) => id !== "usersList");
+    expect(() =>
+      createApp({ routes: [first(), second, docs({ info })] }),
+    ).toThrow('operationId "usersList" is taken by both');
+  });
 
-    // Whichever one lost the preferred name, it is named after its path.
-    expect(new Set(seen).size).toBe(2);
-    expect(seen.every((id) => /^getV[12]Users$/.test(id))).toBe(true);
+  test("a stated id meeting a derived one is refused too", () => {
+    const usersController = controller("Users", users);
+
+    const other = route({
+      method: "GET",
+      path: "/other",
+      docs: { operationId: "usersList" },
+      handler: () => [],
+    });
+
+    expect(() => documentOf([usersController(), other])).toThrow(
+      'operationId "usersList" is taken by both',
+    );
+  });
+
+  test("an unnamed object's field meeting another's is refused, not renamed", () => {
+    expect(() =>
+      documentOf([
+        group("/a", { children: [users()] }),
+        group("/b", { children: [users()] }),
+      ]),
+    ).toThrow('operationId "list" is taken by both GET /a and GET /b');
   });
 });
 

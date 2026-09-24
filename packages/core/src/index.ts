@@ -30,6 +30,7 @@ export type {
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
+export { controller } from "./controller.ts";
 export type {
   CookieAttributes,
   CookieOptions,

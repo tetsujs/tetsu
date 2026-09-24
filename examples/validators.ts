@@ -23,7 +23,7 @@
  * @module
  */
 
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 import { docs } from "@tetsujs/openapi";
 import { Type, tb } from "@tetsujs/typebox";
 import { toStandardJsonSchema } from "@valibot/to-json-schema";
@@ -46,39 +46,39 @@ const WithTypeBox = tb(
   Type.Object({ name: Type.String({ minLength: 1 }), qty: Type.Integer() }),
 );
 
-class ItemsController {
-  zod = route({
+const itemsController = controller("Items", () => ({
+  zod: route({
     method: "POST",
     path: "/zod",
     schema: { body: WithZod },
     handler: (ctx) => ctx.body,
-  });
+  }),
 
-  arktype = route({
+  arktype: route({
     method: "POST",
     path: "/arktype",
     schema: { body: WithArkType },
     handler: (ctx) => ctx.body,
-  });
+  }),
 
-  valibot = route({
+  valibot: route({
     method: "POST",
     path: "/valibot",
     schema: { body: WithValibot },
     handler: (ctx) => ctx.body,
-  });
+  }),
 
-  typebox = route({
+  typebox: route({
     method: "POST",
     path: "/typebox",
     schema: { body: WithTypeBox },
     handler: (ctx) => ctx.body,
-  });
-}
+  }),
+}));
 
 export default createApp({
   routes: [
-    new ItemsController(),
+    itemsController(),
     docs({ info: { title: "Validators", version: "1.0.0" } }),
   ],
 });

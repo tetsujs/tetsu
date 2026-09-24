@@ -79,19 +79,26 @@ export function operationOf(
 /**
  * Hands out the `operationId` of every route in one document.
  *
- * Uniqueness is a requirement of the specification and cannot be decided
- * one route at a time: the pair a name is built from — the controller and
- * the field — is not unique on its own. One instance mounted under two
- * prefixes is a documented pattern (`/v1` and `/v2` from the same
- * controller), and two controller classes in different modules may simply
- * share a class name. Either way the pair repeats while the routes differ.
+ * An `operationId` is a contract: a generated client names its methods
+ * after them, so an id that moves breaks code nobody reviewing the change
+ * sees. The id is therefore always stated or derived from names the
+ * author wrote — never from where a route happened to land:
  *
- * A repeat falls back to what the route is named by when it has no field
- * at all — its method and path — because that is derived from the route
- * rather than from the order routes were visited in. A numbered name is
- * the last resort only, since it would move between documents as routes
- * are added, and an `operationId` is what a generated client calls its
- * method.
+ * | | |
+ * | --- | --- |
+ * | `docs.operationId` on the route | taken as written |
+ * | a route of a named controller | the name and the field — `authRequestCode` |
+ * | a route of an unnamed object | the field — `requestCode` |
+ * | a route mounted standalone | its method and path — `postAuthCode` |
+ *
+ * Two routes arriving at one id is an error, not something to route
+ * around. Falling back to the method and path, or numbering the second
+ * one, would hand one of them an id that changes when a path is edited or
+ * a route is added — silently, in someone else's SDK. The error names
+ * both routes and the two ways out: a controller name of its own, or an
+ * id stated on the route. The core already refuses two controllers of
+ * one name; what reaches this is two stated ids, or a stated id meeting a
+ * derived one.
  */
 export interface OperationIds {
   /** The id for this route, unique within the document being built. */
@@ -99,46 +106,40 @@ export interface OperationIds {
 }
 
 export function operationIds(): OperationIds {
-  const taken = new Set<string>();
+  const taken = new Map<string, RouteTableEntry>();
 
   return {
     take(entry: RouteTableEntry): string {
-      const preferred = declaredId(entry) ?? derivedId(entry);
+      const id = idOf(entry);
+      const holder = taken.get(id);
 
-      if (!taken.has(preferred)) {
-        taken.add(preferred);
-
-        return preferred;
+      if (holder !== undefined) {
+        throw new Error(
+          `operationId "${id}" is taken by both ${describe(holder)} and ${describe(entry)} — a generated client would get one method for two operations. Give one of them docs.operationId, or its controller a name of its own.`,
+        );
       }
 
-      const derived = derivedId(entry);
+      taken.set(id, entry);
 
-      if (!taken.has(derived)) {
-        taken.add(derived);
-
-        return derived;
-      }
-
-      let name = derived;
-
-      for (let attempt = 2; taken.has(name); attempt += 1) {
-        name = `${derived}${attempt}`;
-      }
-
-      taken.add(name);
-
-      return name;
+      return id;
     },
   };
 }
 
-/**
- * The name the controller gave it: the field, qualified by the controller
- * — `usersSetAvatar` for `setAvatar` on `UsersController`.
- */
-function declaredId(entry: RouteTableEntry): string | undefined {
+/** The id a route asks for, before anything checks it is free. */
+function idOf(entry: RouteTableEntry): string {
+  const stated = entry.def.docs?.operationId;
+
+  if (stated !== undefined) {
+    return stated;
+  }
+
   if (entry.name === undefined) {
-    return undefined;
+    return derivedId(entry);
+  }
+
+  if (entry.controller === undefined) {
+    return entry.name;
   }
 
   const controller = entry.controller.replace(/Controller$/, "");
@@ -146,11 +147,14 @@ function declaredId(entry: RouteTableEntry): string | undefined {
   return `${lowerFirst(controller)}${capitalize(entry.name)}`;
 }
 
+/** How the error above names a route: the one line that finds it. */
+function describe(entry: RouteTableEntry): string {
+  return `${entry.method} ${entry.path}`;
+}
+
 /**
- * What identifies a route when its field does not: its method and path.
- *
- * Also the name of a route mounted standalone, which has no field to be
- * called after.
+ * What a route mounted standalone is named by: it has no field and no
+ * controller, and its method and path are what it has.
  */
 function derivedId(entry: RouteTableEntry): string {
   return `${entry.method.toLowerCase()}${entry.path

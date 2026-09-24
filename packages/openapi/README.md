@@ -16,7 +16,7 @@ import { docs } from "@tetsujs/openapi";
 
 createApp({
   routes: [
-    group("/api", { children: [new UsersController(users)] }),
+    group("/api", { children: [usersController({ users })] }),
     docs({ info: { title: "Users API", version: "1.0.0" } }),
   ],
 });
@@ -53,10 +53,30 @@ routes are left out of the document.
 | `schema.body` and `bodyType` | the request body and its media types |
 | `schema.response` | responses — one, or one per status of a map; `null` is a status without a body |
 | `docs` | `summary`, `description`, `tags`, `deprecated` |
-| the controller and field | `operationId`: `setAvatar` on `UsersController` → `usersSetAvatar` |
+| the controller's name and the field | `operationId`: `setAvatar` in `controller("Users", …)` → `usersSetAvatar` |
 
 `docs: { hidden: true }` leaves a route out of the document; it is served
 as before.
+
+## Operation ids
+
+A generated client names its methods after the `operationId`s, so they are
+a contract, and every one comes from a name you wrote:
+
+| Route | `operationId` |
+| --- | --- |
+| with `docs: { operationId }` | as written |
+| in `controller("Users", …)` as `setAvatar` | `usersSetAvatar` |
+| in a class `UsersController` as `setAvatar` | `usersSetAvatar` |
+| in an object literal as `setAvatar` | `setAvatar` |
+| mounted on its own, `POST /auth/code` | `postAuthCode` |
+
+Two routes arriving at the same id stop the application at startup, naming
+both — nothing is renamed behind your back, which would change a method in
+someone's SDK the day a route is added. Give one of them
+`docs.operationId`, or its controller a name of its own. On a public API,
+state the id on every route: it is then visible, and a change to it is a
+change a reviewer sees.
 
 ```ts
 route({

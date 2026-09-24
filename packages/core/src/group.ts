@@ -94,10 +94,10 @@ export interface GroupNode<
  * const app = createApp({
  *   routes: group("/api/v1", {
  *     children: [
- *       new UsersController(usersService),
+ *       usersController({ users }),
  *       group("/admin", {
  *         hooks: { beforeParse: [requireAdmin] },
- *         children: [new AdminController(adminService)],
+ *         children: [adminController({ admin })],
  *       }),
  *     ],
  *   }),

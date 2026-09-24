@@ -140,7 +140,7 @@ export class DocsController<Path extends string, UiPath extends string> {
  * ```ts
  * createApp({
  *   routes: [
- *     group("/api", { children: [new UsersController(users)] }),
+ *     group("/api", { children: [usersController({ users })] }),
  *     docs({ info: { title: "Users API", version: "1.0.0" } }),
  *   ],
  * });

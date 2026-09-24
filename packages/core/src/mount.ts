@@ -48,19 +48,20 @@ export const appBrand: unique symbol = Symbol.for("tetsu.app");
  *
  * @example A controller that answers with the routes of its application
  * ```ts
- * class RoutesController implements Mountable {
- *   private app: App | undefined;
+ * export const routesController = controller("Routes", () => {
+ *   let mounted: App | undefined;
  *
- *   [onMount](app: App): void {
- *     this.app = app;
- *   }
- *
- *   list = route({
- *     method: "GET",
- *     path: "/routes",
- *     handler: () => this.app?.entries.map((entry) => entry.path) ?? [],
- *   });
- * }
+ *   return {
+ *     [onMount]: (app: App) => {
+ *       mounted = app;
+ *     },
+ *     list: route({
+ *       method: "GET",
+ *       path: "/routes",
+ *       handler: () => mounted?.entries.map((entry) => entry.path) ?? [],
+ *     }),
+ *   };
+ * });
  * ```
  */
 export interface Mountable {

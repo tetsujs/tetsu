@@ -19,7 +19,7 @@
  * @module
  */
 
-import { createApp, httpError, route } from "@tetsujs/core";
+import { controller, createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 
 const ItemId = z.object({ id: z.coerce.number().int().positive() });
@@ -40,50 +40,50 @@ interface Item {
   readonly qty: number;
 }
 
-class ItemsController {
-  private readonly items: Item[] = [{ id: 1, name: "pen", qty: 3 }];
+const itemsController = controller("Items", () => {
+  const items: Item[] = [{ id: 1, name: "pen", qty: 3 }];
 
-  list = route({
-    method: "GET",
-    path: "/items",
-    schema: { query: Page },
-    handler: (ctx) => {
-      const { page, size } = ctx.query;
+  return {
+    list: route({
+      method: "GET",
+      path: "/items",
+      schema: { query: Page },
+      handler: (ctx) => {
+        const { page, size } = ctx.query;
 
-      return this.items.slice((page - 1) * size, page * size);
-    },
-  });
+        return items.slice((page - 1) * size, page * size);
+      },
+    }),
 
-  get = route({
-    method: "GET",
-    path: "/items/:id",
-    schema: { params: ItemId },
-    handler: (ctx) => {
-      const item = this.items.find(
-        (candidate) => candidate.id === ctx.params.id,
-      );
+    get: route({
+      method: "GET",
+      path: "/items/:id",
+      schema: { params: ItemId },
+      handler: (ctx) => {
+        const item = items.find((candidate) => candidate.id === ctx.params.id);
 
-      if (!item) {
-        throw httpError(404, "ITEM_NOT_FOUND");
-      }
+        if (!item) {
+          throw httpError(404, "ITEM_NOT_FOUND");
+        }
 
-      return item;
-    },
-  });
+        return item;
+      },
+    }),
 
-  create = route({
-    method: "POST",
-    path: "/items",
-    schema: { body: NewItem },
-    handler: (ctx) => {
-      const item = { id: this.items.length + 1, ...ctx.body };
+    create: route({
+      method: "POST",
+      path: "/items",
+      schema: { body: NewItem },
+      handler: (ctx) => {
+        const item = { id: items.length + 1, ...ctx.body };
 
-      this.items.push(item);
-      ctx.out.status = 201;
+        items.push(item);
+        ctx.out.status = 201;
 
-      return item;
-    },
-  });
-}
+        return item;
+      },
+    }),
+  };
+});
 
-export default createApp({ routes: new ItemsController() });
+export default createApp({ routes: itemsController() });

@@ -21,7 +21,7 @@
  */
 
 import type { Requires } from "@tetsujs/core";
-import { createApp, HttpError, hook, route } from "@tetsujs/core";
+import { controller, createApp, HttpError, hook, route } from "@tetsujs/core";
 import { z } from "zod";
 
 interface User {
@@ -77,16 +77,16 @@ const conflicts = hook.onError((ctx) =>
 
 const OrderId = z.object({ id: z.coerce.number().int().positive() });
 
-class OrdersController {
-  get = route({
+const ordersController = controller("Orders", () => ({
+  get: route({
     method: "GET",
     path: "/orders/:id",
     schema: { params: OrderId },
     hooks: { beforeParse: [authenticate], beforeHandle: [loadOrder] },
     handler: (ctx) => ctx.order,
-  });
+  }),
 
-  cancel = route({
+  cancel: route({
     method: "POST",
     path: "/orders/:id/cancel",
     schema: { params: OrderId },
@@ -104,10 +104,10 @@ class OrdersController {
 
       return ctx.order;
     },
-  });
-}
+  }),
+}));
 
 export default createApp({
   hooks: { afterResponse: [log] },
-  routes: new OrdersController(),
+  routes: ordersController(),
 });

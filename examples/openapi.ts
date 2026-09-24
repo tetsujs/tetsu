@@ -18,6 +18,7 @@
  */
 
 import {
+  controller,
   createApp,
   group,
   HttpError,
@@ -58,47 +59,49 @@ const NotFound = z.object({
   error: z.string(),
 });
 
-class BooksController {
-  private readonly books = new Map<number, z.infer<typeof Book>>([
+const booksController = controller("Books", () => {
+  const books = new Map<number, z.infer<typeof Book>>([
     [1, { id: 1, title: "SICP", year: 1985 }],
   ]);
 
-  get = route({
-    method: "GET",
-    path: "/books/:id",
-    schema: { params: BookId, response: { 200: Book, 404: NotFound } },
-    docs: { summary: "Get a book", tags: ["books"] },
-    handler: (ctx) => {
-      const book = this.books.get(ctx.params.id);
+  return {
+    get: route({
+      method: "GET",
+      path: "/books/:id",
+      schema: { params: BookId, response: { 200: Book, 404: NotFound } },
+      docs: { summary: "Get a book", tags: ["books"] },
+      handler: (ctx) => {
+        const book = books.get(ctx.params.id);
 
-      if (!book) {
-        throw httpError(404, "BOOK_NOT_FOUND");
-      }
+        if (!book) {
+          throw httpError(404, "BOOK_NOT_FOUND");
+        }
 
-      return book;
-    },
-  });
+        return book;
+      },
+    }),
 
-  create = route({
-    method: "POST",
-    path: "/books",
-    schema: { body: NewBook, response: { 201: Book } },
-    hooks: { beforeParse: [bearer] },
-    docs: { summary: "Add a book", tags: ["books"] },
-    handler: (ctx) => {
-      const book = { id: this.books.size + 1, ...ctx.body };
+    create: route({
+      method: "POST",
+      path: "/books",
+      schema: { body: NewBook, response: { 201: Book } },
+      hooks: { beforeParse: [bearer] },
+      docs: { summary: "Add a book", tags: ["books"] },
+      handler: (ctx) => {
+        const book = { id: books.size + 1, ...ctx.body };
 
-      this.books.set(book.id, book);
-      ctx.out.status = 201;
+        books.set(book.id, book);
+        ctx.out.status = 201;
 
-      return book;
-    },
-  });
-}
+        return book;
+      },
+    }),
+  };
+});
 
 export default createApp({
   routes: [
-    group("/api", { children: [new BooksController()] }),
+    group("/api", { children: [booksController()] }),
     docs({ info: { title: "Books", version: "1.0.0" } }),
   ],
 });

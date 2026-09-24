@@ -25,7 +25,14 @@
  * @module
  */
 
-import { createApp, group, HttpError, hook, route } from "@tetsujs/core";
+import {
+  controller,
+  createApp,
+  group,
+  HttpError,
+  hook,
+  route,
+} from "@tetsujs/core";
 import { cors } from "@tetsujs/cors";
 import { rateLimit } from "@tetsujs/rate-limit";
 import { accessLog, requestId } from "@tetsujs/request-id";
@@ -48,14 +55,14 @@ const id = requestId();
 const log = accessLog();
 const secure = secureHeaders();
 
-class StatusController {
-  status = route({
+const statusController = controller("Status", () => ({
+  status: route({
     method: "GET",
     path: "/status",
     handler: () => ({ ok: true }),
-  });
+  }),
 
-  feedback = route({
+  feedback: route({
     method: "POST",
     path: "/feedback",
     hooks: { beforeParse: [limit] },
@@ -64,16 +71,16 @@ class StatusController {
 
       return { accepted: true };
     },
-  });
-}
+  }),
+}));
 
-class AdminController {
-  stats = route({
+const adminController = controller("Admin", () => ({
+  stats: route({
     method: "GET",
     path: "/stats",
     handler: () => ({ users: 42 }),
-  });
-}
+  }),
+}));
 
 export default createApp({
   hooks: {
@@ -83,10 +90,10 @@ export default createApp({
   },
   routes: group("/api", {
     children: [
-      new StatusController(),
+      statusController(),
       group("/admin", {
         hooks: { beforeParse: [adminOnly] },
-        children: [new AdminController()],
+        children: [adminController()],
       }),
     ],
   }),

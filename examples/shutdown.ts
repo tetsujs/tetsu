@@ -18,35 +18,36 @@
  * @module
  */
 
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 import { onShutdownSignals } from "@tetsujs/lifecycle";
 
-class HealthController {
-  constructor(private readonly stopping: () => boolean) {}
+const healthController = controller(
+  "Health",
+  ({ stopping }: { readonly stopping: () => boolean }) => ({
+    ready: route({
+      method: "GET",
+      path: "/ready",
+      handler: () =>
+        stopping()
+          ? Response.json({ ready: false }, { status: 503 })
+          : { ready: true },
+    }),
 
-  ready = route({
-    method: "GET",
-    path: "/ready",
-    handler: () =>
-      this.stopping()
-        ? Response.json({ ready: false }, { status: 503 })
-        : { ready: true },
-  });
+    slow: route({
+      method: "GET",
+      path: "/slow",
+      handler: async () => {
+        await Bun.sleep(3_000);
 
-  slow = route({
-    method: "GET",
-    path: "/slow",
-    handler: async () => {
-      await Bun.sleep(3_000);
-
-      return { done: true };
-    },
-  });
-}
+        return { done: true };
+      },
+    }),
+  }),
+);
 
 const server = Bun.serve({
   ...createApp({
-    routes: new HealthController(() => shutdown.stopping.aborted),
+    routes: healthController({ stopping: () => shutdown.stopping.aborted }),
   }),
   port: Number(Bun.env.PORT ?? 3000),
 });

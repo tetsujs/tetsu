@@ -2,33 +2,33 @@
 
 # Tetsu
 
-Tetsu (鉄, "iron") is an HTTP framework for Bun: controllers as plain
-classes, lifecycle hooks instead of middleware, and types inferred from end
-to end — without decorators, a DI container or dependencies in the core.
+Tetsu (鉄, "iron") is an HTTP framework for Bun: controllers declared with
+the dependencies they need, lifecycle hooks in fixed slots instead of
+middleware, and types inferred from end to end — down to the order of the
+hooks, checked by the compiler — without decorators, a DI container or
+dependencies in the core.
 
 ```ts
-import { createApp, httpError, route } from "@tetsujs/core";
+import { controller, createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 
-class UsersController {
-  constructor(private users: UserRepository) {}
-
-  get = route({
+const usersController = controller("Users", ({ users }: { users: UserRepository }) => ({
+  get: route({
     method: "GET",
     path: "/users/:id",
     schema: { params: z.object({ id: z.coerce.number() }) },
     handler: (ctx) => {
-      const user = this.users.find(ctx.params.id);
-      //                                  ^? number — from the schema
+      const user = users.find(ctx.params.id);
+      //                             ^? number — from the schema
 
       if (!user) throw httpError(404, "USER_NOT_FOUND");
 
       return user;
     },
-  });
-}
+  }),
+}));
 
-const app = createApp({ routes: new UsersController(users) });
+const app = createApp({ routes: usersController({ users }) });
 
 Bun.serve({ ...app, port: 3000 });
 ```
@@ -61,17 +61,17 @@ types name Bun's own (`Bun.Server`, `CookieMap`), so the project needs
 
 ```ts
 // server.ts
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 
-class HelloController {
-  greet = route({
+const helloController = controller("Hello", () => ({
+  greet: route({
     method: "GET",
     path: "/hello/:name",
     handler: (ctx) => ({ hello: ctx.params.name }),
-  });
-}
+  }),
+}));
 
-const app = createApp({ routes: new HelloController() });
+const app = createApp({ routes: helloController() });
 
 Bun.serve({ ...app, port: 3000 });
 ```
@@ -86,10 +86,10 @@ and `Bun.serve` takes it as it is. There is no server object of our own.
 
 ## Philosophy
 
-1. **Classes without decorators.** The structure of Nest — controllers,
-   explicit composition — in standard TypeScript. A controller is any object
-   whose fields are `route()`s; the framework reads the fields and nothing
-   else, not the file name, not the class, not metadata.
+1. **Controllers without decorators.** A controller is a named function
+   from its dependencies to its routes, called once where the application
+   is wired. The framework reads the routes it returns and nothing else —
+   not the file name, not a class, not metadata.
 2. **Flat, and no magic.** No global registry, no file scanning, no
    reflection, no container. The application is a tree of objects wired by
    hand in one place, and any point of it reads top to bottom.
@@ -109,28 +109,61 @@ and `Bun.serve` takes it as it is. There is no server object of our own.
 
 ### Routes and controllers
 
-A route is a field created by `route()`. A controller is any object holding
-such fields — a class when it has dependencies, a literal when it does not:
+A route is created by `route()`. A controller is a name and a function from
+its dependencies to its routes:
 
 ```ts
-class OrdersController {
-  constructor(private orders: OrderService) {}
+import { controller, route } from "@tetsujs/core";
 
-  list = route({ method: "GET", path: "/orders", handler: () => this.orders.all() });
+export interface OrdersDeps {
+  readonly orders: OrderService;
 }
 
-const health = {
-  live: route({ method: "GET", path: "/live", handler: () => "ok" }),
-};
+export const ordersController = controller("Orders", ({ orders }: OrdersDeps) => ({
+  list: route({ method: "GET", path: "/orders", handler: () => orders.all() }),
+  get: route({ method: "GET", path: "/orders/:id", handler: (ctx) => orders.find(ctx.params.id) }),
+}));
 
-const app = createApp({ routes: [new OrdersController(orders), health] });
+export const healthController = controller("Health", () => ({
+  live: route({ method: "GET", path: "/live", handler: () => "ok" }),
+}));
+
+// main.ts — the one place the application is wired
+const app = createApp({
+  routes: [ordersController({ orders }), healthController()],
+});
 ```
 
-Dependencies are passed by hand, in the one file that builds the
-application. Paths are checked at compile time: `:id` is a parameter, `*`
-is allowed only as the whole last segment, and syntax that looks like a
-parameter but is not one — `{id}`, `:id?` — is refused rather than matched
-literally.
+It is a function, and not a class, because a route reads what it declares
+— its hooks, its schemas, its body limit — when it is declared. A function
+has its dependencies from its first line; a class's fields are initialized
+before its constructor's parameters are assigned, so a hook built from a
+constructor argument in a field is built from `undefined`. Services stay
+classes: a service is behaviour other code calls, a controller is a
+declaration made once.
+
+A hook that needs a service is built inside the controller, next to the
+routes that mount it. A hook whose state several controllers must share —
+one rate limit budget — is made once in `main.ts` and passed in like a
+service.
+
+The name is a contract: `@tetsujs/openapi` builds every `operationId` from
+it (`ordersList`), and a generated client names its methods after those.
+Renaming the variable changes nothing a client sees; changing the name
+does, where a reviewer sees it. Two controllers of one application cannot
+share a name — it is refused at startup — so two versions of an API are two
+names over one body:
+
+```ts
+const users = ({ users }: UsersDeps) => ({ list: route({ … }) });
+
+export const usersV1 = controller("UsersV1", users);
+export const usersV2 = controller("UsersV2", users);
+```
+
+Paths are checked at compile time: `:id` is a parameter, `*` is allowed
+only as the whole last segment, and syntax that looks like a parameter but
+is not one — `{id}`, `:id?` — is refused rather than matched literally.
 
 `ctx.route` is the route that matched, as declared, which is what a log
 line or a metric should be labelled with:
@@ -139,7 +172,7 @@ line or a metric should be labelled with:
 handler: (ctx) => {
   ctx.route.path;       // "/api/users/:id" — the template, not the URL
   ctx.route.method;     // "GET"
-  ctx.route.controller; // "UsersController"
+  ctx.route.controller; // "Users"
   ctx.route.name;       // "get"
 },
 ```
@@ -329,10 +362,10 @@ createApp({
   },
   routes: group("/api", {
     children: [
-      new StatusController(),
+      statusController(),
       group("/admin", {
         hooks: { beforeParse: [adminOnly] },
-        children: [new AdminController()],
+        children: [adminController()],
       }),
     ],
   }),
@@ -383,7 +416,9 @@ A few habits keep it that way:
   A helper that returns plain arrays or a `Record<string, …>` is refused
   where it is mounted: nothing in it could be checked.
 - **State lives in the instance.** One `rateLimit()` mounted on two groups
-  shares its counters between them. For separate budgets, make two.
+  shares its counters between them. For separate budgets, make two. A hook
+  made inside a controller is that controller's own; one whose state is
+  shared is made in `main.ts` and passed in.
 - **An instance runs once per request.** The same hook mounted twice in one
   route's chain — on a group and on a route under it — is refused at
   startup.
@@ -454,9 +489,9 @@ context built by `testCtx()`:
 ```ts
 import { testCtx } from "@tetsujs/core/testing";
 
-const controller = new UsersController(users);
+const routes = usersController({ users });
 
-expect(controller.get.handler(testCtx({ params: { id: 1 } }))).toEqual(user);
+expect(routes.get.handler(testCtx({ params: { id: 1 } }))).toEqual(user);
 ```
 
 Integration tests go through a real server, because Bun's router is only
@@ -466,7 +501,7 @@ it when the test file finishes:
 ```ts
 import { serve } from "@tetsujs/core/testing";
 
-const request = serve(createApp({ routes: new UsersController(users) }));
+const request = serve(createApp({ routes: usersController({ users }) }));
 
 expect((await request("/users/1")).status).toBe(200);
 ```
@@ -519,13 +554,21 @@ how the pieces sit in a project.
 
 ## FAQ
 
-#### Why classes, but no decorators or DI container?
+#### Why no decorators or DI container?
 
-Classes give a codebase structure: a controller groups related routes and
-receives its dependencies in the constructor. Decorators and a container
-add a second, hidden layer on top — metadata, registration, resolution
-order — that the compiler cannot check and a reader cannot follow. Here
-the wiring is ordinary code in one file.
+Decorators and a container add a second, hidden layer — metadata,
+registration, resolution order — that the compiler cannot check and a
+reader cannot follow. Here a controller receives its dependencies as the
+argument of a function, and the wiring is ordinary code in one file.
+
+#### Can a controller be a class?
+
+The framework reads routes from any object, so an instance works, and is
+named after its class. But a route declared as a field is built before the
+constructor has assigned its parameters: a hook made from a constructor
+argument there is made from `undefined` (the compiler reports it as
+TS2729). A hook whose body reads `this.service` only when it runs avoids
+that; `controller()` avoids the question.
 
 #### Why only Bun?
 
@@ -535,11 +578,12 @@ second router and wrappers around everything else.
 
 #### How is it different from Nest, Hono or Elysia?
 
-From Nest: the same controller-based structure, without decorators,
+From Nest: controllers and explicit composition, without decorators,
 reflection or a container, and with request types inferred rather than
-declared. From Hono: classes and a fixed lifecycle instead of middleware,
-and Bun only. From Elysia: controllers as classes instead of a method
-chain, and explicit wiring instead of plugins.
+declared. From Hono: named controllers and a fixed lifecycle instead of
+middleware, and Bun only. From Elysia: controllers instead of a method
+chain, and explicit wiring instead of plugins. From all three: the order of
+hooks, what each one needs and what it adds, checked by the compiler.
 
 #### Why does `ctx.user` from a group hook not show up in the handler's type?
 

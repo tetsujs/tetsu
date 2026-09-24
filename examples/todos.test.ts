@@ -17,7 +17,7 @@ import {
   MemoryTodoStore,
   type Todo,
   type TodoStore,
-  TodosController,
+  todosController,
 } from "./todos.ts";
 
 describe("a handler, called directly", () => {
@@ -28,24 +28,22 @@ describe("a handler, called directly", () => {
     add: () => stored,
   };
 
-  const controller = new TodosController(store);
+  const routes = todosController({ store });
 
   test("returns what the store holds", () => {
-    expect(controller.get.handler(testCtx({ params: { id: 7 } }))).toEqual(
-      stored,
-    );
+    expect(routes.get.handler(testCtx({ params: { id: 7 } }))).toEqual(stored);
   });
 
   test("throws a 404 for what it does not", () => {
-    expect(() =>
-      controller.get.handler(testCtx({ params: { id: 8 } })),
-    ).toThrow(HttpError);
+    expect(() => routes.get.handler(testCtx({ params: { id: 8 } }))).toThrow(
+      HttpError,
+    );
   });
 });
 
 describe("the application, over HTTP", () => {
   const request = serve(
-    createApp({ routes: new TodosController(new MemoryTodoStore()) }),
+    createApp({ routes: todosController({ store: new MemoryTodoStore() }) }),
   );
 
   test("creates, then finds", async () => {
