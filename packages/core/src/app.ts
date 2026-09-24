@@ -433,7 +433,7 @@ export function createApp<
     printRoutes: () => {
       for (const entry of table.entries) {
         console.log(
-          `${entry.method.padEnd(6)} ${entry.path}  → ${entry.controller}`,
+          `${entry.method.padEnd(6)} ${entry.path}  → ${entry.controller ?? "—"}`,
         );
       }
     },

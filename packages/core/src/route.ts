@@ -53,6 +53,18 @@ export interface RouteDocs {
    * is simply absent.
    */
   readonly hidden?: boolean;
+
+  /**
+   * The operation's id in the generated document, stated rather than
+   * derived.
+   *
+   * Without it the id is the controller's name joined with the route's
+   * field — `authRequestCode` — which is stable as long as those two are.
+   * State it where the id is a contract of its own: on a public API, a
+   * generated SDK names its methods after these, and an id written here
+   * is one a reviewer sees change.
+   */
+  readonly operationId?: string;
 }
 
 /**

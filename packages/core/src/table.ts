@@ -22,6 +22,7 @@
  */
 
 import type { BodyType, RouteInfo, SchemaConfig } from "./context.ts";
+import { nameOf } from "./controller.ts";
 import type { GroupHooks, GroupNode } from "./group.ts";
 import { isGroup } from "./group.ts";
 import type { AnyHook, SlotName } from "./hook.ts";
@@ -53,8 +54,13 @@ export interface RouteTableEntry {
   /** Precomputed hook chains in execution order. */
   readonly hooks: MergedHooks;
 
-  /** Constructor name of the owning controller, for diagnostics. */
-  readonly controller: string;
+  /**
+   * The name of the controller the route was collected from: the one
+   * `controller()` gave it, or its class's. Absent for an object literal
+   * and for a route mounted standalone, which have nothing to be named
+   * after.
+   */
+  readonly controller?: string;
 
   /**
    * What a request matching this entry sees as `ctx.route`.
@@ -231,6 +237,7 @@ export function buildRouteTable(input: {
   const mounted = new Set<Mountable>();
   const seen = new Map<string, RouteTableEntry>();
   const shapes = new Map<string, RouteTableEntry>();
+  const names = new Set<string>();
 
   /**
    * Puts one route into the table, with the path and chains it ended up
@@ -242,7 +249,7 @@ export function buildRouteTable(input: {
     def: RouteDef,
     prefix: string,
     chains: MergedHooks,
-    controller: string,
+    controller: string | undefined,
     name?: string,
     socket?: WsDef,
   ): void => {
@@ -252,7 +259,7 @@ export function buildRouteTable(input: {
 
     if (existing) {
       throw new Error(
-        `Duplicate route: ${key} is defined by both "${existing.controller}" and "${controller}"`,
+        `Duplicate route: ${key} is defined by both ${owner(existing.controller, existing.name)} and ${owner(controller, name)}`,
       );
     }
 
@@ -261,7 +268,7 @@ export function buildRouteTable(input: {
 
     if (shadowed && shadowed.path !== path) {
       throw new Error(
-        `Conflicting routes: "${shadowed.path}" from "${shadowed.controller}" and "${path}" from "${controller}" differ only in parameter names — Bun's router matches them as one pattern, so the later one shadows the earlier. Name the parameter the same in both.`,
+        `Conflicting routes: "${shadowed.path}" from ${owner(shadowed.controller, shadowed.name)} and "${path}" from ${owner(controller, name)} differ only in parameter names — Bun's router matches them as one pattern, so the later one shadows the earlier. Name the parameter the same in both.`,
       );
     }
 
@@ -274,11 +281,11 @@ export function buildRouteTable(input: {
       path,
       def,
       hooks,
-      controller,
+      ...(controller === undefined ? {} : { controller }),
       route: {
         method: def.method,
         path,
-        controller,
+        ...(controller === undefined ? {} : { controller }),
         ...(name === undefined ? {} : { name }),
       },
       ...(name === undefined ? {} : { name }),
@@ -301,7 +308,7 @@ export function buildRouteTable(input: {
     def: WsDef,
     prefix: string,
     chains: MergedHooks,
-    controller: string,
+    controller: string | undefined,
     name?: string,
   ): void => {
     register(
@@ -355,13 +362,13 @@ export function buildRouteTable(input: {
     }
 
     if (isRoute(node)) {
-      register(node, prefix, chains, "(standalone)");
+      register(node, prefix, chains, undefined);
 
       return;
     }
 
     if (isWs(node)) {
-      registerSocket(node, prefix, chains, "(standalone)");
+      registerSocket(node, prefix, chains, undefined);
 
       return;
     }
@@ -386,18 +393,28 @@ export function buildRouteTable(input: {
       ([, value]) => isRoute(value) || isWs(value),
     );
 
-    const controller = node.constructor?.name ?? "Object";
+    const controller = nameOf(node);
 
     assertNoRouteAccessors(node, controller);
 
     if (fields.length === 0) {
       if (!isMountable(node)) {
         warnings.push(
-          `Controller "${controller}" defines no routes — did you forget route()?`,
+          `${controller === undefined ? "A controller" : `Controller "${controller}"`} defines no routes — did you forget route()?`,
         );
       }
 
       return;
+    }
+
+    if (controller !== undefined) {
+      if (names.has(controller)) {
+        throw new Error(
+          `Two controllers are named "${controller}" — every operationId of a controller's routes is built from its name, so theirs would collide. Give each its own name.`,
+        );
+      }
+
+      names.add(controller);
     }
 
     for (const [name, def] of fields) {
@@ -437,7 +454,27 @@ export function buildRouteTable(input: {
  * throws is left alone — its failure is not this function's to report —
  * and the rest cost one call each, at startup, on objects that are data.
  */
-function assertNoRouteAccessors(node: object, controller: string): void {
+/**
+ * How a diagnostic names where a route came from: its controller, or the
+ * field of an unnamed one, or neither for a route mounted standalone.
+ */
+function owner(
+  controller: string | undefined,
+  name: string | undefined,
+): string {
+  if (controller !== undefined) {
+    return `"${controller}"`;
+  }
+
+  return name === undefined
+    ? "a standalone route"
+    : `the "${name}" route of an unnamed controller`;
+}
+
+function assertNoRouteAccessors(
+  node: object,
+  controller: string | undefined,
+): void {
   for (
     let level = Object.getPrototypeOf(node) as object | null;
     level !== null && level !== Object.prototype;
@@ -460,7 +497,7 @@ function assertNoRouteAccessors(node: object, controller: string): void {
 
       if (isRoute(value) || isWs(value)) {
         throw new Error(
-          `Controller "${controller}" declares "${name}" with "get", and a route must be a field: routes are read from the controller's own properties, so a getter on the class prototype is typed into the application but never served`,
+          `Controller "${controller ?? "(unnamed)"}" declares "${name}" with "get", and a route must be a field: routes are read from the controller's own properties, so a getter on the class prototype is typed into the application but never served`,
         );
       }
     }

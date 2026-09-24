@@ -219,8 +219,12 @@ export interface RouteInfo {
    */
   readonly path: string;
 
-  /** Constructor name of the controller the route was collected from. */
-  readonly controller: string;
+  /**
+   * The name of the controller the route was collected from — the one
+   * `controller()` gave it, or its class's. Absent for an object literal
+   * and a route mounted standalone, which have nothing to be named after.
+   */
+  readonly controller?: string;
 
   /**
    * The field name the route was declared under, when it had one.
