@@ -18,6 +18,11 @@ API.
   field of their own; it used to print two lines.
 - `@tetsujs/lifecycle`: `onShutdownSignals` takes `reportError` for the
   closers that threw.
+- A hook of a group or of the application sees what the hooks before it
+  at the same level contributed. `[requestId(), { beforeParse: [scope] }]`
+  compiles, so the `AsyncLocalStorage` recipe in `@tetsujs/request-id`
+  works on the application, where it covers every request. Before, such a
+  hook could require only the slot's base context.
 
 ## 0.1.0 — 2026-09-24
 

@@ -175,52 +175,205 @@ export type ValidateStaticStack<
 /**
  * Validates one slot's hook tuple for a group or the application.
  *
- * Unlike `ValidateStack`, there is no accumulated context to check against:
- * a group does not know which routes it will contain, so a hook it carries
- * may require no more than what the slot itself guarantees (`SlotBases`).
+ * A group does not know which routes it will contain, so a hook it carries
+ * may require no more than what the slot itself guarantees (`SlotBases`)
+ * and what the hooks before it **at the same level** contributed. Those
+ * are known: a level's hooks are written in one call, joined in list
+ * order, and run before anything of the routes below — `requestId()`
+ * followed by a hook that reads `ctx.requestId` is a chain the compiler
+ * can follow. A route's schemas and hooks stay out of reach, and so do an
+ * enclosing level's: a group is typed where it is written, not where it is
+ * mounted.
+ *
+ * `Ctx` is what the slot sees before this tuple: the slot base merged with
+ * what preceding sets of the level contributed (`ValidateGroupHooks` works
+ * it out). In the slots that extend the context each hook's contribution
+ * joins it for the hooks after it; the response slots and `onError` keep
+ * it fixed, for the reason `ValidateStaticStack` gives.
  *
  * The check must be this explicit conditional. `Req` sits in a covariant
- * phantom position, so plain assignability to `Hook<Slot, SlotBases[Slot],
- * unknown>` tests the opposite direction — it rejects hooks requiring
- * *less* than the slot base and admits hooks requiring *more*, which is
- * exactly the hook a group cannot satisfy.
+ * phantom position, so plain assignability to `Hook<Slot, Ctx, unknown>`
+ * tests the opposite direction — it rejects hooks requiring *less* than
+ * the context and admits hooks requiring *more*, which is exactly the hook
+ * a group cannot satisfy.
  *
  * Internal to the core: applied by `group()` and `createApp()` through
- * `ValidateGroupHooks`.
+ * `ValidateGroupHooksInput`.
  */
 export type ValidateGroupStack<
   Hooks,
   Slot extends SlotName,
+  Ctx = SlotBases[Slot],
 > = Hooks extends readonly [infer H, ...infer Rest]
-  ? H extends Hook<Slot, infer Req, unknown>
-    ? [SlotBases[Slot]] extends [Req]
-      ? readonly [H, ...ValidateGroupStack<Rest, Slot>]
+  ? H extends Hook<Slot, infer Req, infer Ext>
+    ? [Ctx] extends [Req]
+      ? readonly [
+          H,
+          ...ValidateGroupStack<Rest, Slot, GroupNext<Ctx, Ext, Slot>>,
+        ]
       : readonly [
-          HookRequirementError<`Hook requires context '${MissingKeys<Req, SlotBases[Slot]>}' which a group cannot provide — typed context comes from a route's own schemas and hooks`>,
-          ...ValidateGroupStack<Rest, Slot>,
+          HookRequirementError<`Hook requires context '${MissingKeys<Req, Ctx>}' which neither its slot nor a preceding hook of this group or application provides — a route's schemas and hooks are out of a group's reach`>,
+          ...ValidateGroupStack<Rest, Slot, GroupNext<Ctx, Ext, Slot>>,
         ]
     : H extends AnyHook
       ? readonly [
           HookSlotError<`Hook of slot '${SlotOf<H> & string}' cannot be placed into '${Slot}'`>,
-          ...ValidateGroupStack<Rest, Slot>,
+          ...ValidateGroupStack<Rest, Slot, Ctx>,
         ]
       : readonly [
           HookSlotError<`A bare function is not a hook — wrap it with hook.${Slot}(...)`>,
-          ...ValidateGroupStack<Rest, Slot>,
+          ...ValidateGroupStack<Rest, Slot, Ctx>,
         ]
   : Hooks extends readonly []
     ? Hooks
     : readonly HookStackError<"A widened hook array loses its element types and cannot be checked — build the stack with stack(...) or inline the tuple">[];
 
+/** The slots whose hooks extend the context. */
+type ExtendingSlot = "beforeParse" | "beforeValidation" | "beforeHandle";
+
+/** The context after one group hook: extended, in a slot that extends. */
+type GroupNext<Ctx, Ext, Slot extends SlotName> = Slot extends ExtendingSlot
+  ? Merge<Ctx, LevelVisible<Ext>>
+  : Ctx;
+
 /**
- * Validates a full group-level (or application-level) hooks config: every
- * slot's tuple is checked against what that slot alone guarantees.
- *
- * Internal to the core: `group()` and `createApp()` intersect their
- * `hooks` property with this type.
+ * The request parts a route's schemas own: `validate()` overwrites them
+ * with the route's validated values. Internal to the core.
  */
-export type ValidateGroupHooks<H> = {
-  readonly [K in SlotName]?: ValidateGroupStack<StackOf<H, K>, K>;
+type SchemaOwnedKey = "params" | "query" | "body" | "headers" | "cookies";
+
+/**
+ * A contribution as the rest of its level may rely on it.
+ *
+ * Without the parts a route's schemas own. A group hook that normalizes
+ * `ctx.query` hands its successors a value that validation may replace
+ * before they run — and whether it does is up to routes the group has
+ * never seen — so the field is not promised to anyone at the level.
+ */
+type LevelVisible<Ext> = [keyof Ext] extends [never]
+  ? Ext
+  : string extends keyof Ext
+    ? Ext
+    : Omit<Ext, SchemaOwnedKey>;
+
+/** What one set contributes in one slot, as its level sees it. */
+type SetSlotExt<S, K extends SlotName> = LevelVisible<
+  ExtOfStack<StackOf<S, K>>
+>;
+
+/** What a list of sets contributes in one slot, later sets winning. */
+type ListSlotExt<L, K extends SlotName, Acc = unknown> = L extends readonly [
+  infer S,
+  ...infer Rest,
+]
+  ? ListSlotExt<Rest, K, Merge<Acc, SetSlotExt<S, K>>>
+  : Acc;
+
+/** A level's hooks as a list of sets, whichever way they were written. */
+type SetsOf<H> = H extends readonly unknown[] ? H : readonly [H];
+
+/**
+ * What a level contributes in each slot that extends the context — the
+ * starting point of every slot that runs after it.
+ */
+interface LevelTotals {
+  readonly beforeParse: unknown;
+  readonly beforeValidation: unknown;
+  readonly beforeHandle: unknown;
+}
+
+type TotalsOf<H> = {
+  readonly beforeParse: ListSlotExt<SetsOf<H>, "beforeParse">;
+  readonly beforeValidation: ListSlotExt<SetsOf<H>, "beforeValidation">;
+  readonly beforeHandle: ListSlotExt<SetsOf<H>, "beforeHandle">;
+};
+
+/** Nothing contributed: a set checked on its own. */
+type NoTotals = {
+  readonly beforeParse: unknown;
+  readonly beforeValidation: unknown;
+  readonly beforeHandle: unknown;
+};
+
+/**
+ * Everything a group's or the application's own hooks contribute before
+ * the handler, as the rest of the level sees it.
+ *
+ * What an application-level reader of the context — `reportError` — may
+ * find there, each field optional where it reads it. Internal to the core.
+ */
+export type LevelExt<H> = Merge<
+  Merge<
+    ListSlotExt<SetsOf<H>, "beforeParse">,
+    ListSlotExt<SetsOf<H>, "beforeValidation">
+  >,
+  ListSlotExt<SetsOf<H>, "beforeHandle">
+>;
+
+/** What a response slot of a level sees: its base, and the rest optional. */
+type LevelResponseCtx<T extends LevelTotals, K extends SlotName> = Merge<
+  Partial<
+    Merge<Merge<T["beforeParse"], T["beforeValidation"]>, T["beforeHandle"]>
+  >,
+  SlotBases[K]
+>;
+
+/**
+ * Validates one set of a group-level (or application-level) hooks config,
+ * each slot against what runs before it.
+ *
+ * `T` is what the whole level contributes, `P` what the sets before this
+ * one did — in the order the runtime joins them: every `beforeParse` hook
+ * of the level runs before any `beforeValidation` hook, so a set's
+ * `beforeValidation` sees the `beforeParse` of all sets and the
+ * `beforeValidation` of the ones before it. The response slots and
+ * `onError` see everything, optional: the hook that contributes a field
+ * may never have run.
+ *
+ * Internal to the core: `group()` and `createApp()` apply it through
+ * `ValidateGroupHooksInput`.
+ */
+export type ValidateGroupHooks<
+  H,
+  T extends LevelTotals = NoTotals,
+  P extends LevelTotals = NoTotals,
+> = {
+  readonly beforeParse?: ValidateGroupStack<
+    StackOf<H, "beforeParse">,
+    "beforeParse",
+    Merge<SlotBases["beforeParse"], P["beforeParse"]>
+  >;
+  readonly beforeValidation?: ValidateGroupStack<
+    StackOf<H, "beforeValidation">,
+    "beforeValidation",
+    Merge<
+      SlotBases["beforeValidation"],
+      Merge<T["beforeParse"], P["beforeValidation"]>
+    >
+  >;
+  readonly beforeHandle?: ValidateGroupStack<
+    StackOf<H, "beforeHandle">,
+    "beforeHandle",
+    Merge<
+      SlotBases["beforeHandle"],
+      Merge<Merge<T["beforeParse"], T["beforeValidation"]>, P["beforeHandle"]>
+    >
+  >;
+  readonly beforeResponse?: ValidateGroupStack<
+    StackOf<H, "beforeResponse">,
+    "beforeResponse",
+    LevelResponseCtx<T, "beforeResponse">
+  >;
+  readonly afterResponse?: ValidateGroupStack<
+    StackOf<H, "afterResponse">,
+    "afterResponse",
+    LevelResponseCtx<T, "afterResponse">
+  >;
+  readonly onError?: ValidateGroupStack<
+    StackOf<H, "onError">,
+    "onError",
+    LevelResponseCtx<T, "onError">
+  >;
 };
 
 /**
@@ -236,16 +389,49 @@ export type GroupHooksInput = HooksInput | readonly HooksInput[];
 
 /**
  * Validates `hooks` as `group()` and `createApp()` take it: a lone set as
- * {@link ValidateGroupHooks} does, a list set by set.
+ * {@link ValidateGroupHooks} does, a list set by set, each set seeing what
+ * the sets before it contributed.
  *
- * The sets need no checking against each other: a group hook may require
- * only what its slot guarantees, never what another hook contributed, so
- * the order of a list decides the order of execution and nothing else.
- * Internal to the core.
+ * The order of a list is the order of execution — `combineHooks` joins the
+ * sets slot by slot — so a hook package that reads what another one adds
+ * goes after it: `[requestId(), { beforeParse: [scope] }]`. A list widened
+ * to an array has no order to follow, and its sets are checked on their
+ * own. Internal to the core.
  */
 export type ValidateGroupHooksInput<H> = H extends readonly unknown[]
-  ? { readonly [I in keyof H]: ValidateGroupHooks<H[I]> }
-  : ValidateGroupHooks<H>;
+  ? ValidateGroupList<H, TotalsOf<H>, NoTotals>
+  : ValidateGroupHooks<H, TotalsOf<H>>;
+
+/** Walks a list of sets, carrying what the sets so far contributed. */
+type ValidateGroupList<
+  L,
+  T extends LevelTotals,
+  P extends LevelTotals,
+> = L extends readonly [infer S, ...infer Rest]
+  ? readonly [
+      ValidateGroupHooks<S, T, P>,
+      ...ValidateGroupList<
+        Rest,
+        T,
+        {
+          readonly beforeParse: Merge<
+            P["beforeParse"],
+            SetSlotExt<S, "beforeParse">
+          >;
+          readonly beforeValidation: Merge<
+            P["beforeValidation"],
+            SetSlotExt<S, "beforeValidation">
+          >;
+          readonly beforeHandle: Merge<
+            P["beforeHandle"],
+            SetSlotExt<S, "beforeHandle">
+          >;
+        }
+      >,
+    ]
+  : L extends readonly []
+    ? L
+    : { readonly [I in keyof L]: ValidateGroupHooks<L[I]> };
 
 /**
  * Reads one slot's tuple out of a hooks config, defaulting to an empty

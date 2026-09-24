@@ -326,6 +326,10 @@ createApp({
 
 A group's hooks run for its routes but do not add to their types — see the
 [FAQ](#why-does-ctxuser-from-a-group-hook-not-show-up-in-the-handlers-type).
+Among themselves they do: a hook of a group or of the application sees
+what the hooks before it at the same level contributed, in the order they
+run — `[requestId(), { beforeParse: [scope] }]` gives `scope` a typed
+`ctx.requestId`.
 Unmatched paths (`404`, `405`) and CORS preflights run only the
 application's hooks.
 
