@@ -35,7 +35,8 @@ import {
 } from "@tetsujs/core";
 import { cors } from "@tetsujs/cors";
 import { rateLimit } from "@tetsujs/rate-limit";
-import { accessLog, requestId } from "@tetsujs/request-id";
+import { requestId } from "@tetsujs/request-id";
+import { accessLog } from "@tetsujs/request-log";
 import { secureHeaders } from "@tetsujs/secure-headers";
 
 const adminOnly = hook.beforeParse((ctx) => {

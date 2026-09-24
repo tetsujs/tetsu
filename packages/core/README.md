@@ -349,7 +349,8 @@ like any other — there is no plugin system:
 
 ```ts
 import { cors } from "@tetsujs/cors";
-import { accessLog, requestId } from "@tetsujs/request-id";
+import { requestId } from "@tetsujs/request-id";
+import { accessLog } from "@tetsujs/request-log";
 
 const browser = cors({ origin: "https://app.example.com" });
 const id = requestId();
@@ -532,7 +533,8 @@ it. `source` says what failed — `"unhandled"`, `"response"`,
 the application's own hooks, absent where there was no request. The
 receiver is not awaited.
 
-For request logs, see [`@tetsujs/request-id`](https://github.com/tetsujs/tetsu/tree/main/packages/request-id).
+For request logs, see [`@tetsujs/request-log`](https://github.com/tetsujs/tetsu/tree/main/packages/request-log): a
+line when a request is done, and one when it arrives.
 
 ## Packages
 
@@ -543,7 +545,8 @@ For request logs, see [`@tetsujs/request-id`](https://github.com/tetsujs/tetsu/t
 | [`@tetsujs/openapi`](https://github.com/tetsujs/tetsu/tree/main/packages/openapi) | an OpenAPI 3.1 document and docs page generated from the routes |
 | [`@tetsujs/cors`](https://github.com/tetsujs/tetsu/tree/main/packages/cors) | CORS |
 | [`@tetsujs/rate-limit`](https://github.com/tetsujs/tetsu/tree/main/packages/rate-limit) | rate limiting with a replaceable store |
-| [`@tetsujs/request-id`](https://github.com/tetsujs/tetsu/tree/main/packages/request-id) | request ids and access logs |
+| [`@tetsujs/request-id`](https://github.com/tetsujs/tetsu/tree/main/packages/request-id) | request ids |
+| [`@tetsujs/request-log`](https://github.com/tetsujs/tetsu/tree/main/packages/request-log) | access and arrival logs |
 | [`@tetsujs/secure-headers`](https://github.com/tetsujs/tetsu/tree/main/packages/secure-headers) | security headers |
 | [`@tetsujs/sse`](https://github.com/tetsujs/tetsu/tree/main/packages/sse) | server-sent events and streamed responses |
 | [`@tetsujs/lifecycle`](https://github.com/tetsujs/tetsu/tree/main/packages/lifecycle) | graceful shutdown |

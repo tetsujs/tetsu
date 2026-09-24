@@ -39,6 +39,7 @@
         "@tetsujs/openapi": "workspace:*",
         "@tetsujs/rate-limit": "workspace:*",
         "@tetsujs/request-id": "workspace:*",
+        "@tetsujs/request-log": "workspace:*",
         "@tetsujs/secure-headers": "workspace:*",
         "@tetsujs/sse": "workspace:*",
         "@tetsujs/typebox": "workspace:*",
@@ -95,6 +96,17 @@
       "version": "0.3.0",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
+      },
+    },
+    "packages/request-log": {
+      "name": "@tetsujs/request-log",
+      "version": "0.3.0",
+      "devDependencies": {
+        "@tetsujs/core": "workspace:*",
+        "@tetsujs/request-id": "workspace:*",
       },
       "peerDependencies": {
         "@tetsujs/core": "workspace:^",
@@ -190,6 +202,8 @@
     "@tetsujs/rate-limit": ["@tetsujs/rate-limit@workspace:packages/rate-limit"],
 
     "@tetsujs/request-id": ["@tetsujs/request-id@workspace:packages/request-id"],
+
+    "@tetsujs/request-log": ["@tetsujs/request-log@workspace:packages/request-log"],
 
     "@tetsujs/secure-headers": ["@tetsujs/secure-headers@workspace:packages/secure-headers"],
 

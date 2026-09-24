@@ -9,6 +9,7 @@
     "@tetsujs/openapi": "workspace:*",
     "@tetsujs/rate-limit": "workspace:*",
     "@tetsujs/request-id": "workspace:*",
+    "@tetsujs/request-log": "workspace:*",
     "@tetsujs/secure-headers": "workspace:*",
     "@tetsujs/sse": "workspace:*",
     "@tetsujs/typebox": "workspace:*",

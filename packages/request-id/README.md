@@ -1,7 +1,7 @@
 # @tetsujs/request-id
 
-A request id on every request and response, and an access log line for
-every finished request.
+A request id on every request and response, for the log lines and failure
+reports of one request to share.
 
 ```bash
 bun add @tetsujs/request-id
@@ -10,41 +10,18 @@ bun add @tetsujs/request-id
 ## Usage
 
 ```ts
-import { accessLog, requestId } from "@tetsujs/request-id";
+import { requestId } from "@tetsujs/request-id";
 
 const id = requestId();
-const log = accessLog();
 
-createApp({
-  hooks: { beforeParse: [id], afterResponse: [log] },
-  routes,
-});
+createApp({ hooks: { beforeParse: [id] }, routes });
 ```
 
-Each is one hook: `requestId()` in `beforeParse`, `accessLog()` in
-`afterResponse`.
-
-Every response gets an `x-request-id` header, and every request — a `404`
-and a failure included — produces one record:
-
-```ts
-{
-  method: "GET",
-  path: "/items/42",     // what the client asked for
-  route: "/items/:id",   // the route that answered; absent on a 404
-  status: 200,
-  durationMs: 12.418,
-  thrown: "TypeError",   // the class of what was thrown, if anything was
-  requestId: "…",
-}
-```
-
-`accessLog()` writes records with `console.log`; pass `write` to send them
-to your logger instead:
-
-```ts
-accessLog({ write: (record) => logger.info(record, "request") });
-```
+`requestId()` is one `beforeParse` hook. Every response gets an
+`x-request-id` header, and `ctx.requestId` holds the id for the rest of the
+request. The request logs of
+[`@tetsujs/request-log`](https://github.com/tetsujs/tetsu/tree/main/packages/request-log)
+and a `reportError` receiver pick it up when this hook ran before them.
 
 ## Reading the id in a handler
 
@@ -77,42 +54,13 @@ mounted after `requestId()` sees it typed too — that is how the
 | `trustIncoming` | `false` | use the id the client sent; enable only behind a proxy that sets the header |
 | `generate` | `crypto.randomUUID` | how a new id is made |
 
-| `accessLog()` | Default | |
-| --- | --- | --- |
-| `write` | `console.log` | receives each record |
-
 ## Notes
 
-- **No headers, bodies or query strings in a record,** and no option to add
-  them — nothing sensitive has to be stripped from a place it is never put.
-  `thrown` is the error's class, never its message, for the same reason.
-  `path` is the one field carrying what the client sent, so keep secrets
-  out of URLs.
-- **`durationMs` is measured from `ctx.startedAt`,** which the core reads
-  before any hook runs. It measures the pipeline; writing the response to
-  the socket is not included.
-- **Errors and the log line share an id** when failures go to your logger
-  too: pass `reportError` to `createApp` and log `ctx?.requestId` with the
-  error — see Logging in the core README. The record keeps to the error's
-  class; the full error, with its message and stack, is the report's.
-
-## Metrics
-
-A record has everything request metrics need — count, status, duration —
-so a metrics registry is fed from the same `write`. Label by `route`, never
-by `path`: `route` is `/users/:id` whatever was requested, while `path`
-makes a new series for every id.
-
-```ts
-accessLog({
-  write: (record) => {
-    const route = record.route ?? "unmatched";
-
-    requests.labels(record.method, route, String(record.status)).inc();
-    latency.labels(record.method, route).observe(record.durationMs);
-  },
-});
-```
+- **An incoming id is not trusted by default:** it is a value a client
+  chose, and trusting it lets one client stamp another's log lines.
+- **Failures share the id** when they go to your logger: pass
+  `reportError` to `createApp` and log `ctx?.requestId` with the error —
+  see Logging in the core README.
 
 ## The id deeper than the handler
 

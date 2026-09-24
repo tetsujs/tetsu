@@ -1,16 +1,16 @@
 /**
- * A request id and an access log — the pair that makes a log line
- * traceable.
+ * A request id: in the context, on the response, and in every log line
+ * that carries it.
  *
  * ```ts
  * const id = requestId();
- * const log = accessLog();
  *
- * createApp({
- *   hooks: { beforeParse: [id], afterResponse: [log] },
- *   routes,
- * });
+ * createApp({ hooks: { beforeParse: [id] }, routes });
  * ```
+ *
+ * The lines themselves are `@tetsujs/request-log`'s: its records carry the
+ * id when this hook ran before them, which is what joins the line of a
+ * request's arrival, the line of its end, and a failure report.
  *
  * This is the package that shows a **typed contribution**: `requestId()`
  * puts `ctx.requestId` into the context, and a route that mounts it sees
@@ -28,7 +28,6 @@
  * @module
  */
 
-import type { BaseCtx } from "@tetsujs/core";
 import { hook } from "@tetsujs/core";
 
 /** How the id is obtained and where it is written. */
@@ -62,9 +61,6 @@ export interface RequestIdOptions {
  */
 export type RequestIdHook = ReturnType<typeof requestId>;
 
-/** The hook {@link accessLog} returns. */
-export type AccessLogHook = ReturnType<typeof accessLog>;
-
 /**
  * Gives every request an id, in the context and on the response.
  *
@@ -94,134 +90,4 @@ export function requestId(options: RequestIdOptions = {}) {
 
     return { requestId: id };
   });
-}
-
-/** What a finished request is written as. */
-export interface AccessLogOptions {
-  /**
-   * Where the line goes. `console.log` by default.
-   *
-   * Takes the record rather than a string so a structured logger can be
-   * handed the fields as they are.
-   */
-  readonly write?: (record: AccessRecord) => void;
-}
-
-/** One finished request. */
-export interface AccessRecord {
-  readonly method: string;
-
-  /** The path that was asked for, identifiers and all. */
-  readonly path: string;
-
-  /**
-   * The route that answered, as it was declared — `/users/:id` where
-   * `path` is `/users/42`.
-   *
-   * Absent when nothing matched, which is the honest answer for a `404`
-   * and the one that keeps it countable on its own rather than folded in
-   * with the endpoints that exist. Both fields are here because they
-   * answer different questions: `path` is what the client asked for, and
-   * on a `404` it is the only interesting thing in the line; `route` is
-   * what the application did, and it is the one a dashboard can group by
-   * without growing a series per identifier.
-   */
-  readonly route?: string;
-
-  readonly status: number;
-
-  /**
-   * How long the request took inside the pipeline, in milliseconds,
-   * rounded to the microsecond.
-   *
-   * From `ctx.startedAt`, which the core reads before any hook, to
-   * `afterResponse`: the response is handed to the runtime before
-   * `afterResponse` runs, so writing it to the socket is not in here, and
-   * neither is anything that happened before the pipeline started.
-   */
-  readonly durationMs: number;
-
-  /**
-   * The name of whatever was thrown, when something was.
-   *
-   * `"ValidationError"`, `"HttpError"`, `"TypeError"` — the class, never
-   * the message. A message is written by the application and routinely
-   * carries the very thing that must not reach a log store: the token that
-   * failed to verify, the address that was not found. The whole error,
-   * stack and all, goes to the application's `reportError` with the
-   * request's context; a record whose job is to be shipped somewhere keeps
-   * to the shape of the failure, and `requestId` — in both — joins the
-   * two.
-   *
-   * Named `thrown` rather than `error` on purpose: `error` in this
-   * framework is the machine-readable code in the response envelope
-   * (`NOT_FOUND`), and two different things under one name in a log store
-   * is a confusion nobody untangles later.
-   */
-  readonly thrown?: string;
-
-  readonly requestId?: string;
-}
-
-/**
- * Observes every finished request, successes and failures alike.
- *
- * `afterResponse` runs outside the client's latency, so a slow writer
- * delays nothing — and it runs on every outcome, which is what makes the
- * log complete rather than only the happy path.
- *
- * The line carries both the path asked for and the route that answered,
- * because a `404` has only the first and a dashboard can only group by the
- * second.
- *
- * @example
- * ```ts
- * const log = accessLog({ write: (record) => logger.info(record) });
- * ```
- */
-export function accessLog(options: AccessLogOptions = {}) {
-  const write =
-    options.write ?? ((record: AccessRecord) => console.log(record));
-
-  return hook.afterResponse((ctx) => {
-    const carrying = ctx as BaseCtx & {
-      readonly res: Response;
-      readonly requestId?: unknown;
-      readonly error?: unknown;
-    };
-
-    write({
-      method: ctx.req.method,
-      path: new URL(ctx.req.url).pathname,
-      ...(ctx.route === undefined ? {} : { route: ctx.route.path }),
-      status: carrying.res.status,
-      durationMs: elapsed(ctx.startedAt),
-      ...("error" in carrying ? { thrown: nameOf(carrying.error) } : {}),
-      ...(typeof carrying.requestId === "string"
-        ? { requestId: carrying.requestId }
-        : {}),
-    });
-  });
-}
-
-/**
- * Milliseconds since a monotonic reading, to the microsecond.
- *
- * Rounded because the raw subtraction carries a dozen digits the clock
- * does not have, and a log store keeps every one of them.
- */
-function elapsed(startedAt: number): number {
-  return Math.round((performance.now() - startedAt) * 1000) / 1000;
-}
-
-/**
- * Names a thrown value without quoting it.
- *
- * An `Error` answers with its class. Anything else — a thrown string, a
- * rejected object — answers with its type alone, because the value itself
- * is the part that may carry a secret, and this field says what kind of
- * failure happened rather than reproducing it.
- */
-function nameOf(thrown: unknown): string {
-  return thrown instanceof Error ? thrown.name : typeof thrown;
 }
