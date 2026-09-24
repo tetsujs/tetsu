@@ -188,8 +188,9 @@ export interface BaseCtx {
    * by the core rather than by a hook in `beforeParse`: an observer needs
    * only this, so a package measuring requests is one hook after the
    * response instead of two, and the clock starts before any hook, not
-   * after the ones mounted ahead of the one that reads it. It costs about
-   * 23 ns a request.
+   * after the ones mounted ahead of the one that reads it. It costs 7–9 ns
+   * a request in the pipeline (`bench/src/cost.ts`), below the noise of
+   * the HTTP benchmark.
    *
    * Wall-clock time is `Date.now()`, and not this: a monotonic reading
    * does not jump when the system clock is adjusted, which is what makes
