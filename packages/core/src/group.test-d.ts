@@ -236,3 +236,160 @@ group("/listed-widened", {
   ],
   children: [],
 });
+
+const stamp = hook.beforeParse(() => ({ requestId: "r" }));
+
+const maybeStamp = hook.beforeParse((ctx) =>
+  ctx.req.headers.has("x-trace") ? { requestId: "r" } : undefined,
+);
+
+const needsRequestId = hook.beforeParse(
+  (ctx: Requires<{ requestId: string }>) => {
+    void ctx.requestId;
+  },
+);
+
+const handleNeedsRequestId = hook.beforeHandle(
+  (ctx: Requires<{ requestId: string }>) => {
+    void ctx.requestId;
+  },
+);
+
+const validationNeedsTrace = hook.beforeValidation(
+  (ctx: Requires<{ trace: string }>) => {
+    void ctx.trace;
+  },
+);
+
+const traces = hook.beforeValidation(() => ({ trace: "t" }));
+
+const observesRequestId = hook.afterResponse(
+  (ctx: Requires<{ res: Response; requestId?: string }>) => {
+    void ctx.requestId;
+  },
+);
+
+const observesRequestIdSurely = hook.afterResponse(
+  (ctx: Requires<{ res: Response; requestId: string }>) => {
+    void ctx.requestId;
+  },
+);
+
+const normalizesQuery = hook.beforeParse(() => ({ query: { page: "1" } }));
+
+const needsQuery = hook.beforeHandle(
+  (ctx: Requires<{ query: { page: string } }>) => {
+    void ctx.query.page;
+  },
+);
+
+/** What a hook package such as `requestId()` returns. */
+const requestIdPackage = { beforeParse: [stamp] } as const;
+
+createApp({
+  routes: [],
+  hooks: [requestIdPackage, { beforeParse: [needsRequestId] }],
+});
+
+group("/scoped", {
+  hooks: [requestIdPackage, { beforeParse: [needsRequestId] }],
+  children: [],
+});
+
+createApp({ routes: [], hooks: { beforeParse: [stamp, needsRequestId] } });
+
+group("/scoped-set", {
+  hooks: { beforeParse: [stamp, needsRequestId] },
+  children: [],
+});
+
+createApp({
+  routes: [],
+  hooks: [{ beforeHandle: [handleNeedsRequestId] }, requestIdPackage],
+});
+
+createApp({
+  routes: [],
+  hooks: [
+    { beforeValidation: [traces] },
+    { beforeValidation: [validationNeedsTrace] },
+  ],
+});
+
+createApp({
+  routes: [],
+  hooks: [requestIdPackage, { afterResponse: [observesRequestId] }],
+});
+
+createApp({
+  routes: [],
+  hooks: [
+    {
+      // @ts-expect-error a hook cannot rely on a set that runs after it
+      beforeParse: [needsRequestId],
+    },
+    requestIdPackage,
+  ],
+});
+
+createApp({
+  routes: [],
+  hooks: {
+    // @ts-expect-error a hook cannot rely on the hook after it in its tuple
+    beforeParse: [needsRequestId, stamp],
+  },
+});
+
+createApp({
+  routes: [],
+  hooks: [
+    {
+      // @ts-expect-error nor on a later set's hook in its own slot
+      beforeValidation: [validationNeedsTrace],
+    },
+    { beforeValidation: [traces] },
+  ],
+});
+
+createApp({
+  routes: [],
+  hooks: {
+    // @ts-expect-error a hook that may skip contributes a field that may be absent
+    beforeParse: [maybeStamp, needsRequestId],
+  },
+});
+
+createApp({
+  routes: [],
+  hooks: [
+    requestIdPackage,
+    {
+      // @ts-expect-error after the response, an earlier hook may never have run
+      afterResponse: [observesRequestIdSurely],
+    },
+  ],
+});
+
+createApp({
+  routes: [],
+  hooks: [
+    { beforeParse: [normalizesQuery] },
+    {
+      // @ts-expect-error a part a route's schema owns is not promised past validation
+      beforeHandle: [needsQuery],
+    },
+  ],
+});
+
+group("/outer", {
+  hooks: requestIdPackage,
+  children: [
+    group("/inner", {
+      hooks: {
+        // @ts-expect-error an enclosing group's hooks are not this group's
+        beforeParse: [needsRequestId],
+      },
+      children: [],
+    }),
+  ],
+});

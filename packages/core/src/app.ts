@@ -46,9 +46,8 @@ import type { Method } from "./route.ts";
 import type { SocketState } from "./socket.ts";
 import { socketHandler } from "./socket.ts";
 import type {
-  ExtOfStack,
   GroupHooksInput,
-  StackOf,
+  LevelExt,
   ValidateGroupHooksInput,
 } from "./stack.ts";
 import type {
@@ -216,19 +215,7 @@ export interface AppConfig<
  * untyped: the application does not know which route a request took.
  */
 export type AppContext<H> =
-  unknown extends AppExt<H> ? BaseCtx : BaseCtx & Partial<AppExt<H>>;
-
-/** What a hooks config contributes, one set or a list of sets. */
-type AppExt<H> = H extends readonly [infer First, ...infer Rest]
-  ? SetExt<First> & AppExt<Rest>
-  : H extends readonly unknown[]
-    ? unknown
-    : SetExt<H>;
-
-/** What one set contributes in the slots that extend the context. */
-type SetExt<S> = ExtOfStack<StackOf<S, "beforeParse">> &
-  ExtOfStack<StackOf<S, "beforeValidation">> &
-  ExtOfStack<StackOf<S, "beforeHandle">>;
+  unknown extends LevelExt<H> ? BaseCtx : BaseCtx & Partial<LevelExt<H>>;
 
 /**
  * Handles a request that matched no route. Receives the same context shape

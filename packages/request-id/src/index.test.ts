@@ -5,7 +5,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createApp, HttpError, route, ValidationError } from "@tetsujs/core";
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Requires } from "@tetsujs/core";
+import {
+  createApp,
+  HttpError,
+  hook,
+  route,
+  ValidationError,
+} from "@tetsujs/core";
 import { captureErrors, serve } from "@tetsujs/core/testing";
 import type { AccessRecord } from "./index.ts";
 import { accessLog, requestId } from "./index.ts";
@@ -377,5 +385,56 @@ describe("what failed", () => {
     // The other half of the same decision: the operator loses nothing,
     // because the framework prints the whole error where it always did.
     expect(errors.lines.join("\n")).toContain("super-secret-token");
+  });
+});
+
+describe("the id deeper than the handler", () => {
+  const store = new AsyncLocalStorage<{ requestId: string }>();
+
+  /** The README's recipe, as written there. */
+  const scope = hook.beforeParse((ctx: Requires<{ requestId: string }>) => {
+    store.enterWith({ requestId: ctx.requestId });
+  });
+
+  const current = () => store.getStore();
+
+  /** A service several calls down, which never sees `ctx`. */
+  const service = () => current()?.requestId ?? null;
+
+  class DeepController {
+    read = route({
+      method: "GET",
+      path: "/deep",
+      handler: () => ({ seenByService: service() }),
+    });
+  }
+
+  const request = serve(
+    createApp({
+      hooks: [requestId(), { beforeParse: [scope] }],
+      fallback: (ctx) => {
+        ctx.out.status = 404;
+
+        return { seenByService: service() };
+      },
+      routes: new DeepController(),
+    }),
+  );
+
+  test("mounted on the application, reaches a service without ctx", async () => {
+    const res = await request("/deep");
+
+    expect(await res.json()).toEqual({
+      seenByService: res.headers.get("x-request-id"),
+    });
+  });
+
+  test("covers a request no route matched", async () => {
+    const res = await request("/nowhere");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      seenByService: res.headers.get("x-request-id"),
+    });
   });
 });

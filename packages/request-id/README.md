@@ -122,10 +122,20 @@ export const scope = hook.beforeParse((ctx: Requires<{ requestId: string }>) => 
 export const current = () => store.getStore();
 ```
 
-Mount `scope` after `requestId()`. With pino, `mixin: () => current() ?? {}`
-puts the id on every line the application writes, from wherever it writes
-it. It uses `enterWith` rather than `run`
-because a hook is not handed the rest of the request as a callback, and it
-costs about 12 ns a request. Keep it to things like ids and trace labels:
-anything a decision depends on — a user, a role — belongs in `ctx`, where
-the compiler checks it is there.
+Mount `scope` after `requestId()`, on the application so that every
+request has it, a `404` included:
+
+```ts
+createApp({ hooks: [requestId(), { beforeParse: [scope] }], routes });
+```
+
+The order is what the compiler checks: a hook of the application or of a
+group sees what the hooks before it at the same level contributed, and
+`scope` placed before `requestId()` does not compile.
+
+It uses `enterWith` rather than `run` because a hook is not handed the
+rest of the request as a callback, and it costs about 12 ns a request.
+With pino, `mixin: () => current() ?? {}` puts the id on every line the
+application writes, from wherever it writes it. Keep it to things like ids
+and trace labels: anything a decision depends on — a user, a role —
+belongs in `ctx`, where the compiler checks it is there.
