@@ -3,7 +3,7 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.3.0 — 2026-09-24
 
 Hooks are mounted one way everywhere: an object keyed by slot, each slot a
 list of hooks, so everything that runs for a request is written out where
