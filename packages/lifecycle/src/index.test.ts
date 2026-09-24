@@ -253,6 +253,72 @@ describe("signals", () => {
     expect(code).toBe(0);
   });
 
+  test("a closer that throws is printed when nobody receives it", async () => {
+    const child = await spawned(`
+      const server = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+
+      onShutdownSignals(server, {
+        close: [() => { throw new Error("pool refused"); }],
+      });
+
+      console.log("listening");
+      setInterval(() => {}, 1000);
+    `);
+
+    child.signal();
+
+    const { code, output } = await child.ended();
+
+    expect(output).toContain("[tetsu] shutdown step failed:");
+    expect(output).toContain("pool refused");
+    expect(code).toBe(1);
+  });
+
+  test("a closer that throws goes to reportError instead", async () => {
+    const child = await spawned(`
+      const server = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+
+      onShutdownSignals(server, {
+        close: [() => { throw new Error("pool refused"); }],
+        reportError: ({ source, error }) =>
+          console.log("reported", source, error.message),
+      });
+
+      console.log("listening");
+      setInterval(() => {}, 1000);
+    `);
+
+    child.signal();
+
+    const { code, output } = await child.ended();
+
+    expect(output).toContain("reported shutdown pool refused");
+    expect(output).not.toContain("[tetsu] shutdown step failed:");
+    expect(code).toBe(1);
+  });
+
+  test("a reportError that throws still leaves the failure printed", async () => {
+    const child = await spawned(`
+      const server = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+
+      onShutdownSignals(server, {
+        close: [() => { throw new Error("pool refused"); }],
+        reportError: () => { throw new Error("logger gone"); },
+      });
+
+      console.log("listening");
+      setInterval(() => {}, 1000);
+    `);
+
+    child.signal();
+
+    const { output } = await child.ended();
+
+    expect(output).toContain("[tetsu] reportError failed:");
+    expect(output).toContain("logger gone");
+    expect(output).toContain("pool refused");
+  });
+
   test("a second signal stops waiting but still closes what was used", async () => {
     const child = await spawned(`
       ${heldOpen}

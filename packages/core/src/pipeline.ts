@@ -39,17 +39,18 @@
  * result, or a promise of it only when it must wait.
  * Extensions are merged into the context by mutation.
  *
- * **What this module prints, and why it prints rather than maps.**
- * `onError` turns an error into a response; `console.error` is what is left
- * when there is no response to turn it into. Five lines live here and each
- * is one of two cases: the mapping itself failed — an `onError` hook threw,
- * the error path threw again, the last-resort response could not be
- * decorated — where sending it back through `onError` is the regress that
- * just failed; or the response has already been handed over, as with an
+ * **What this module reports, and why it reports rather than maps.**
+ * `onError` turns an error into a response; the application's
+ * `reportError` (see `report.ts`) is what is left when there is no
+ * response to turn it into. Five reports come from here and each is one
+ * of two cases: the mapping itself failed — an `onError` hook threw, the
+ * error path threw again, the last-resort response could not be decorated
+ * — where sending it back through `onError` is the regress that just
+ * failed; or the response has already been handed over, as with an
  * `afterResponse` observer, where there is nothing left to change. The
- * sixth, `Unhandled error`, is the only one an application can silence: it
- * is printed *after* the `onError` chain declined to answer, so a hook that
- * returns a `Response` takes that line for itself.
+ * sixth, an error nobody mapped, is the only one an `onError` hook can take
+ * for itself: it is reported *after* the chain declined to answer, so a
+ * hook that returns a `Response` means no report.
  *
  * This module owns lifecycle order alone: schema validation lives in
  * `validate.ts`, the Request/Response boundary in `wire.ts`.
@@ -67,6 +68,8 @@ import { errorBody, HttpError, serializedBody } from "./error.ts";
 import { extendContext } from "./guard.ts";
 import type { AnyHook, SlotName } from "./hook.ts";
 import { isThenable } from "./internal.ts";
+import type { Reporter } from "./report.ts";
+import { ResponseContractError, reporterKey } from "./report.ts";
 import { checkResponse, responseSchemaFor, validate } from "./validate.ts";
 import {
   applyOutgoingHeaders,
@@ -148,6 +151,13 @@ export interface PipelineOptions {
    * thing a request does with it.
    */
   readonly cookieSealer?: CookieSealer | undefined;
+
+  /**
+   * Where the failures no response can carry go: the application's
+   * `reportError`, or the console. Every request's context carries it, so
+   * the error path reaches it without being handed the options.
+   */
+  readonly report: Reporter;
 }
 
 /**
@@ -167,6 +177,7 @@ export interface PipelineCtx {
   cookies?: unknown;
   res?: Response;
   error?: unknown;
+  readonly [reporterKey]: Reporter;
 }
 
 type HookRunner = (ctx: unknown) => unknown;
@@ -217,6 +228,7 @@ export function runPipeline(
     out: new OutgoingSettings(options.cookieSealer),
     route: entry.route,
     params,
+    [reporterKey]: options.report,
   };
   const progress: FinalizeProgress = { ran: 0 };
 
@@ -635,7 +647,7 @@ async function recover(
 
       return await finalize(entry, ctx, mapped, progress);
     } catch (failure) {
-      console.error("[tetsu] Error response failed:", failure);
+      ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
 
       pending = failure;
     }
@@ -666,7 +678,10 @@ function hardFailure(ctx: PipelineCtx): Response {
   try {
     return applyOutgoingHeaders(res, ctx.out);
   } catch (failure) {
-    console.error("[tetsu] Failed to apply response headers:", failure);
+    ctx[reporterKey](
+      { source: "errorResponse", error: failure, ctx },
+      "Failed to apply response headers",
+    );
 
     return res;
   }
@@ -693,7 +708,7 @@ function observersFrom(
     try {
       result = call(observers[index] as AnyHook, ctx);
     } catch (error) {
-      console.error("[tetsu] afterResponse hook failed:", error);
+      ctx[reporterKey]({ source: "afterResponse", error, ctx });
 
       continue;
     }
@@ -702,7 +717,7 @@ function observersFrom(
       void result.then(
         () => observersFrom(index + 1, observers, ctx),
         (error: unknown) => {
-          console.error("[tetsu] afterResponse hook failed:", error);
+          ctx[reporterKey]({ source: "afterResponse", error, ctx });
           observersFrom(index + 1, observers, ctx);
         },
       );
@@ -731,7 +746,7 @@ async function mapError(
         return mapped;
       }
     } catch (hookError) {
-      console.error("[tetsu] onError hook failed:", hookError);
+      ctx[reporterKey]({ source: "onError", error: hookError, ctx });
     }
   }
 
@@ -739,7 +754,11 @@ async function mapError(
     return Response.json(serializedBody(error), { status: error.status });
   }
 
-  console.error("[tetsu] Unhandled error:", error);
+  ctx[reporterKey]({
+    source: error instanceof ResponseContractError ? "response" : "unhandled",
+    error,
+    ctx,
+  });
 
   return Response.json(errorBody(500), { status: 500 });
 }

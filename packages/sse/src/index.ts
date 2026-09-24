@@ -157,7 +157,8 @@ export interface SseSummary extends Omit<StreamSummary, "chunks"> {
  * generator keeps yielding, or if it waits on the signal.** A generator
  * that does neither leaks, and no amount of care out here can collect it.
  *
- * A generator that fails instead of ending is logged and the stream is
+ * A generator that fails instead of ending is reported — to the
+ * application's `reportError`, with `source: "stream"` — and the stream is
  * closed where it stood, so what already went out stays valid and the
  * client sees an ordinary end of stream. Letting the failure escape
  * `start()` instead would reach no one the application can hear: the

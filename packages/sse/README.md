@@ -81,8 +81,9 @@ sse(ctx, async function* (signal) {
 });
 ```
 
-A generator that throws ends the stream where it stood, and the error is
-logged as `[tetsu] stream generator failed:` — the response has already
+A generator that throws ends the stream where it stood, and the error goes
+to the application's `reportError` with `source: "stream"` — printed as
+`[tetsu] stream failed:` when there is none. The response has already
 left, so there is no `onError` to hand it to.
 
 ## Knowing what a stream did

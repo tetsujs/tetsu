@@ -147,10 +147,11 @@ export interface AccessRecord {
    * `"ValidationError"`, `"HttpError"`, `"TypeError"` — the class, never
    * the message. A message is written by the application and routinely
    * carries the very thing that must not reach a log store: the token that
-   * failed to verify, the address that was not found. The framework
-   * already prints the whole error, stack and all, on `console.error`; a
-   * record whose job is to be shipped somewhere keeps to the shape of the
-   * failure, and `requestId` joins the two.
+   * failed to verify, the address that was not found. The whole error,
+   * stack and all, goes to the application's `reportError` with the
+   * request's context; a record whose job is to be shipped somewhere keeps
+   * to the shape of the failure, and `requestId` — in both — joins the
+   * two.
    *
    * Named `thrown` rather than `error` on purpose: `error` in this
    * framework is the machine-readable code in the response envelope

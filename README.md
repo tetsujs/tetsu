@@ -404,18 +404,26 @@ expect((await request("/users/1")).status).toBe(200);
 
 ### Logging
 
-The framework has no logger of its own. It writes to `console.error` only
-what it cannot return to a client — most often `[tetsu] Unhandled error`,
-after no `onError` hook answered. Mount one that returns a response, and
-the line is yours:
+The framework has no logger of its own, and writes no lines of its own
+except the failures it cannot return to a client: an error no `onError`
+hook answered, a handler breaking its response contract, a hook failing
+after the response went, a WebSocket handler, a stream. By default they go
+to `console.error`. Pass `reportError`, and they go to you instead:
 
 ```ts
-const report = hook.onError((ctx) => {
-  logger.error({ err: ctx.error }, "request failed");
-
-  return Response.json(errorBody(500), { status: 500 });
+createApp({
+  hooks: [requestId(), accessLog({ write: (r) => logger.info(r) })],
+  reportError: ({ source, error, ctx }) =>
+    logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
+  routes,
 });
 ```
+
+`error` is what was thrown, untouched, so the logger's redaction applies to
+it. `source` says what failed — `"unhandled"`, `"response"`,
+`"afterResponse"` and so on — and `ctx` is the request's context, typed from
+the application's own hooks, absent where there was no request. The
+receiver is not awaited.
 
 For request logs, see [`@tetsujs/request-id`](packages/request-id).
 

@@ -16,6 +16,7 @@ import type { ValidationIssue } from "./error.ts";
 import { ValidationError } from "./error.ts";
 import { isThenable } from "./internal.ts";
 import type { Executable, PipelineCtx, PipelineOptions } from "./pipeline.ts";
+import { ResponseContractError } from "./report.ts";
 import type { AnySchema, StandardIssue, StandardResult } from "./schema.ts";
 import {
   materializeCookies,
@@ -150,11 +151,9 @@ export function responseSchemaFor(
   if (!Object.hasOwn(map, status)) {
     const statuses = Object.keys(map).join(", ");
 
-    console.error(
-      `[tetsu] Handler answered ${status}, which its response map does not declare (${statuses}) — set ctx.out.status to a declared one, or declare ${status}`,
+    throw new ResponseContractError(
+      `Handler answered ${status}, which its response map does not declare (${statuses}) — set ctx.out.status to a declared one, or declare ${status}`,
     );
-
-    throw new Error("Response status is not declared");
   }
 
   return map[status] ?? undefined;
@@ -164,7 +163,7 @@ export function responseSchemaFor(
  * Validates a handler result against the route's response schema.
  *
  * A rejection is a server-side contract violation, not a client error: it
- * surfaces as a `500` with the issues logged, never leaking the offending
+ * surfaces as a `500` with the issues reported, never leaking the offending
  * value. The validated value is what gets serialized, so a schema that
  * strips unknown keys removes them from the response.
  */
@@ -181,12 +180,10 @@ export function checkResponse(
 
 function responseValue(result: StandardResult<unknown>): unknown {
   if (result.issues) {
-    console.error(
-      "[tetsu] Handler result does not match its response schema:",
+    throw new ResponseContractError(
+      "Handler result does not match its response schema",
       result.issues,
     );
-
-    throw new Error("Response does not match its schema");
   }
 
   return result.value;

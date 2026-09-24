@@ -40,10 +40,17 @@ import { combineHooks } from "./group.ts";
 import { appBrand, onMount } from "./mount.ts";
 import type { Executable, PipelineOptions } from "./pipeline.ts";
 import { release, runPipeline } from "./pipeline.ts";
+import type { ReportError } from "./report.ts";
+import { reporter } from "./report.ts";
 import type { Method } from "./route.ts";
 import type { SocketState } from "./socket.ts";
 import { socketHandler } from "./socket.ts";
-import type { GroupHooksInput, ValidateGroupHooksInput } from "./stack.ts";
+import type {
+  ExtOfStack,
+  GroupHooksInput,
+  StackOf,
+  ValidateGroupHooksInput,
+} from "./stack.ts";
 import type {
   RouteMap,
   RoutesOf,
@@ -170,7 +177,58 @@ export interface AppConfig<
    * ```
    */
   readonly fallback?: FallbackHandler;
+
+  /**
+   * Receives every failure no response can carry — an error no `onError`
+   * hook answered, a handler breaking its response contract, a hook
+   * failing after the response went, a WebSocket handler, a stream — in
+   * place of `console.error`.
+   *
+   * `ctx` is typed from this application's own hooks, each field optional:
+   * the failure may have come before the hook that contributes it ran. It
+   * is absent where there was no request. See `FailureReport` for what a
+   * report carries and `FailureSource` for the sources.
+   *
+   * Without it, the framework prints what it always printed.
+   *
+   * @example Into the application's logger, joined to the access log
+   * ```ts
+   * createApp({
+   *   hooks: [requestId(), accessLog({ write: (r) => logger.info(r) })],
+   *   reportError: ({ source, error, ctx }) =>
+   *     logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
+   *   routes,
+   * });
+   * ```
+   */
+  readonly reportError?: ReportError<AppContext<H>>;
 }
+
+/**
+ * The context of a request as the application sees it: the base fields,
+ * and what the application's own hooks contribute before the handler, each
+ * optional.
+ *
+ * Unlike a controller, `createApp` knows its hooks — they are written in
+ * the same call — so what reads the context there can be typed by them.
+ * Optional because a failure can come before the hook that contributes a
+ * field has run. What routes and groups contribute is on the object too,
+ * untyped: the application does not know which route a request took.
+ */
+export type AppContext<H> =
+  unknown extends AppExt<H> ? BaseCtx : BaseCtx & Partial<AppExt<H>>;
+
+/** What a hooks config contributes, one set or a list of sets. */
+type AppExt<H> = H extends readonly [infer First, ...infer Rest]
+  ? SetExt<First> & AppExt<Rest>
+  : H extends readonly unknown[]
+    ? unknown
+    : SetExt<H>;
+
+/** What one set contributes in the slots that extend the context. */
+type SetExt<S> = ExtOfStack<StackOf<S, "beforeParse">> &
+  ExtOfStack<StackOf<S, "beforeValidation">> &
+  ExtOfStack<StackOf<S, "beforeHandle">>;
 
 /**
  * Handles a request that matched no route. Receives the same context shape
@@ -221,8 +279,11 @@ export type PathHandler = (
  * instead of restating them: a documentation generator has to know which
  * status validation failures carry before it can describe them, and
  * restating `422` on its own side is how documentation drifts.
+ *
+ * The reporter is left out: it is the application's own `reportError`,
+ * not a value for tooling to read.
  */
-export type AppOptions = PipelineOptions;
+export type AppOptions = Omit<PipelineOptions, "report">;
 
 declare const routesBrand: unique symbol;
 
@@ -347,13 +408,18 @@ export function createApp<
     console.warn(`[tetsu] ${warning}`);
   }
 
-  const options: PipelineOptions = {
+  const settings: AppOptions = {
     validationStatus: config.validation?.status ?? 422,
     validateResponses: config.validateResponses ?? true,
     maxBodySize: config.maxBodySize ?? defaultMaxBodySize,
     ...(config.cookies === undefined
       ? {}
       : { cookieSealer: cookieSealer(config.cookies) }),
+  };
+
+  const options: PipelineOptions = {
+    ...settings,
+    report: reporter(config.reportError),
   };
 
   const protocolEntry = (handler: (ctx: never) => unknown): Executable => ({
@@ -371,10 +437,10 @@ export function createApp<
     fetch: async (req, server) =>
       (await runPipeline(fallback, req, server, {}, options)) ??
       new Response(null, { status: 204 }),
-    websocket: socketHandler(),
+    websocket: socketHandler(options.report),
     routes: buildRoutes(table, options, protocolEntry),
     entries: table.entries,
-    options,
+    options: settings,
     printRoutes: () => {
       for (const entry of table.entries) {
         console.log(

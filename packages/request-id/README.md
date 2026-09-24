@@ -80,10 +80,10 @@ the compiler checks that something provides it.
 - **`durationMs` needs both halves.** The clock starts in a `beforeParse`
   hook, so mount `accessLog()` whole, as above. It measures the pipeline;
   writing the response to the socket is not included.
-- **Errors and the log line share an id** only if you want them to: by
-  default the framework prints unhandled errors itself. Mount an `onError`
-  hook that returns a response and log the error there, with
-  `ctx.requestId`.
+- **Errors and the log line share an id** when failures go to your logger
+  too: pass `reportError` to `createApp` and log `ctx?.requestId` with the
+  error — see Logging in the core README. The record keeps to the error's
+  class; the full error, with its message and stack, is the report's.
 
 ## Metrics
 
@@ -122,7 +122,9 @@ export const scope = hook.beforeParse((ctx: Requires<{ requestId: string }>) => 
 export const current = () => store.getStore();
 ```
 
-Mount `scope` after `requestId()`. It uses `enterWith` rather than `run`
+Mount `scope` after `requestId()`. With pino, `mixin: () => current() ?? {}`
+puts the id on every line the application writes, from wherever it writes
+it. It uses `enterWith` rather than `run`
 because a hook is not handed the rest of the request as a callback, and it
 costs about 12 ns a request. Keep it to things like ids and trace labels:
 anything a decision depends on — a user, a role — belongs in `ctx`, where
