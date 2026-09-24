@@ -110,7 +110,8 @@ type PipelineOwnedKey =
   | "out"
   | "route"
   | "res"
-  | "error";
+  | "error"
+  | "startedAt";
 
 /**
  * The keys of a hook's return value that actually reach the context.
@@ -297,22 +298,3 @@ export const hook: HookFactories = {
   ),
   onError: factory<"onError", SlotBases["onError"]>("onError"),
 };
-
-/**
- * Builds a reusable, ordered tuple of hooks without `as const`.
- *
- * @example
- * ```ts
- * const secured = stack(auth, rateLimit);
- *
- * route({
- *   method: "GET",
- *   path: "/orders",
- *   hooks: { beforeParse: secured },
- *   handler: (ctx) => orders.listFor(ctx.user.id),
- * });
- * ```
- */
-export function stack<const T extends readonly AnyHook[]>(...hooks: T): T {
-  return hooks;
-}

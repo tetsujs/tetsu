@@ -1,19 +1,29 @@
 /**
- * CORS as a pair of hooks.
+ * CORS as one hook.
  *
- * Nothing is registered and nothing is patched: `cors()` returns hooks,
- * and the application puts them where every other hook goes. That is the
- * whole shape of a hook package here — an object with a tuple per slot,
- * spread into the application's own tuples.
+ * Nothing is registered and nothing is patched: `cors()` returns a
+ * `beforeParse` hook, and the application puts it where every other hook
+ * goes. That is the whole shape of a hook package here — a function that
+ * returns a hook.
  *
  * ```ts
- * const shared = cors({ origin: "https://app.example.com" });
+ * const browser = cors({ origin: "https://app.example.com" });
  *
  * createApp({
- *   hooks: [shared, { beforeParse: [requestId] }],
+ *   hooks: { beforeParse: [browser, requestId] },
  *   routes,
  * });
  * ```
+ *
+ * One hook does both halves of the job. A preflight is answered from
+ * `beforeParse`, before any hook after it — an authentication hook, a rate
+ * limit — can refuse a request that carries no credentials by design. And
+ * every other request gets its headers in `ctx.out`, which the core lays
+ * over whatever response leaves, errors and the `404` included.
+ *
+ * **Mount it first in `beforeParse`.** A hook before it that answers on
+ * its own — a rate limit refusing — answers before the headers are
+ * written, and the browser cannot read that answer.
  *
  * **Mount it on the application, not on a group.** Group hooks do not run
  * on protocol responses — `404`, `405` and the `OPTIONS` preflight — which
@@ -55,21 +65,20 @@ export interface CorsOptions {
 }
 
 /**
- * The hooks of this package, ready to be spread into an application's own.
+ * The hook of this package.
  *
  * Read off `cors()` rather than written by hand, and that is the point: an
- * annotation of `AnyHook` would erase which slot each hook belongs to, and
- * the stack validation would then reject the very hooks it was handed —
- * the same widening that a hook array declared as `Hook[]` suffers.
+ * annotation of `AnyHook` would erase which slot the hook belongs to, and
+ * the stack validation would then reject the very hook it was handed.
  */
-export type CorsHooks = ReturnType<typeof cors>;
+export type CorsHook = ReturnType<typeof cors>;
 
 const defaultMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
 const defaultHeaders = ["content-type", "authorization"] as const;
 
 /**
- * Builds the CORS hooks.
+ * Builds the CORS hook.
  *
  * The headers are written to `ctx.out.headers` rather than onto a
  * rebuilt response: those are applied to *every* outgoing response,
@@ -80,7 +89,7 @@ const defaultHeaders = ["content-type", "authorization"] as const;
  *
  * @example
  * ```ts
- * const shared = cors({ origin: ["https://app.example.com"], credentials: true });
+ * const browser = cors({ origin: ["https://app.example.com"], credentials: true });
  * ```
  */
 export function cors(options: CorsOptions) {
@@ -112,12 +121,7 @@ export function cors(options: CorsOptions) {
   };
 
   /**
-   * Writes the headers every CORS response carries.
-   *
-   * Only from `beforeResponse`: that slot sees every outgoing response,
-   * the preflight short-circuit included, so writing them here once is
-   * both complete and free of duplicates — `vary` would otherwise be
-   * appended twice for one request.
+   * Writes the headers every CORS response carries, once per request.
    */
   const write = (ctx: BaseCtx, origin: string): void => {
     ctx.out.headers.set("access-control-allow-origin", origin);
@@ -138,8 +142,16 @@ export function cors(options: CorsOptions) {
     }
   };
 
-  const preflight = hook.beforeParse((ctx) => {
-    if (ctx.req.method !== "OPTIONS" || !allowedOrigin(ctx)) {
+  return hook.beforeParse((ctx) => {
+    const origin = allowedOrigin(ctx);
+
+    if (!origin) {
+      return undefined;
+    }
+
+    write(ctx, origin);
+
+    if (ctx.req.method !== "OPTIONS") {
       return undefined;
     }
 
@@ -149,16 +161,4 @@ export function cors(options: CorsOptions) {
 
     return new Response(null, { status: 204 });
   });
-
-  const decorate = hook.beforeResponse((ctx) => {
-    const origin = allowedOrigin(ctx);
-
-    if (origin) {
-      write(ctx, origin);
-    }
-
-    return undefined;
-  });
-
-  return { beforeParse: [preflight], beforeResponse: [decorate] } as const;
 }

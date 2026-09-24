@@ -11,8 +11,6 @@
  * @module
  */
 
-import type { AnyHook, SlotName } from "./hook.ts";
-import { slotNames } from "./hook.ts";
 import type { ValidatePrefix } from "./path.ts";
 import type {
   GroupHooksInput,
@@ -26,10 +24,11 @@ import type {
  * Where the config is passed (`group()`, `createApp()`), two things are
  * enforced per hook: its slot — a `beforeHandle` hook cannot be placed into
  * the `beforeParse` tuple — and its context requirement, which may not
- * exceed what the slot guarantees on its own (`SlotBases`). A group does
- * not know which routes it will contain, so it cannot satisfy a hook that
- * asks for a validated field or another hook's extension; such a hook is
- * rejected at compile time instead of throwing on the first request.
+ * exceed what the slot guarantees plus what the hooks before it at the
+ * same level contributed. A group does not know which routes it will
+ * contain, so it cannot satisfy a hook that asks for a validated field or
+ * a route hook's extension; such a hook is rejected at compile time
+ * instead of throwing on the first request.
  *
  * Context extensions of group hooks do not reach handler types. Group
  * hooks are for transparent work (metrics, logging, CORS) and guards
@@ -42,10 +41,6 @@ import type {
  * limiting a zone's `404` flood belongs to the application hooks — a
  * deliberate trade-off, and the reason `@tetsujs/cors` says to mount it
  * on the application rather than on a group.
- *
- * Where it is passed, it may also be a list of such sets, joined slot by
- * slot in list order — which is how a hook package is mounted whole:
- * `hooks: [cors(…), requestId(), { beforeParse: [mine] }]`.
  */
 export type GroupHooks = HooksConfig;
 
@@ -53,10 +48,7 @@ export type GroupHooks = HooksConfig;
  * The configuration accepted by `group()`.
  */
 export interface GroupConfig<H extends GroupHooksInput = GroupHooks> {
-  /**
-   * Zone-wide hooks — one set, or a list of sets; see `GroupHooks` for
-   * what belongs here.
-   */
+  /** Zone-wide hooks, keyed by slot; see `GroupHooks` for what belongs here. */
   readonly hooks?: H & ValidateGroupHooksInput<H>;
 
   /** Controllers and nested groups mounted under this prefix. */
@@ -155,7 +147,7 @@ export function group<
   return {
     [groupBrand]: true,
     prefix,
-    hooks: combineHooks(config.hooks as GroupHooksInput | undefined),
+    hooks: slotHooks(config.hooks, `group("${prefix}")`),
     children: config.children,
   };
 }
@@ -169,31 +161,24 @@ export function isGroup(value: unknown): value is GroupNode {
 }
 
 /**
- * Joins a list of hook sets into one, slot by slot in list order; a lone
- * set passes through.
+ * Takes a level's `hooks` as the table reads them: the object keyed by
+ * slot.
  *
- * One level is one list, so `onError` joins in list order like every other
- * slot: its innermost-first rule orders levels — route, group, application
- * — and is applied when the route table joins those. Internal to the core.
+ * A list is the form before 0.3.0, and JavaScript would pass it through
+ * silently — its elements are keyed `0`, `1`, and no slot of the table
+ * would find them — so every hook in it would quietly stop running. The
+ * compiler refuses a list too; this is for the code it does not see.
+ * Internal to the core.
  */
-export function combineHooks(
+export function slotHooks(
   hooks: GroupHooksInput | undefined,
+  where: string,
 ): GroupHooks | undefined {
-  if (!Array.isArray(hooks)) {
-    return hooks as GroupHooks | undefined;
+  if (Array.isArray(hooks)) {
+    throw new Error(
+      `${where}: hooks is an object keyed by slot, not a list — write { beforeParse: [a, b], afterResponse: [c] }`,
+    );
   }
 
-  const combined: { [K in SlotName]?: AnyHook[] } = {};
-
-  for (const set of hooks as readonly GroupHooks[]) {
-    for (const slot of slotNames) {
-      const added = set[slot];
-
-      if (added && added.length > 0) {
-        combined[slot] = [...(combined[slot] ?? []), ...added];
-      }
-    }
-  }
-
-  return combined;
+  return hooks as GroupHooks | undefined;
 }

@@ -1,8 +1,8 @@
 /**
- * Tests for the CORS hooks, through a live server.
+ * Tests for the CORS hook, through a live server.
  *
  * The point of a hook package is that it is nothing special: these run it
- * exactly as an application would, spread into `createApp`.
+ * exactly as an application would, mounted in `createApp`.
  *
  * @module
  */
@@ -33,8 +33,7 @@ class ApiController {
 const request = serve(
   createApp({
     hooks: {
-      beforeParse: [...shared.beforeParse],
-      beforeResponse: [...shared.beforeResponse],
+      beforeParse: [shared],
     },
     routes: new ApiController(),
   }),
@@ -118,8 +117,7 @@ describe("options", () => {
     const anywhere = serve(
       createApp({
         hooks: {
-          beforeParse: [...open.beforeParse],
-          beforeResponse: [...open.beforeResponse],
+          beforeParse: [open],
         },
         routes: new ApiController(),
       }),
@@ -139,8 +137,7 @@ describe("options", () => {
     const both = serve(
       createApp({
         hooks: {
-          beforeParse: [...many.beforeParse],
-          beforeResponse: [...many.beforeResponse],
+          beforeParse: [many],
         },
         routes: new ApiController(),
       }),
@@ -165,8 +162,7 @@ describe("options", () => {
     const secured = serve(
       createApp({
         hooks: {
-          beforeParse: [...withCredentials.beforeParse],
-          beforeResponse: [...withCredentials.beforeResponse],
+          beforeParse: [withCredentials],
         },
         routes: new ApiController(),
       }),

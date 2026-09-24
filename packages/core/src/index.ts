@@ -40,7 +40,7 @@ export { errorBody, HttpError, httpError, ValidationError } from "./error.ts";
 export type { GroupConfig, GroupHooks, GroupNode } from "./group.ts";
 export { group, isGroup } from "./group.ts";
 export type { AnyHook, Hook, SlotBases, SlotName } from "./hook.ts";
-export { hook, stack } from "./hook.ts";
+export { hook } from "./hook.ts";
 export type { Mountable } from "./mount.ts";
 export { onMount } from "./mount.ts";
 export type {

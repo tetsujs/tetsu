@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { hook, stack } from "./hook.ts";
+import { hook } from "./hook.ts";
 
 const callHook = (target: { fn: unknown }, ctx: unknown) =>
   (target.fn as (ctx: unknown) => unknown)(ctx);
@@ -32,16 +32,5 @@ describe("hook factories", () => {
 
     expect(first).not.toBe(second);
     expect(first.slot).toBe("onError");
-  });
-});
-
-describe("stack", () => {
-  test("returns the hooks in the given order", () => {
-    const a = hook.beforeParse(() => undefined);
-    const b = hook.beforeHandle(() => undefined);
-
-    const secured = stack(a, b);
-
-    expect(secured).toEqual([a, b]);
   });
 });

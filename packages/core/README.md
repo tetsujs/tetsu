@@ -195,6 +195,14 @@ export const withOrder = hook.beforeHandle(
 hooks run after it has been sent, on every outcome, which makes them the
 place for logs and metrics. `onError` hooks turn an error into a response.
 
+Hooks are mounted by slot, the same way on a route, a group and the
+application: `hooks: { beforeParse: [auth], afterResponse: [log] }`. The key
+says where a hook runs, and the compiler checks it against the slot the
+hook was made for. Inside a slot the array is the order; the slots
+themselves always run in lifecycle order, whatever order they are written
+in. Every hook and handler also sees `ctx.startedAt`, the monotonic time the
+request was taken, before any hook ran.
+
 ### Validation
 
 Any schema implementing Standard Schema validates any part of the request.
@@ -302,16 +310,23 @@ createApp({ cookies: { secret: env.COOKIE_SECRET, sign: ["session"] }, routes })
 
 ### Groups and hook packages
 
-A group adds a path prefix and hooks to everything under it. Hook packages
-are functions returning hooks, mounted whole on the application or a group
-— there is no plugin system:
+A group adds a path prefix and hooks to everything under it. A hook package
+is a function that takes options and returns one hook, mounted in its slot
+like any other — there is no plugin system:
 
 ```ts
 import { cors } from "@tetsujs/cors";
 import { accessLog, requestId } from "@tetsujs/request-id";
 
+const browser = cors({ origin: "https://app.example.com" });
+const id = requestId();
+const log = accessLog();
+
 createApp({
-  hooks: [cors({ origin: "https://app.example.com" }), requestId(), accessLog()],
+  hooks: {
+    beforeParse: [browser, id],
+    afterResponse: [log],
+  },
   routes: group("/api", {
     children: [
       new StatusController(),
@@ -327,11 +342,59 @@ createApp({
 A group's hooks run for its routes but do not add to their types — see the
 [FAQ](#why-does-ctxuser-from-a-group-hook-not-show-up-in-the-handlers-type).
 Among themselves they do: a hook of a group or of the application sees
-what the hooks before it at the same level contributed, in the order they
-run — `[requestId(), { beforeParse: [scope] }]` gives `scope` a typed
-`ctx.requestId`.
-Unmatched paths (`404`, `405`) and CORS preflights run only the
-application's hooks.
+what the hooks before it at the same level contributed — earlier in its
+slot, or in any slot that runs before its own. `beforeParse: [id, scope]`
+gives `scope` a typed `ctx.requestId`; in `beforeResponse`, `afterResponse`
+and `onError` such fields are optional, since the hook that adds them may
+never have run. Unmatched paths (`404`, `405`) and CORS preflights run only
+the application's hooks.
+
+### Mounting hooks
+
+Everything that runs for a request is written out where it is mounted.
+A few habits keep it that way:
+
+- **Make a hook once, in a named constant, and mount it by name.** A
+  package's options stay out of the `hooks` object, and a factory called
+  inside it would make a new instance every time the code around it runs.
+- **Share hooks, not `hooks` objects.** Two applications that log the same
+  way import the same `id` and `log` and each lists them in its own slots.
+  If you do want to combine two `hooks` objects, join them slot by slot —
+  `Object.assign` and spreading replace a slot instead of joining it — and
+  keep every slot a tuple, or the compiler cannot check the order:
+
+  ```ts
+  import type { HooksConfig } from "@tetsujs/core";
+
+  const slots = ["beforeParse", "beforeValidation", "beforeHandle", "beforeResponse", "afterResponse", "onError"] as const;
+
+  type Slot = (typeof slots)[number];
+  type Of<S, K extends Slot> = S extends { readonly [P in K]: infer T extends readonly unknown[] } ? T : [];
+
+  export function join<const A extends HooksConfig, const B extends HooksConfig>(a: A, b: B) {
+    const joined: Record<string, unknown[]> = {};
+
+    for (const slot of slots) joined[slot] = [...(a[slot] ?? []), ...(b[slot] ?? [])];
+
+    return joined as unknown as { readonly [K in Slot]: readonly [...Of<A, K>, ...Of<B, K>] };
+  }
+  ```
+
+  A helper that returns plain arrays or a `Record<string, …>` is refused
+  where it is mounted: nothing in it could be checked.
+- **State lives in the instance.** One `rateLimit()` mounted on two groups
+  shares its counters between them. For separate budgets, make two.
+- **An instance runs once per request.** The same hook mounted twice in one
+  route's chain — on a group and on a route under it — is refused at
+  startup.
+- **Order within a slot is yours.** The compiler checks what a hook needs
+  (`scope` after `id`), not what should come first: mount `cors()` first in
+  `beforeParse`, so that a hook refusing early still answers with the
+  headers a browser needs to read it.
+- **A package is one hook.** Writing your own, return the hook from a
+  function that takes the options. A package that seems to need two slots
+  is usually missing something the core should provide — say so in an
+  issue.
 
 ### WebSockets
 
@@ -418,7 +481,10 @@ to `console.error`. Pass `reportError`, and they go to you instead:
 
 ```ts
 createApp({
-  hooks: [requestId(), accessLog({ write: (r) => logger.info(r) })],
+  hooks: {
+    beforeParse: [requestId()],
+    afterResponse: [accessLog({ write: (r) => logger.info(r) })],
+  },
   reportError: ({ source, error, ctx }) =>
     logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
   routes,
@@ -491,8 +557,8 @@ handlers directly with `testCtx()`, or use `serve()` from
 
 #### Is there a plugin system?
 
-No. A package is a function returning hooks, mounted like any other hooks,
-so everything that runs for a route is visible where the route is mounted.
+No. A package is a function returning a hook, mounted in its slot like any
+other, so everything that runs for a route is visible where it is mounted.
 
 ## Performance
 
@@ -511,8 +577,9 @@ Hono, Elysia, memory, startup and the cost of types are in
 
 ## Status
 
-`0.1` — usable, and the API may still change between minor versions until
-`1.0`. All packages share one version.
+`0.x` — usable, and the API may still change between minor versions until
+`1.0`; [`CHANGELOG.md`](https://github.com/tetsujs/tetsu/blob/main/CHANGELOG.md) says what changed and how to move.
+All packages share one version.
 
 ## Contributing
 

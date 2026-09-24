@@ -16,7 +16,7 @@ import type {
   SchemaConfig,
 } from "./context.ts";
 import { HttpError } from "./error.ts";
-import { hook, stack } from "./hook.ts";
+import { hook } from "./hook.ts";
 import type { HandlerResult, ResultError, ValidateResult } from "./route.ts";
 import { route } from "./route.ts";
 import type { HooksConfig } from "./stack.ts";
@@ -127,17 +127,6 @@ route({
   schema: { response: Order },
   // @ts-expect-error "wrong" is not part of the response schema status union
   handler: () => ({ id: "1", status: "wrong" }),
-});
-
-const secured = stack(auth);
-
-route({
-  method: "GET",
-  path: "/stack-reuse",
-  hooks: { beforeParse: secured },
-  handler: (ctx) => {
-    expectType<User>(ctx.user);
-  },
 });
 
 route({
@@ -298,15 +287,6 @@ route({
     beforeParse: [hook.beforeParse(() => ({ user: { id: "1" } })), ...tail],
   },
   handler: () => ({ ok: true }),
-});
-
-const reusable = stack(hook.beforeParse(() => ({ user: { id: "1" } })));
-
-route({
-  method: "GET",
-  path: "/reusable-stack",
-  hooks: { beforeParse: reusable },
-  handler: (ctx) => ({ user: ctx.user.id }),
 });
 
 const asConst = [hook.beforeParse(() => ({ user: { id: "1" } }))] as const;
@@ -801,4 +781,14 @@ route({
   bodyType: "stream",
   maxBodySize: 5_000_000,
   handler: () => ({ ok: true }),
+});
+
+const indexedHooks: Record<string, (typeof auth)[]> = { beforeParse: [auth] };
+
+route({
+  method: "GET",
+  path: "/indexed",
+  // @ts-expect-error an object with an index signature has no slot that could be checked
+  hooks: indexedHooks,
+  handler: () => null,
 });

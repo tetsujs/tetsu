@@ -228,7 +228,12 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
   await Bun.write(join(consumer, "smoke.ts"), smokeScript(specifiers));
 }
 
-/** Imports every specifier, checks each exports something, serves once. */
+/**
+ * Imports every specifier, checks each exports something, and serves once
+ * with every hook package mounted the way an application mounts it — so
+ * the published declarations are checked against the form users write,
+ * a hook per slot, not only imported.
+ */
 function smokeScript(specifiers: string[]): string {
   const binding = (specifier: string) =>
     `entry_${specifier.replace(/\W/g, "_")}`;
@@ -253,7 +258,22 @@ for (const [specifier, namespace] of entries) {
   }
 }
 
-const { createApp, route } = entry__tetsujs_core;
+const { createApp, hook, route } = entry__tetsujs_core;
+const { cors } = entry__tetsujs_cors;
+const { rateLimit } = entry__tetsujs_rate_limit;
+const { accessLog, requestId } = entry__tetsujs_request_id;
+const { secureHeaders } = entry__tetsujs_secure_headers;
+
+const browser = cors({ origin: "https://app.example.com" });
+const id = requestId();
+const limit = rateLimit({ limit: 100, windowMs: 60_000, key: () => "all" });
+const headers = secureHeaders();
+const lines: unknown[] = [];
+const log = accessLog({ write: (record) => lines.push(record) });
+
+const scope = hook.beforeParse((ctx: entry__tetsujs_core.Requires<{ requestId: string }>) => {
+  void ctx.requestId;
+});
 
 class HelloController {
   greet = route({
@@ -269,7 +289,14 @@ class HelloController {
 }
 
 const server = Bun.serve({
-  ...createApp({ routes: new HelloController() }),
+  ...createApp({
+    hooks: {
+      beforeParse: [browser, id, scope, limit],
+      beforeResponse: [headers],
+      afterResponse: [log],
+    },
+    routes: new HelloController(),
+  }),
   port: 0,
 });
 
@@ -279,6 +306,10 @@ try {
 
   if (body !== '{"hello":"ada"}') {
     throw new Error(\`unexpected response: \${response.status} \${body}\`);
+  }
+
+  if (!response.headers.get("x-request-id") || !response.headers.get("x-content-type-options")) {
+    throw new Error("the mounted hooks did not run");
   }
 } finally {
   server.stop(true);

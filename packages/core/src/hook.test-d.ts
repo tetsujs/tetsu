@@ -12,7 +12,6 @@ import {
   hook,
   type ReqOf,
   type SlotOf,
-  stack,
 } from "./hook.ts";
 import type { PipelineCtx } from "./pipeline.ts";
 
@@ -129,8 +128,6 @@ class Session {
 
 const instanceHook = hook.beforeParse(() => new Session("s1"));
 
-const secured = stack(auth, withOrder);
-
 export type cases = [
   Expect<Equal<SlotOf<typeof auth>, "beforeParse">>,
   Expect<Equal<SlotOf<typeof observer>, "afterResponse">>,
@@ -161,7 +158,6 @@ export type cases = [
       BaseCtx & { readonly params: Record<string, string> }
     >
   >,
-  Expect<Equal<typeof secured, readonly [typeof auth, typeof withOrder]>>,
   Expect<Equal<keyof ExtOf<typeof smuggler>, "user">>,
   Expect<Equal<ExtOf<typeof smuggler>, { user: { id: string } }>>,
   Expect<Equal<keyof ExtOf<typeof totalSmuggler>, "user">>,

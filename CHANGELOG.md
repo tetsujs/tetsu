@@ -3,6 +3,63 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+Hooks are mounted one way everywhere: an object keyed by slot, each slot a
+list of hooks, so everything that runs for a request is written out where
+it is mounted. This changes how hook packages are mounted.
+
+- **Breaking.** `hooks` on `createApp` and `group` is one object keyed by
+  slot, as on a route. The list of hook sets is gone; a list is refused at
+  compile time and at startup with the form to write instead.
+- **Breaking.** Every hook package returns one hook: `cors()` and
+  `requestId()` and `rateLimit()` for `beforeParse`, `secureHeaders()` for
+  `beforeResponse`, `accessLog()` for `afterResponse`. Their types are
+  singular now: `CorsHook`, `RequestIdHook`, `AccessLogHook`,
+  `RateLimitHook`, `SecureHeadersHook`.
+- **Breaking.** `stack()` is removed. Write the hooks in the slot, or
+  declare a shared array `as const`.
+- `ctx.startedAt`: the monotonic time the core took the request, before any
+  hook ran. `AccessRecord.durationMs` is measured from it and always present.
+- One hook instance mounted twice in a route's chain — on a group and on a
+  route under it, or twice in one slot — is refused at startup.
+- A `hooks` object typed with an index signature — `Record<string, …>`, or
+  what `Object.fromEntries` returns — is refused. Before, none of its slots
+  was checked, on routes too.
+- `@tetsujs/request-id`: the pino recipe in the README returned the stored
+  object from `mixin`, which pino mutates, so one log line's fields leaked
+  into every later line of the request. It returns a copy now:
+  `mixin: () => ({ ...current() })`.
+
+### Moving from 0.2
+
+```ts
+// 0.2
+createApp({
+  hooks: [cors(origins), requestId(), accessLog(), secureHeaders(), { beforeParse: [mine] }],
+  routes,
+});
+
+// 0.3: each hook made once, and mounted in its slot
+const browser = cors(origins);
+const id = requestId();
+const log = accessLog();
+const secure = secureHeaders();
+
+createApp({
+  hooks: {
+    beforeParse: [browser, id, mine],
+    beforeResponse: [secure],
+    afterResponse: [log],
+  },
+  routes,
+});
+```
+
+On a route, `hooks: { beforeParse: [...limit.beforeParse] }` becomes
+`hooks: { beforeParse: [limit] }`. Mount `cors()` first in `beforeParse`:
+a hook before it that refuses answers without the CORS headers.
+
 ## 0.2.0 — 2026-09-24
 
 - `createApp({ reportError })` receives the failures no response can

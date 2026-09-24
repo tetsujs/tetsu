@@ -170,6 +170,7 @@ export interface PipelineCtx {
   readonly server: Server<unknown>;
   readonly out: OutgoingSettings;
   readonly route?: RouteInfo | undefined;
+  readonly startedAt: number;
   params: unknown;
   body?: unknown;
   query?: unknown;
@@ -227,6 +228,7 @@ export function runPipeline(
     server,
     out: new OutgoingSettings(options.cookieSealer),
     route: entry.route,
+    startedAt: performance.now(),
     params,
     [reporterKey]: options.report,
   };

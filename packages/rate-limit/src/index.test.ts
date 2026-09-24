@@ -34,7 +34,7 @@ const serveWith = (options: Parameters<typeof rateLimit>[0]) => {
 
   return serve(
     createApp({
-      hooks: { beforeParse: [...limit.beforeParse] },
+      hooks: { beforeParse: [limit] },
       routes: new ApiController(),
     }),
   );
@@ -221,7 +221,7 @@ describe("documentation", () => {
     const limit = rateLimit({ limit: 1, windowMs: 1_000, key: () => "one" });
 
     const app = createApp({
-      hooks: { beforeParse: [...limit.beforeParse] },
+      hooks: { beforeParse: [limit] },
       routes: new ApiController(),
     });
 
@@ -273,7 +273,7 @@ describe("what has to be said out loud", () => {
 
     const request = serve(
       createApp({
-        hooks: { beforeParse: [...perSession.beforeParse] },
+        hooks: { beforeParse: [perSession] },
         routes: new ApiController(),
       }),
     );
@@ -297,7 +297,7 @@ describe("what has to be said out loud", () => {
 
     const request = serve(
       createApp({
-        hooks: { beforeParse: [...exempting.beforeParse] },
+        hooks: { beforeParse: [exempting] },
         routes: new ApiController(),
       }),
     );

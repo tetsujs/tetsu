@@ -511,6 +511,84 @@ describe("diagnostics", () => {
   });
 });
 
+describe("a hook mounted twice", () => {
+  const once = hook.beforeParse(() => undefined);
+
+  class Twice {
+    read = route({
+      method: "GET",
+      path: "/twice",
+      hooks: { beforeParse: [once] },
+      handler: () => null,
+    });
+  }
+
+  class Plain {
+    read = route({ method: "GET", path: "/read", handler: () => null });
+  }
+
+  test("on a group and a route it passes through is refused at startup", () => {
+    expect(() =>
+      createApp({
+        routes: group("/zone", {
+          hooks: { beforeParse: [once] },
+          children: [new Twice()],
+        }),
+      }),
+    ).toThrow(
+      "GET /zone/twice: the same hook is mounted twice in its beforeParse chain",
+    );
+  });
+
+  test("on the application and a route is refused too", () => {
+    expect(() =>
+      createApp({ hooks: { beforeParse: [once] }, routes: new Twice() }),
+    ).toThrow("GET /twice: the same hook is mounted twice");
+  });
+
+  test("twice in one slot of the application is refused with no route at all", () => {
+    expect(() =>
+      createApp({ hooks: { beforeParse: [once, once] }, routes: [] }),
+    ).toThrow(
+      "The application: the same hook is mounted twice in its beforeParse chain",
+    );
+  });
+
+  test("on two groups no route passes through both is fine", () => {
+    expect(() =>
+      createApp({
+        routes: [
+          group("/left", {
+            hooks: { beforeParse: [once] },
+            children: [new Plain()],
+          }),
+          group("/right", {
+            hooks: { beforeParse: [once] },
+            children: [new Plain()],
+          }),
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test("two instances of the same kind are two hooks", () => {
+    const again = hook.beforeParse(() => undefined);
+
+    class Both {
+      read = route({
+        method: "GET",
+        path: "/both",
+        hooks: { beforeParse: [again] },
+        handler: () => null,
+      });
+    }
+
+    expect(() =>
+      createApp({ hooks: { beforeParse: [once] }, routes: new Both() }),
+    ).not.toThrow();
+  });
+});
+
 describe("resolved options", () => {
   test("app.options fills every default in", () => {
     expect(app.options).toEqual({

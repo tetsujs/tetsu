@@ -16,7 +16,7 @@ import { createApp } from "./app.ts";
 import type { Requires } from "./context.ts";
 import { HttpError } from "./error.ts";
 import { group } from "./group.ts";
-import { hook, stack } from "./hook.ts";
+import { hook } from "./hook.ts";
 import { route } from "./route.ts";
 import type { StandardSchemaV1 } from "./schema.ts";
 
@@ -670,27 +670,25 @@ describe("hooks context contract", () => {
   });
 });
 
-describe("stack() through a served app", () => {
+describe("hooks that build on each other, through a served app", () => {
   const withTenant = hook.beforeParse(
     (ctx: Requires<{ user: { id: string } }>) => ({
       tenant: `${ctx.user.id}-acme`,
     }),
   );
 
-  const secured = stack(auth, withTenant);
-
   class StackedController {
     me = route({
       method: "GET",
       path: "/stacked",
-      hooks: { beforeParse: secured },
+      hooks: { beforeParse: [auth, withTenant] },
       handler: (ctx) => ({ by: ctx.user.id, tenant: ctx.tenant }),
     });
   }
 
   const stackedRequest = serve(createApp({ routes: new StackedController() }));
 
-  test("a reusable stack applies in order with typed extensions", async () => {
+  test("they apply in order with typed extensions", async () => {
     const res = await stackedRequest("/stacked", {
       headers: { authorization: "token" },
     });
@@ -698,36 +696,37 @@ describe("stack() through a served app", () => {
     expect(await res.json()).toEqual({ by: "u1", tenant: "u1-acme" });
   });
 
-  test("the stack's guard still rejects on its own", async () => {
+  test("the guard still rejects on its own", async () => {
     const res = await stackedRequest("/stacked");
 
     expect(res.status).toBe(401);
   });
 });
 
-describe("hooks given as a list of sets", () => {
+describe("hooks across the application and a group", () => {
   const order: string[] = [];
 
-  /** Shaped the way a hook package returns its hooks: a tuple per slot. */
+  /** One hook per slot, each recording that it ran. */
   function recorder(name: string) {
     return {
-      beforeParse: [
-        hook.beforeParse(() => {
-          order.push(`${name}:parse`);
-        }),
-      ],
-      beforeResponse: [
-        hook.beforeResponse(() => {
-          order.push(`${name}:response`);
-        }),
-      ],
-      onError: [
-        hook.onError(() => {
-          order.push(`${name}:error`);
-        }),
-      ],
-    } as const;
+      parse: hook.beforeParse(() => {
+        order.push(`${name}:parse`);
+      }),
+      response: hook.beforeResponse(() => {
+        order.push(`${name}:response`);
+      }),
+      error: hook.onError(() => {
+        order.push(`${name}:error`);
+      }),
+    };
   }
+
+  const a = recorder("a");
+  const b = recorder("b");
+  const c = recorder("c");
+  const d = hook.beforeParse(() => {
+    order.push("d:parse");
+  });
 
   class Probe {
     ok = route({
@@ -751,24 +750,23 @@ describe("hooks given as a list of sets", () => {
 
   const request = serve(
     createApp({
-      hooks: [recorder("a"), recorder("b")],
+      hooks: {
+        beforeParse: [a.parse, b.parse],
+        beforeResponse: [a.response, b.response],
+        onError: [a.error, b.error],
+      },
       routes: group("/g", {
-        hooks: [
-          recorder("c"),
-          {
-            beforeParse: [
-              hook.beforeParse(() => {
-                order.push("d:parse");
-              }),
-            ],
-          },
-        ],
+        hooks: {
+          beforeParse: [c.parse, d],
+          beforeResponse: [c.response],
+          onError: [c.error],
+        },
         children: [new Probe()],
       }),
     }),
   );
 
-  test("every slot of every set runs, in the order the list gives", async () => {
+  test("each slot runs in the order written, application before group", async () => {
     order.length = 0;
 
     const res = await request("/g/ok");
@@ -786,7 +784,7 @@ describe("hooks given as a list of sets", () => {
     ]);
   });
 
-  test("onError keeps innermost-first across levels and list order within one", async () => {
+  test("onError keeps innermost-first across levels and the written order within one", async () => {
     order.length = 0;
 
     const res = await request("/g/fail");
@@ -804,5 +802,21 @@ describe("hooks given as a list of sets", () => {
       "b:response",
       "c:response",
     ]);
+  });
+});
+
+describe("hooks written as a list, the form before 0.3.0", () => {
+  const set = { beforeParse: [hook.beforeParse(() => undefined)] } as const;
+
+  test("are refused by createApp at startup, not dropped", () => {
+    expect(() => createApp({ hooks: [set] as never, routes: [] })).toThrow(
+      "createApp(): hooks is an object keyed by slot, not a list",
+    );
+  });
+
+  test("are refused by a group at startup, not dropped", () => {
+    expect(() =>
+      group("/zone", { hooks: [set] as never, children: [] }),
+    ).toThrow('group("/zone"): hooks is an object keyed by slot, not a list');
   });
 });

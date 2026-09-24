@@ -17,7 +17,7 @@ const limit = rateLimit({
   key: (ctx) => ctx.req.cookies?.get("session") ?? undefined,
 });
 
-createApp({ hooks: [limit], routes });
+createApp({ hooks: { beforeParse: [limit] }, routes });
 ```
 
 A request over the limit gets `429` with the standard error body (code
@@ -25,11 +25,15 @@ A request over the limit gets `429` with the standard error body (code
 carries `x-ratelimit-limit`, `x-ratelimit-remaining` and
 `x-ratelimit-reset`.
 
-For one route only, spread its hooks into the route:
+`rateLimit()` is one `beforeParse` hook. For one route only, mount it on
+the route:
 
 ```ts
-route({ method: "POST", path: "/feedback", hooks: { beforeParse: [...limit.beforeParse] }, handler });
+route({ method: "POST", path: "/feedback", hooks: { beforeParse: [limit] }, handler });
 ```
+
+The counters live in the instance: one `limit` mounted on two routes or
+groups is one budget shared between them. For separate budgets, make two.
 
 ## Choosing a key
 

@@ -36,7 +36,7 @@ import type { CookieOptions } from "./cookie.ts";
 import { cookieSealer } from "./cookie.ts";
 import { errorBody } from "./error.ts";
 import type { GroupHooks } from "./group.ts";
-import { combineHooks } from "./group.ts";
+import { slotHooks } from "./group.ts";
 import { appBrand, onMount } from "./mount.ts";
 import type { Executable, PipelineOptions } from "./pipeline.ts";
 import { release, runPipeline } from "./pipeline.ts";
@@ -66,10 +66,9 @@ export interface AppConfig<
   R = object | readonly object[],
 > {
   /**
-   * Application-wide hooks, prepended to every route's chains — one set,
-   * or a list of sets joined slot by slot, which is how a hook package is
-   * mounted whole. Validated like group hooks: a hook may not require more
-   * context than its slot guarantees on its own.
+   * Application-wide hooks, keyed by slot and prepended to every route's
+   * chains. Validated like group hooks: a hook may require what its slot
+   * guarantees and what the application's hooks before it contributed.
    */
   readonly hooks?: H & ValidateGroupHooksInput<H>;
 
@@ -193,7 +192,10 @@ export interface AppConfig<
    * @example Into the application's logger, joined to the access log
    * ```ts
    * createApp({
-   *   hooks: [requestId(), accessLog({ write: (r) => logger.info(r) })],
+   *   hooks: {
+   *     beforeParse: [requestId()],
+   *     afterResponse: [accessLog({ write: (r) => logger.info(r) })],
+   *   },
    *   reportError: ({ source, error, ctx }) =>
    *     logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
    *   routes,
@@ -388,7 +390,7 @@ export function createApp<
 >(config: AppConfig<H, R>): App<RoutesOf<R>> {
   const table = buildRouteTable({
     routes: config.routes,
-    hooks: combineHooks(config.hooks as GroupHooksInput | undefined),
+    hooks: slotHooks(config.hooks, "createApp()"),
   });
 
   for (const warning of table.warnings) {

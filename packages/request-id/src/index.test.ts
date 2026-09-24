@@ -83,7 +83,7 @@ class TypedController {
   read = route({
     method: "GET",
     path: "/items",
-    hooks: { beforeParse: [...tracing.beforeParse] },
+    hooks: { beforeParse: [tracing] },
     handler: (ctx) => ({ seenByHandler: ctx.requestId }),
   });
 }
@@ -91,8 +91,8 @@ class TypedController {
 const request = serve(
   createApp({
     hooks: {
-      beforeParse: [...tracing.beforeParse, ...log.beforeParse],
-      afterResponse: [...log.afterResponse],
+      beforeParse: [tracing],
+      afterResponse: [log],
     },
     routes: new ApiController(),
   }),
@@ -137,7 +137,7 @@ describe("the request id", () => {
 
     const behindProxy = serve(
       createApp({
-        hooks: { beforeParse: [...trusting.beforeParse] },
+        hooks: { beforeParse: [trusting] },
         routes: new ApiController(),
       }),
     );
@@ -157,7 +157,7 @@ describe("the request id", () => {
 
     const behindProxy = serve(
       createApp({
-        hooks: { beforeParse: [...trusting.beforeParse] },
+        hooks: { beforeParse: [trusting] },
         routes: new ApiController(),
       }),
     );
@@ -182,7 +182,7 @@ describe("the request id", () => {
 
     const correlated = serve(
       createApp({
-        hooks: { beforeParse: [...custom.beforeParse] },
+        hooks: { beforeParse: [custom] },
         routes: new ApiController(),
       }),
     );
@@ -198,7 +198,7 @@ describe("the request id", () => {
 
     const plain = serve(
       createApp({
-        hooks: { beforeParse: [...real.beforeParse] },
+        hooks: { beforeParse: [real] },
         routes: new ApiController(),
       }),
     );
@@ -271,7 +271,7 @@ describe("the access log", () => {
 
     const quiet = serve(
       createApp({
-        hooks: { afterResponse: [...alone.afterResponse] },
+        hooks: { afterResponse: [alone] },
         routes: new ApiController(),
       }),
     );
@@ -279,7 +279,7 @@ describe("the access log", () => {
     await quiet("/items");
     await Bun.sleep(20);
 
-    expect(lines[0]).toEqual({
+    expect(lines[0]).toMatchObject({
       method: "GET",
       path: "/items",
       route: "/items",
@@ -290,6 +290,7 @@ describe("the access log", () => {
       "path",
       "route",
       "status",
+      "durationMs",
     ]);
   });
 });
@@ -309,23 +310,21 @@ describe("how long it took", () => {
     expect(duration).toBeLessThan(500);
   });
 
-  test("is absent when only the observing half is mounted", async () => {
+  test("needs nothing but the one hook: the core starts the clock", async () => {
     const lines: AccessRecord[] = [];
-    const halved = accessLog({ write: (record) => lines.push(record) });
+    const alone = accessLog({ write: (record) => lines.push(record) });
 
-    const partial = serve(
+    const bare = serve(
       createApp({
-        hooks: { afterResponse: [...halved.afterResponse] },
+        hooks: { afterResponse: [alone] },
         routes: new ApiController(),
       }),
     );
 
-    await partial("/items");
+    await bare("/slow");
     await Bun.sleep(20);
 
-    // Nothing started the clock, and the record says so by leaving the
-    // field out rather than reporting a zero.
-    expect(lines[0]).not.toHaveProperty("durationMs");
+    expect(lines[0]?.durationMs ?? 0).toBeGreaterThan(35);
   });
 });
 
@@ -411,7 +410,7 @@ describe("the id deeper than the handler", () => {
 
   const request = serve(
     createApp({
-      hooks: [requestId(), { beforeParse: [scope] }],
+      hooks: { beforeParse: [requestId(), scope] },
       fallback: (ctx) => {
         ctx.out.status = 404;
 

@@ -709,3 +709,40 @@ describe("Bun cookie map through the pipeline", () => {
     expect(await res.json()).toEqual({ hasCookieMap: false });
   });
 });
+
+describe("when the request was taken", () => {
+  const forger = hook.beforeParse(() => ({ startedAt: 0 }));
+
+  class TimedController {
+    timed = route({
+      method: "GET",
+      path: "/timed",
+      hooks: { beforeParse: [forger] },
+      handler: (ctx) => ({
+        startedAt: ctx.startedAt,
+        elapsed: performance.now() - ctx.startedAt,
+      }),
+    });
+  }
+
+  const request = serve(createApp({ routes: new TimedController() }));
+
+  test("ctx.startedAt is a monotonic reading taken before any hook", async () => {
+    const before = performance.now();
+    const res = await request("/timed");
+    const after = performance.now();
+
+    const body = (await res.json()) as { startedAt: number; elapsed: number };
+
+    expect(body.startedAt).toBeGreaterThanOrEqual(before);
+    expect(body.startedAt).toBeLessThanOrEqual(after);
+    expect(body.elapsed).toBeGreaterThanOrEqual(0);
+  });
+
+  test("a hook cannot rewrite it", async () => {
+    const res = await request("/timed");
+    const body = (await res.json()) as { startedAt: number };
+
+    expect(body.startedAt).toBeGreaterThan(0);
+  });
+});

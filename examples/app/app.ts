@@ -21,9 +21,16 @@ import { NoteStore } from "./notes/store.ts";
 
 export function buildApp(db: Database, log: AccessLogOptions = {}) {
   const notes = new NoteStore(db);
+  const id = requestId();
+  const logged = accessLog(log);
+  const secure = secureHeaders();
 
   return createApp({
-    hooks: [requestId(), accessLog(log), secureHeaders()],
+    hooks: {
+      beforeParse: [id],
+      beforeResponse: [secure],
+      afterResponse: [logged],
+    },
     routes: [
       group("/api", { children: [new NotesController(notes)] }),
       docs({ info: { title: "Notes", version: "1.0.0" } }),

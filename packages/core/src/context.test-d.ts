@@ -36,16 +36,21 @@ export type cases = [
   Expect<
     Equal<
       keyof EarlyCtx<"/health">,
-      "req" | "server" | "out" | "route" | "params"
+      "req" | "server" | "out" | "route" | "startedAt" | "params"
     >
   >,
-  Expect<Equal<keyof Plain, "req" | "server" | "out" | "route" | "params">>,
+  Expect<
+    Equal<
+      keyof Plain,
+      "req" | "server" | "out" | "route" | "startedAt" | "params"
+    >
+  >,
   Expect<Equal<keyof Plain["params"], never>>,
   Expect<Equal<WithBody["body"], { qty: number }>>,
   Expect<
     Equal<
       keyof WithBody,
-      "req" | "server" | "out" | "route" | "params" | "body"
+      "req" | "server" | "out" | "route" | "startedAt" | "params" | "body"
     >
   >,
   Expect<Equal<WithParamsSchema["params"], { id: number }>>,
