@@ -3,7 +3,7 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.4.0 — 2026-09-24
 
 Controllers are declared with `controller()`: a name, and a function from
 the controller's dependencies to its routes. Everything a route declares —
