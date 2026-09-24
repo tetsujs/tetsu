@@ -15,7 +15,7 @@
  * @module
  */
 
-import { createApp, route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
 import { file, Type, tb } from "@tetsujs/typebox";
 
 const ImageUpload = tb(
@@ -25,8 +25,8 @@ const ImageUpload = tb(
   }),
 );
 
-class ImagesController {
-  upload = route({
+const imagesController = controller("Images", () => ({
+  upload: route({
     method: "POST",
     path: "/images",
     bodyType: "form",
@@ -44,7 +44,7 @@ class ImagesController {
         bytes: (await image.arrayBuffer()).byteLength,
       };
     },
-  });
-}
+  }),
+}));
 
-export default createApp({ routes: new ImagesController() });
+export default createApp({ routes: imagesController() });

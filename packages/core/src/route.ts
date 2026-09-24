@@ -353,18 +353,16 @@ export interface RouteDef<
  *
  * @example
  * ```ts
- * export class OrdersController {
- *   constructor(private orders: OrderService) {}
- *
- *   cancel = route({
+ * export const ordersController = controller("Orders", ({ orders }: OrdersDeps) => ({
+ *   cancel: route({
  *     method: "POST",
  *     path: "/orders/:id/cancel",
  *     hooks: { beforeParse: [auth], beforeHandle: [withOrder] },
  *     schema: { params: OrderParams, response: Order },
  *     docs: { summary: "Cancel an order", tags: ["orders"] },
- *     handler: (ctx) => this.orders.cancel(ctx.order),
- *   });
- * }
+ *     handler: (ctx) => orders.cancel(ctx.order),
+ *   }),
+ * }));
  * ```
  */
 export function route<

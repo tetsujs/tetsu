@@ -22,7 +22,7 @@
  * @module
  */
 
-import { createApp, httpError, route } from "@tetsujs/core";
+import { controller, createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 
 const UserId = z.object({ id: z.coerce.number().int().positive() });
@@ -37,54 +37,56 @@ interface StoredUser {
   readonly passwordHash: string;
 }
 
-class UsersController {
-  private readonly users = new Map<number, StoredUser>([
+const usersController = controller("Users", () => {
+  const users = new Map<number, StoredUser>([
     [1, { id: 1, name: "Ada", passwordHash: "$argon2id$…" }],
   ]);
 
-  get = route({
-    method: "GET",
-    path: "/users/:id",
-    schema: { params: UserId, response: { 200: PublicUser } },
-    handler: (ctx) => {
-      const user = this.users.get(ctx.params.id);
+  return {
+    get: route({
+      method: "GET",
+      path: "/users/:id",
+      schema: { params: UserId, response: { 200: PublicUser } },
+      handler: (ctx) => {
+        const user = users.get(ctx.params.id);
 
-      if (!user) {
-        throw httpError(404, "USER_NOT_FOUND");
-      }
+        if (!user) {
+          throw httpError(404, "USER_NOT_FOUND");
+        }
 
-      return user;
-    },
-  });
+        return user;
+      },
+    }),
 
-  create = route({
-    method: "POST",
-    path: "/users",
-    schema: { body: NewUser, response: { 201: PublicUser } },
-    handler: (ctx) => {
-      const user = {
-        id: this.users.size + 1,
-        name: ctx.body.name,
-        passwordHash: "$argon2id$…",
-      };
+    create: route({
+      method: "POST",
+      path: "/users",
+      schema: { body: NewUser, response: { 201: PublicUser } },
+      handler: (ctx) => {
+        const user = {
+          id: users.size + 1,
+          name: ctx.body.name,
+          passwordHash: "$argon2id$…",
+        };
 
-      this.users.set(user.id, user);
-      ctx.out.status = 201;
+        users.set(user.id, user);
+        ctx.out.status = 201;
 
-      return user;
-    },
-  });
+        return user;
+      },
+    }),
 
-  remove = route({
-    method: "DELETE",
-    path: "/users/:id",
-    schema: { params: UserId, response: { 204: null } },
-    handler: (ctx) => {
-      if (!this.users.delete(ctx.params.id)) {
-        throw httpError(404, "USER_NOT_FOUND");
-      }
-    },
-  });
-}
+    remove: route({
+      method: "DELETE",
+      path: "/users/:id",
+      schema: { params: UserId, response: { 204: null } },
+      handler: (ctx) => {
+        if (!users.delete(ctx.params.id)) {
+          throw httpError(404, "USER_NOT_FOUND");
+        }
+      },
+    }),
+  };
+});
 
-export default createApp({ routes: new UsersController() });
+export default createApp({ routes: usersController() });

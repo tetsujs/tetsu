@@ -1,9 +1,9 @@
 /**
  * A controller written to be tested — see `todos.test.ts`.
  *
- * The store is handed in through the constructor, so a test can hand in
- * another one: that is the whole of dependency injection here. The default
- * export wires the real one.
+ * The store is handed to the controller when it is made, so a test can
+ * hand in another one: that is the whole of dependency injection here. The
+ * default export wires the real one.
  *
  * ```sh
  * bun test examples/todos.test.ts
@@ -12,7 +12,7 @@
  * @module
  */
 
-import { createApp, httpError, route } from "@tetsujs/core";
+import { controller, createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 
 export interface Todo {
@@ -46,15 +46,17 @@ const TodoId = z.object({ id: z.coerce.number().int().positive() });
 
 const NewTodo = z.object({ title: z.string().min(1) });
 
-export class TodosController {
-  constructor(private readonly store: TodoStore) {}
+export interface TodosDeps {
+  readonly store: TodoStore;
+}
 
-  get = route({
+export const todosController = controller("Todos", ({ store }: TodosDeps) => ({
+  get: route({
     method: "GET",
     path: "/todos/:id",
     schema: { params: TodoId },
     handler: (ctx) => {
-      const todo = this.store.find(ctx.params.id);
+      const todo = store.find(ctx.params.id);
 
       if (!todo) {
         throw httpError(404, "TODO_NOT_FOUND");
@@ -62,20 +64,20 @@ export class TodosController {
 
       return todo;
     },
-  });
+  }),
 
-  create = route({
+  create: route({
     method: "POST",
     path: "/todos",
     schema: { body: NewTodo },
     handler: (ctx) => {
       ctx.out.status = 201;
 
-      return this.store.add(ctx.body.title);
+      return store.add(ctx.body.title);
     },
-  });
-}
+  }),
+}));
 
 export default createApp({
-  routes: new TodosController(new MemoryTodoStore()),
+  routes: todosController({ store: new MemoryTodoStore() }),
 });

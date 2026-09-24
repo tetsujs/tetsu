@@ -3,6 +3,57 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+Controllers are declared with `controller()`: a name, and a function from
+the controller's dependencies to its routes. Everything a route declares —
+hooks, schemas, a body limit — can now come from those dependencies, which
+a class could not give its fields.
+
+### Breaking changes
+
+- `ctx.route.controller`, and `controller` on `app.entries`, are optional:
+  an object literal and a route mounted on its own have no name, where
+  they were `"Object"` and `"(standalone)"`.
+- Two controllers of one application with the same name are refused at
+  startup — one class mounted twice, or one factory called twice,
+  included. Two versions of an API are two names over one body.
+- `@tetsujs/openapi`: two routes arriving at one `operationId` stop the
+  application, naming both. Before, the second one was renamed after its
+  method and path, or numbered — a method of a generated SDK changing
+  without anyone seeing it. A route of an unnamed object is named by its
+  field now, not `object<Field>`.
+
+### Added
+
+- `controller(name, build)`, the form of a controller the README shows.
+  The name is what every `operationId` is built from, apart from the
+  variable that holds the factory, so renaming code changes no client.
+- `docs.operationId` on a route, for an id stated rather than derived.
+
+### Moving from 0.3
+
+```ts
+// 0.3
+class OrdersController {
+  constructor(private orders: OrderService) {}
+
+  list = route({ method: "GET", path: "/orders", handler: () => this.orders.all() });
+}
+
+createApp({ routes: new OrdersController(orders) });
+
+// 0.4
+const ordersController = controller("Orders", ({ orders }: { orders: OrderService }) => ({
+  list: route({ method: "GET", path: "/orders", handler: () => orders.all() }),
+}));
+
+createApp({ routes: ordersController({ orders }) });
+```
+
+A class keeps working and is named after itself, `operationId`s included;
+`controller("Orders", …)` gives the same `ordersList` as `OrdersController`.
+
 ## 0.3.0 — 2026-09-24
 
 Hooks are mounted one way everywhere: an object keyed by slot, each slot a

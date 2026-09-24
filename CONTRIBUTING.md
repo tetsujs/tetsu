@@ -115,7 +115,10 @@ a body would say. Commits inside the branch are for review and do not
 reach `main`.
 
 A change users will notice adds a line under `## Unreleased` in
-`CHANGELOG.md`, in the same pull request.
+`CHANGELOG.md`, in the same pull request, in one of its sections:
+`### Breaking changes` first, then `### Added`, `### Changed`, `### Fixed`.
+A breaking change also says, under `### Moving from <previous version>`,
+what to write instead.
 
 ## Releasing
 

@@ -15,7 +15,7 @@
  * @module
  */
 
-import { createApp, HttpError, hook, ws } from "@tetsujs/core";
+import { controller, createApp, HttpError, hook, ws } from "@tetsujs/core";
 import { z } from "zod";
 
 const named = hook.beforeParse((ctx) => {
@@ -30,8 +30,8 @@ const named = hook.beforeParse((ctx) => {
 
 const Message = z.object({ text: z.string().min(1).max(500) });
 
-class ChatController {
-  room = ws({
+const chatController = controller("Chat", () => ({
+  room: ws({
     path: "/chat/:room",
     hooks: { beforeParse: [named] },
     schema: { message: Message },
@@ -54,7 +54,7 @@ class ChatController {
     close: (socket) => {
       socket.unsubscribe(socket.data.params.room);
     },
-  });
-}
+  }),
+}));
 
-export default createApp({ routes: new ChatController() });
+export default createApp({ routes: chatController() });

@@ -369,7 +369,7 @@ export interface App<Routes extends RouteMap = RouteMap> {
  * ```ts
  * const app = createApp({
  *   routes: group("/api/v1", {
- *     children: [new UsersController(usersService)],
+ *     children: [usersController({ users })],
  *   }),
  * });
  *

@@ -16,11 +16,18 @@ import { docs } from "@tetsujs/openapi";
 import type { AccessLogOptions } from "@tetsujs/request-id";
 import { accessLog, requestId } from "@tetsujs/request-id";
 import { secureHeaders } from "@tetsujs/secure-headers";
-import { NotesController } from "./notes/routes.ts";
+import type { User } from "./auth.ts";
+import { demoTokens, Sessions } from "./auth.ts";
+import { notesController } from "./notes/routes.ts";
 import { NoteStore } from "./notes/store.ts";
 
-export function buildApp(db: Database, log: AccessLogOptions = {}) {
+export function buildApp(
+  db: Database,
+  log: AccessLogOptions = {},
+  tokens: ReadonlyMap<string, User> = demoTokens,
+) {
   const notes = new NoteStore(db);
+  const sessions = new Sessions(tokens);
   const id = requestId();
   const logged = accessLog(log);
   const secure = secureHeaders();
@@ -32,7 +39,7 @@ export function buildApp(db: Database, log: AccessLogOptions = {}) {
       afterResponse: [logged],
     },
     routes: [
-      group("/api", { children: [new NotesController(notes)] }),
+      group("/api", { children: [notesController({ notes, sessions })] }),
       docs({ info: { title: "Notes", version: "1.0.0" } }),
     ],
   });

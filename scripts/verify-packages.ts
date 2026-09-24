@@ -258,7 +258,7 @@ for (const [specifier, namespace] of entries) {
   }
 }
 
-const { createApp, hook, route } = entry__tetsujs_core;
+const { controller, createApp, hook, route } = entry__tetsujs_core;
 const { cors } = entry__tetsujs_cors;
 const { rateLimit } = entry__tetsujs_rate_limit;
 const { accessLog, requestId } = entry__tetsujs_request_id;
@@ -275,8 +275,8 @@ const scope = hook.beforeParse((ctx: entry__tetsujs_core.Requires<{ requestId: s
   void ctx.requestId;
 });
 
-class HelloController {
-  greet = route({
+const helloController = controller("Hello", () => ({
+  greet: route({
     method: "GET",
     path: "/hello/:name",
     handler: (ctx) => {
@@ -285,8 +285,8 @@ class HelloController {
 
       return { hello: ctx.params.name };
     },
-  });
-}
+  }),
+}));
 
 const server = Bun.serve({
   ...createApp({
@@ -295,7 +295,7 @@ const server = Bun.serve({
       beforeResponse: [headers],
       afterResponse: [log],
     },
-    routes: new HelloController(),
+    routes: helloController(),
   }),
   port: 0,
 });
