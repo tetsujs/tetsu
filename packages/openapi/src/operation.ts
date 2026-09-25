@@ -130,17 +130,18 @@ function declaredResponses(
 }
 
 /**
- * A described body as the document carries it: every envelope in it a
- * reference to the one definition of its status and code, and a union of
- * several a flat `anyOf` of them.
+ * A described body as the alternatives the document lists: every envelope
+ * in it a reference to the one definition of its status and code, and a
+ * union taken apart into its branches, so that it joins the other answers
+ * of its status rather than nesting inside them.
  */
-function canonical(
+function branchesFor(
   schema: JsonSchemaObject,
   status: number,
   envelopes: Envelopes,
   warn: (message: string) => void,
-): Record<string, unknown> {
-  const branches = branchesOf(schema).map((branch) => {
+): Record<string, unknown>[] {
+  return branchesOf(schema).map((branch) => {
     const code = envelopeCode(branch);
 
     return code === undefined
@@ -150,10 +151,6 @@ function canonical(
           unknown
         >);
   });
-
-  const [only] = branches;
-
-  return branches.length === 1 && only ? only : { anyOf: branches };
 }
 
 /**
@@ -421,59 +418,62 @@ function responses(
   envelopes: Envelopes,
   warn: (message: string) => void,
 ): Record<string, ResponseObject> {
-  const declared: Record<string, ResponseObject> = {};
+  const answers = new Map<string, Answer[]>();
+
+  const add = (status: string, answer: Answer): void => {
+    answers.set(status, [...(answers.get(status) ?? []), answer]);
+  };
 
   for (const [status, schema] of declaredResponses(entry)) {
     const described =
       schema === null ? undefined : emitted(schema, "a response", warn);
 
-    declared[status] = described
-      ? {
-          description: describeStatus(status),
-          content: {
-            "application/json": {
-              schema: canonical(described, Number(status), envelopes, warn),
-            },
-          },
-        }
-      : { description: describeStatus(status) };
+    add(status, {
+      description: describeStatus(status),
+      schemas: described
+        ? branchesFor(described, Number(status), envelopes, warn)
+        : [],
+    });
   }
 
-  if (!declared["200"] && !hasSuccess(declared)) {
-    declared["200"] = { description: "Successful response" };
+  if (![...answers.keys()].some((status) => status.startsWith("2"))) {
+    add("200", { description: "Successful response", schemas: [] });
   }
 
-  return {
-    ...declared,
-    ...frameworkFailures(
-      entry,
-      options,
-      contributed,
-      declared,
-      components,
-      envelopes,
-      warn,
-    ),
-  };
+  for (const [status, answer] of failures(
+    entry,
+    options,
+    contributed,
+    components,
+    envelopes,
+    warn,
+  )) {
+    add(String(status), answer);
+  }
+
+  const described: Record<string, ResponseObject> = {};
+
+  for (const [status, list] of answers) {
+    described[status] = merge(list, envelopes);
+  }
+
+  return described;
 }
 
-function frameworkFailures(
+/**
+ * Everything the route can answer with that its own schema does not say:
+ * what its hooks declare, and what the framework itself answers.
+ */
+function failures(
   entry: RouteTableEntry,
   options: AppOptions,
   contributed: HookContributions,
-  declared: Record<string, ResponseObject>,
   components: SchemaComponents,
   envelopes: Envelopes,
   warn: (message: string) => void,
-): Record<string, ResponseObject> {
+): [status: number, answer: Answer][] {
   const schema = entry.def.schema;
-  const failures = new Map<string, Failure[]>();
-
-  const add = (status: number, failure: Failure): void => {
-    const key = String(status);
-
-    failures.set(key, [...(failures.get(key) ?? []), failure]);
-  };
+  const found: [number, Answer][] = [];
 
   /**
    * Refers to the definition of one failure: the one of its status and
@@ -497,26 +497,34 @@ function frameworkFailures(
   };
 
   if (schema?.params || schema?.query || schema?.headers || schema?.body) {
-    add(options.validationStatus, {
-      description: "Request failed schema validation",
-      schema: envelopes.ref(
-        options.validationStatus,
-        "VALIDATION_FAILED",
-        validationFailed(options.validationStatus),
-        warn,
-      ) as unknown as Record<string, unknown>,
-    });
+    found.push([
+      options.validationStatus,
+      {
+        description: "Request failed schema validation",
+        schemas: [
+          envelopes.ref(
+            options.validationStatus,
+            "VALIDATION_FAILED",
+            validationFailed(options.validationStatus),
+            warn,
+          ) as unknown as Record<string, unknown>,
+        ],
+      },
+    ]);
   }
 
   for (const requirement of contributed.security) {
     const status = requirement.status ?? 401;
 
-    add(status, {
-      description:
-        requirement.description ??
-        `Request did not satisfy ${requirement.name}`,
-      schema: envelopeRef(status, requirement.error, requirement.message),
-    });
+    found.push([
+      status,
+      {
+        description:
+          requirement.description ??
+          `Request did not satisfy ${requirement.name}`,
+        schemas: [envelopeRef(status, requirement.error, requirement.message)],
+      },
+    ]);
   }
 
   for (const response of contributed.responses) {
@@ -524,58 +532,77 @@ function frameworkFailures(
       ? emitted(response.schema, "a hook's response", warn)
       : undefined;
 
-    add(response.status, {
-      description: response.description,
-      schema: described
-        ? canonical(described, response.status, envelopes, warn)
-        : envelopeRef(
-            response.status,
-            response.error,
-            response.message,
-            response.fields,
-          ),
-      ...(response.headers ? { headers: response.headers } : {}),
-    });
+    found.push([
+      response.status,
+      {
+        description: response.description,
+        schemas: described
+          ? branchesFor(described, response.status, envelopes, warn)
+          : [
+              envelopeRef(
+                response.status,
+                response.error,
+                response.message,
+                response.fields,
+              ),
+            ],
+        ...(response.headers ? { headers: response.headers } : {}),
+      },
+    ]);
   }
 
   if (schema?.body || entry.def.bodyType) {
     const unparsable = parseFailure(entry.def.bodyType);
 
     if (unparsable) {
-      add(400, {
-        description: "Body could not be parsed in the declared shape",
-        schema: envelopeRef(400, unparsable.error, unparsable.message),
-      });
+      found.push([
+        400,
+        {
+          description: "Body could not be parsed in the declared shape",
+          schemas: [envelopeRef(400, unparsable.error, unparsable.message)],
+        },
+      ]);
     }
 
-    add(413, {
-      description: "Body exceeded the configured size limit",
-      schema: envelopeRef(
-        413,
-        "BODY_TOO_LARGE",
-        "Body exceeds the configured limit",
-      ),
-    });
+    found.push([
+      413,
+      {
+        description: "Body exceeded the configured size limit",
+        schemas: [
+          envelopeRef(
+            413,
+            "BODY_TOO_LARGE",
+            "Body exceeds the configured limit",
+          ),
+        ],
+      },
+    ]);
   }
 
-  add(500, {
-    description: "The request failed and nothing mapped the failure",
-    schema: envelopeRef(500, "INTERNAL_SERVER_ERROR", "Internal Server Error"),
-  });
+  found.push([
+    500,
+    {
+      description: "The request failed and nothing mapped the failure",
+      schemas: [
+        envelopeRef(500, "INTERNAL_SERVER_ERROR", "Internal Server Error"),
+      ],
+    },
+  ]);
 
-  const responses: Record<string, ResponseObject> = {};
-
-  for (const [status, list] of failures) {
-    responses[status] = merge(declared[status], list);
-  }
-
-  return responses;
+  return found;
 }
 
-/** One way the framework itself can answer. */
-interface Failure {
+/**
+ * One way a route can answer with a status: what the route declared, what
+ * a hook declared, or what the framework answers by itself.
+ *
+ * `schemas` are the alternatives of the body, each envelope already a
+ * reference to its definition; empty when the answer has no body to
+ * describe.
+ */
+interface Answer {
   readonly description: string;
-  readonly schema: Record<string, unknown>;
+  readonly schemas: readonly Record<string, unknown>[];
   readonly headers?: Readonly<Record<string, HeaderObject>>;
 }
 
@@ -597,50 +624,66 @@ interface Failure {
  * Headers are gathered the same way, the first description of a name
  * standing for all of them.
  */
-function merge(
-  declared: ResponseObject | undefined,
-  list: readonly Failure[],
-): ResponseObject {
-  const descriptions = [
-    ...(declared ? [declared.description] : []),
-    ...list.map((failure) => failure.description),
-  ];
-
-  const schemas = distinct(
-    [
-      ...declaredSchemas(declared),
-      ...list.map((failure) => failure.schema),
-    ].flatMap((schema) => branchesOf(schema)),
-  );
-
-  const [only] = schemas;
+function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
+  const schemas = distinct(list.flatMap((answer) => answer.schemas));
   const headers: Record<string, HeaderObject> = {};
 
-  for (const failure of list) {
-    for (const [name, header] of Object.entries(failure.headers ?? {})) {
+  for (const answer of list) {
+    for (const [name, header] of Object.entries(answer.headers ?? {})) {
       headers[name] ??= header;
     }
   }
 
   return {
-    description: descriptions.join("; "),
+    description: list.map((answer) => answer.description).join("; "),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    ...(schemas.length === 1 && only
-      ? { content: { "application/json": { schema: only } } }
-      : { content: { "application/json": { schema: { anyOf: schemas } } } }),
+    ...(schemas.length > 0
+      ? {
+          content: {
+            "application/json": { schema: unionOf(schemas, envelopes) },
+          },
+        }
+      : {}),
   };
 }
 
 /**
- * The body a declared response describes, if it describes one: a response
- * whose schema could not be emitted contributes its description alone.
+ * The alternatives of a body as one schema.
+ *
+ * When every alternative is an envelope, each with its own code, the union
+ * says so with a `discriminator` on `error`: a generated client then
+ * builds a tagged union and narrows on the code, instead of trying the
+ * shapes in turn. The mapping is spelled out, because without it OpenAPI
+ * matches the value against the component's name — `Unauthorized`, where
+ * the body says `UNAUTHORIZED`.
  */
-function declaredSchemas(
-  declared: ResponseObject | undefined,
-): Record<string, unknown>[] {
-  const schema = declared?.content?.["application/json"]?.schema;
+function unionOf(
+  schemas: readonly Record<string, unknown>[],
+  envelopes: Envelopes,
+): Record<string, unknown> {
+  const [only] = schemas;
 
-  return schema ? [schema] : [];
+  if (schemas.length === 1 && only) {
+    return only;
+  }
+
+  const mapping: Record<string, string> = {};
+
+  for (const schema of schemas) {
+    const ref = (schema as { $ref?: unknown }).$ref;
+    const code = typeof ref === "string" ? envelopes.codeOf(ref) : undefined;
+
+    if (typeof ref !== "string" || code === undefined) {
+      return { anyOf: schemas };
+    }
+
+    mapping[code] = ref;
+  }
+
+  return {
+    anyOf: schemas,
+    discriminator: { propertyName: "error", mapping },
+  };
 }
 
 function distinct(
@@ -659,10 +702,6 @@ function distinct(
 
     return true;
   });
-}
-
-function hasSuccess(declared: Record<string, ResponseObject>): boolean {
-  return Object.keys(declared).some((status) => status.startsWith("2"));
 }
 
 function describeStatus(status: string): string {

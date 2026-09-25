@@ -415,3 +415,107 @@ describe("definitions that disagree", () => {
     expect(openapi(app, { info }).warnings).toEqual([]);
   });
 });
+
+describe("a status clients can branch on", () => {
+  const limited = documented(
+    hook.beforeParse(() => undefined),
+    {
+      responses: [
+        { status: 429, description: "Too many", error: "RATE_LIMITED" },
+      ],
+    },
+  );
+
+  const login = (refusals: Record<string, unknown>, hooked = true) =>
+    openapi(
+      createApp({
+        routes: {
+          login: route({
+            method: "POST",
+            path: "/login",
+            hooks: { beforeParse: hooked ? [limited] : [] },
+            schema: { response: { 204: null, 429: described(refusals) } },
+            handler: () => undefined as never,
+          }),
+        },
+      }),
+      { info },
+    ).document;
+
+  test("envelopes under one status are discriminated by their code", () => {
+    const document = login(zodEnvelope(429, "TOO_MANY_ATTEMPTS"));
+
+    expect(schemaOf(document, "/login", "post", "429")).toEqual({
+      anyOf: [ref("TooManyAttempts"), ref("RateLimited")],
+      discriminator: {
+        propertyName: "error",
+        mapping: {
+          TOO_MANY_ATTEMPTS: "#/components/schemas/TooManyAttempts",
+          RATE_LIMITED: "#/components/schemas/RateLimited",
+        },
+      },
+    });
+  });
+
+  test("so are the envelopes of a union the route declares alone", () => {
+    const document = login(
+      {
+        anyOf: [
+          zodEnvelope(429, "TOO_MANY_ATTEMPTS"),
+          zodEnvelope(429, "CONTACT_LOCKED"),
+        ],
+      },
+      false,
+    );
+
+    expect(
+      schemaOf(document, "/login", "post", "429")?.discriminator,
+    ).toMatchObject({
+      mapping: {
+        TOO_MANY_ATTEMPTS: "#/components/schemas/TooManyAttempts",
+        CONTACT_LOCKED: "#/components/schemas/ContactLocked",
+      },
+    });
+  });
+
+  test("a branch without a code leaves the status undiscriminated", () => {
+    const document = login({ type: "object", required: ["wait"] });
+
+    expect(schemaOf(document, "/login", "post", "429")).toEqual({
+      anyOf: [{ type: "object", required: ["wait"] }, ref("RateLimited")],
+    });
+  });
+
+  test("an envelope whose code the hook did not declare has none", () => {
+    const guard = secured(
+      hook.beforeParse(() => undefined),
+      { name: "key", scheme: { type: "apiKey", in: "header", name: "x-key" } },
+    );
+
+    const { document } = openapi(
+      createApp({
+        routes: {
+          me: route({
+            method: "GET",
+            path: "/me",
+            hooks: { beforeParse: [session, guard] },
+            handler: () => ({}),
+          }),
+        },
+      }),
+      { info },
+    );
+
+    expect(schemaOf(document, "/me", "get", "401")).toEqual({
+      anyOf: [ref("Unauthorized"), ref("Failure401")],
+    });
+  });
+
+  test("a single envelope is referenced as it is", () => {
+    const document = login(zodEnvelope(429, "RATE_LIMITED"));
+
+    expect(schemaOf(document, "/login", "post", "429")).toEqual(
+      ref("RateLimited"),
+    );
+  });
+});

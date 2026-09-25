@@ -115,6 +115,10 @@ describe one code, the route's definition is kept; if the other one has
 different fields, the generator warns. A union the route declares joins
 the other failures of its status as one flat `anyOf`.
 
+When every alternative of a status is an envelope, the union carries a
+`discriminator` on `error`, with the mapping from each code to its
+definition, and a generated client narrows on the code.
+
 ## Documenting hooks
 
 A hook that answers by itself — an auth check, a limiter — can say so, and

@@ -13,6 +13,9 @@ API.
   fields in it. Both take the new `JsonSchema` type, JSON Schema 2020-12
   keyword by keyword: a misspelled keyword or an unknown `type` does not
   compile.
+- `@tetsujs/openapi`: a status whose alternatives are all error envelopes
+  has a `discriminator` on `error`, mapping each code to its definition,
+  so a generated client narrows on the code.
 
 ### Changed
 

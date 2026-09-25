@@ -51,12 +51,19 @@ export interface Envelopes {
     schema: JsonSchemaObject,
     warn: (message: string) => void,
   ): SchemaRef;
+
+  /**
+   * The code a reference stands for, when it is one this handed out — what
+   * a discriminator maps back from.
+   */
+  codeOf(ref: string): string | undefined;
 }
 
 export function envelopes(components: SchemaComponents): Envelopes {
   const declared = new Map<string, JsonSchemaObject>();
   const defined = new Map<string, JsonSchemaObject>();
   const refs = new Map<string, SchemaRef>();
+  const codes = new Map<string, string>();
   const names = new Map<string, string>();
   const reported = new Set<string>();
 
@@ -93,8 +100,13 @@ export function envelopes(components: SchemaComponents): Envelopes {
       const created = components.ref(nameOf(status, code), definition);
 
       refs.set(key, created);
+      codes.set(created.$ref, code);
 
       return created;
+    },
+
+    codeOf(ref) {
+      return codes.get(ref);
     },
   };
 
