@@ -448,7 +448,7 @@ describe("responses", () => {
     const own = opaqueDocument.paths["/opaque"]?.post?.responses["400"];
 
     expect(own?.description).toBe(
-      "Response 400; Body could not be parsed in the declared shape",
+      "Body could not be parsed in the declared shape",
     );
 
     expect(own?.content?.["application/json"]?.schema).toEqual({
@@ -503,9 +503,7 @@ describe("responses", () => {
       anyOf: unknown[];
     };
 
-    expect(own?.description).toBe(
-      "Response 422; Request failed schema validation",
-    );
+    expect(own?.description).toBe("Request failed schema validation");
 
     expect(schema.anyOf[0]).toEqual(object({ code: { type: "string" } }));
     expect(deref(ownDocument, schema.anyOf[1])).toMatchObject({
@@ -1220,12 +1218,33 @@ describe("responses contributed by hooks", () => {
     });
   });
 
-  test("what the route declared itself comes first", () => {
+  test("a hook's description replaces the route's placeholder", () => {
+    // A route declares a status by its schema alone and has no words for
+    // it; "Response 429" next to the hook's own description said nothing.
     const responses = document.paths["/own"]?.get?.responses ?? {};
 
-    expect(responses["429"]?.description).toBe(
-      "Response 429; Rate limit exceeded",
+    expect(responses["429"]?.description).toBe("Rate limit exceeded");
+  });
+
+  test("a status only the route declares is named by its reason phrase", () => {
+    class NotFoundController {
+      find = route({
+        method: "GET",
+        path: "/found",
+        schema: { response: { 200: TooMany, 404: TooMany, 499: null } },
+        handler: () => ({ retryAfter: 1 }),
+      });
+    }
+
+    const { document: own } = generate(
+      createApp({ routes: new NotFoundController() }),
     );
+
+    const responses = own.paths["/found"]?.get?.responses ?? {};
+
+    expect(responses["200"]?.description).toBe("Successful response");
+    expect(responses["404"]?.description).toBe("Not Found");
+    expect(responses["499"]?.description).toBe("HTTP 499");
   });
 
   test("secured is documented with a security requirement", () => {

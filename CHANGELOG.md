@@ -30,6 +30,11 @@ API.
 - `@tetsujs/openapi`: a status and code declared by both the route and a
   hook was listed twice under the status, and a union the route declared
   was nested inside the status's `anyOf` instead of joining it.
+- `@tetsujs/openapi`: a status the route declared and a hook or the
+  framework described was documented as `"Response 403; <their
+  description>"`. The placeholder is left out when something else
+  describes the status, and a status only the route declares is named by
+  its reason phrase — `"Not Found"`, not `"Response 404"`.
 - `@tetsujs/rate-limit`: the documented `429` now has the `retryAfter`
   field and the `retry-after` header the refusal carries; the document
   described the bare envelope.

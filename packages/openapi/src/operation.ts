@@ -16,6 +16,7 @@ import type {
   BodyType,
   RouteTableEntry,
 } from "@tetsujs/core";
+import { errorBody } from "@tetsujs/core";
 import type {
   DocumentedResponse,
   HookContributions,
@@ -430,6 +431,7 @@ function responses(
 
     add(status, {
       description: describeStatus(status),
+      placeholder: true,
       schemas: described
         ? branchesFor(described, Number(status), envelopes, warn)
         : [],
@@ -437,7 +439,11 @@ function responses(
   }
 
   if (![...answers.keys()].some((status) => status.startsWith("2"))) {
-    add("200", { description: "Successful response", schemas: [] });
+    add("200", {
+      description: "Successful response",
+      placeholder: true,
+      schemas: [],
+    });
   }
 
   for (const [status, answer] of failures(
@@ -599,9 +605,14 @@ function failures(
  * `schemas` are the alternatives of the body, each envelope already a
  * reference to its definition; empty when the answer has no body to
  * describe.
+ *
+ * A route declares a status by its schema alone and has no words for it,
+ * so its description is a `placeholder`: it stands for the status only
+ * when nothing else describes it.
  */
 interface Answer {
   readonly description: string;
+  readonly placeholder?: boolean;
   readonly schemas: readonly Record<string, unknown>[];
   readonly headers?: Readonly<Record<string, HeaderObject>>;
 }
@@ -622,10 +633,12 @@ interface Answer {
  * alternative, not two.
  *
  * Headers are gathered the same way, the first description of a name
- * standing for all of them.
+ * standing for all of them. Descriptions are joined, except a route's
+ * placeholder next to one that says something.
  */
 function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
   const schemas = distinct(list.flatMap((answer) => answer.schemas));
+  const worded = list.filter((answer) => !answer.placeholder);
   const headers: Record<string, HeaderObject> = {};
 
   for (const answer of list) {
@@ -635,7 +648,9 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
   }
 
   return {
-    description: list.map((answer) => answer.description).join("; "),
+    description: (worded.length > 0 ? worded : list)
+      .map((answer) => answer.description)
+      .join("; "),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
     ...(schemas.length > 0
       ? {
@@ -709,7 +724,9 @@ function describeStatus(status: string): string {
     return "No content";
   }
 
-  return status.startsWith("2") ? "Successful response" : `Response ${status}`;
+  return status.startsWith("2")
+    ? "Successful response"
+    : errorBody(Number(status)).message;
 }
 
 /**
