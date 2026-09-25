@@ -21,12 +21,12 @@ import type { AnyHook, AnySchema } from "@tetsujs/core";
 /**
  * The definition of a scheme, as OpenAPI spells it.
  *
- * Typed as loosely as the spec is wide — `http`, `apiKey`, `oauth2` and
- * `openIdConnect` carry different fields, and narrowing them here would
- * be a second, poorer copy of the specification.
+ * Typed as loosely as the spec is wide — `http`, `apiKey`, `oauth2`,
+ * `openIdConnect` and `mutualTLS` carry different fields, and narrowing
+ * them here would be a second, poorer copy of the specification.
  */
 export interface SecurityScheme {
-  readonly type: "http" | "apiKey" | "oauth2" | "openIdConnect";
+  readonly type: "http" | "apiKey" | "oauth2" | "openIdConnect" | "mutualTLS";
   readonly [key: string]: unknown;
 }
 
@@ -85,10 +85,26 @@ export interface DocumentedResponse {
   readonly message?: string;
 }
 
+/**
+ * Requirements of which a hook accepts any one: a session cookie *or* a
+ * bearer token, checked by one hook.
+ *
+ * "Either" lives inside a hook, never between hooks — every hook of a
+ * route runs, so the schemes of two hooks are both required. A hook that
+ * takes either of two credentials says so here, and the document lists
+ * the combinations a client may bring.
+ */
+export interface SecurityAlternatives {
+  readonly anyOf: readonly SecurityRequirement[];
+}
+
 /** Everything a hook tells the generator about itself. */
 export interface HookDocs {
-  /** What the hook demands of a request. */
-  readonly security?: SecurityRequirement;
+  /**
+   * What the hook demands of a request: one requirement, or alternatives
+   * of which any one will do.
+   */
+  readonly security?: SecurityRequirement | SecurityAlternatives;
 
   /** What the hook can answer with. */
   readonly responses?: readonly DocumentedResponse[];
@@ -128,6 +144,10 @@ export function documented<H extends AnyHook>(hook: H, docs: HookDocs): H {
  * Annotates a hook with the security it enforces — {@link documented} for
  * the case that comes up most.
  *
+ * One requirement, or `{ anyOf: [...] }` for a hook that accepts any one
+ * of several: the schemes of different hooks are all required, the
+ * alternatives of one hook are not.
+ *
  * @example
  * ```ts
  * export const auth = secured(
@@ -142,10 +162,22 @@ export function documented<H extends AnyHook>(hook: H, docs: HookDocs): H {
  *   },
  * );
  * ```
+ *
+ * @example A hook that accepts a session cookie or a bearer token
+ * ```ts
+ * export const caller = secured(
+ *   hook.beforeParse((ctx) => {
+ *     const user = sessions.fromCookie(ctx) ?? tokens.fromHeader(ctx);
+ *     if (!user) throw new HttpError(401);
+ *     return { user };
+ *   }),
+ *   { anyOf: [cookieSession, bearerToken] },
+ * );
+ * ```
  */
 export function secured<H extends AnyHook>(
   hook: H,
-  requirement: SecurityRequirement,
+  requirement: SecurityRequirement | SecurityAlternatives,
 ): H {
   return documented(hook, { security: requirement });
 }
@@ -155,14 +187,28 @@ export function docsOf(hook: AnyHook): HookDocs | undefined {
   return (hook as unknown as Record<string, HookDocs | undefined>)[docsKey];
 }
 
-/** Reads the security requirement a hook carries, if it carries one. */
-export function securityOf(hook: AnyHook): SecurityRequirement | undefined {
+/** Reads the security a hook was annotated with, if it was. */
+export function securityOf(
+  hook: AnyHook,
+): SecurityRequirement | SecurityAlternatives | undefined {
   return docsOf(hook)?.security;
 }
 
 /** What the hooks of one route contribute, in execution order. */
 export interface HookContributions {
+  /**
+   * Every scheme the hooks mention, once per name, with the scopes of all
+   * of them: what the document registers, and what a refusal answers with.
+   */
   readonly security: readonly SecurityRequirement[];
+
+  /**
+   * What a request must satisfy, one condition per hook: every condition
+   * is required, and any one requirement of a condition satisfies it. A
+   * hook with one requirement is a condition of one.
+   */
+  readonly conditions: readonly (readonly SecurityRequirement[])[];
+
   readonly responses: readonly DocumentedResponse[];
 }
 
@@ -171,7 +217,9 @@ export interface HookContributions {
  *
  * A scheme is registered once per name and a response once per status and
  * description: the same guard on the application and on a group is one
- * requirement, not two.
+ * requirement, not two. Two hooks of one scheme asking for different
+ * scopes both run, so the requirement asks for the scopes of both — each
+ * once, in the order they were first asked for.
  *
  * Deduplicating by name means two hooks claiming one name with different
  * schemes lose one of them, and that is not a duplicate being collapsed —
@@ -183,6 +231,7 @@ export function contributionsOf(
   warn?: (message: string) => void,
 ): HookContributions {
   const security = new Map<string, SecurityRequirement>();
+  const conditions = new Map<string, readonly SecurityRequirement[]>();
   const responses = new Map<string, DocumentedResponse>();
 
   for (const slot of Object.values(chains)) {
@@ -194,17 +243,28 @@ export function contributionsOf(
       }
 
       if (docs.security) {
-        const claimed = security.get(docs.security.name);
+        const alternatives = alternativesOf(docs.security);
 
-        if (!claimed) {
-          security.set(docs.security.name, docs.security);
-        } else if (
-          JSON.stringify(claimed.scheme) !==
-          JSON.stringify(docs.security.scheme)
-        ) {
-          warn?.(
-            `two hooks claim the security scheme "${docs.security.name}" with different definitions; one of them is not described`,
-          );
+        conditions.set(conditionKey(alternatives), alternatives);
+
+        for (const requirement of alternatives) {
+          const claimed = security.get(requirement.name);
+
+          if (!claimed) {
+            security.set(requirement.name, requirement);
+          } else if (
+            JSON.stringify(claimed.scheme) ===
+            JSON.stringify(requirement.scheme)
+          ) {
+            security.set(requirement.name, {
+              ...claimed,
+              scopes: joinScopes(claimed.scopes, requirement.scopes),
+            });
+          } else {
+            warn?.(
+              `two hooks claim the security scheme "${requirement.name}" with different definitions; one of them is not described`,
+            );
+          }
         }
       }
 
@@ -220,6 +280,44 @@ export function contributionsOf(
 
   return {
     security: [...security.values()],
+    conditions: [...conditions.values()],
     responses: [...responses.values()],
   };
+}
+
+/** A hook's security as the alternatives it accepts; one is one. */
+function alternativesOf(
+  security: SecurityRequirement | SecurityAlternatives,
+): readonly SecurityRequirement[] {
+  return "anyOf" in security ? security.anyOf : [security];
+}
+
+/**
+ * What makes two conditions the same one: the same guard mounted on the
+ * application and on a group is one condition, and counting it twice would
+ * multiply its alternatives with themselves.
+ */
+function conditionKey(alternatives: readonly SecurityRequirement[]): string {
+  return JSON.stringify(
+    alternatives.map((requirement) => [
+      requirement.name,
+      [...(requirement.scopes ?? [])].sort(),
+    ]),
+  );
+}
+
+/** The scopes of two requirements of one scheme, each once, in order. */
+function joinScopes(
+  first: readonly string[] | undefined,
+  second: readonly string[] | undefined,
+): readonly string[] {
+  const joined = [...(first ?? [])];
+
+  for (const scope of second ?? []) {
+    if (!joined.includes(scope)) {
+      joined.push(scope);
+    }
+  }
+
+  return joined;
 }

@@ -3,6 +3,24 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Added
+
+- `@tetsujs/openapi`: `secured(hook, { anyOf: [a, b] })` for a hook that
+  accepts any one of several credentials — a session cookie or a bearer
+  token. The document lists every combination a client may bring, each
+  alternative together with the schemes of the route's other hooks.
+- `mutualTLS` among the security scheme types, as OpenAPI 3.1 has it.
+
+### Fixed
+
+- `@tetsujs/openapi`: a route guarded by several `secured()` hooks was
+  documented as needing any one of their schemes — one `security` entry
+  per hook, which OpenAPI reads as alternatives. Every hook runs, so every
+  scheme is required: they are one entry now. Two hooks of one scheme with
+  different scopes kept only the first one's scopes; they require both.
+
 ## 0.4.0 — 2026-09-24
 
 Controllers are declared with `controller()`: a name, and a function from

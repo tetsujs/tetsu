@@ -135,6 +135,25 @@ Hooks from `@tetsujs/rate-limit` are already documented this way. A scheme
 is identified by its `name`: the same one mounted twice is one
 requirement, and two different schemes under one name are reported.
 
+Every hook of a route runs, so every scheme its hooks carry is required
+together: a route behind a CSRF check and a captcha is documented as
+needing both, one entry of `security` — in OpenAPI, separate entries mean
+any one of them will do. Two hooks of one scheme require the scopes of
+both.
+
+"Either" lives inside one hook: a hook that accepts a session cookie or a
+bearer token says so with `anyOf`, and the document lists every
+combination a client may bring:
+
+```ts
+export const caller = secured(hook.beforeParse(sessionOrToken), {
+  anyOf: [cookieSession, bearerToken],
+});
+
+// with a CSRF check on the same route:
+// security: [{ session: [], csrf: [] }, { bearer: [], csrf: [] }]
+```
+
 ## Using the document directly
 
 When the document itself is the output — written to a file in CI, fed to a

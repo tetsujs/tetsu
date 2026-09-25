@@ -124,6 +124,12 @@ what to write instead.
 
 All packages share one version and are released together.
 
+Until `1.0`, the version follows what `^0.x` lets npm install: a **minor**
+version (`0.5.0`) is for a change that breaks something, and a **patch**
+(`0.4.1`) for anything that does not — a fix, or an addition that changes
+nothing already there. A user on `^0.4.0` gets every patch without asking
+and no minor without choosing to.
+
 1. `bun run release <version>` on a branch sets every package's version,
    turns `## Unreleased` into the version and today's date, and updates
    `bun.lock`. It goes in as a pull request titled `release <version>`.

@@ -16,7 +16,7 @@ import type {
   BodyType,
   RouteTableEntry,
 } from "@tetsujs/core";
-import type { HookContributions } from "./annotations.ts";
+import type { HookContributions, SecurityRequirement } from "./annotations.ts";
 import { contributionsOf } from "./annotations.ts";
 import type { SchemaComponents } from "./components.ts";
 import { failureName } from "./components.ts";
@@ -66,14 +66,78 @@ export function operationOf(
     ...(parameters.length > 0 ? { parameters } : {}),
     ...(body ? { requestBody: body } : {}),
     ...(contributed.security.length > 0
-      ? {
-          security: contributed.security.map((requirement) => ({
-            [requirement.name]: requirement.scopes ?? [],
-          })),
-        }
+      ? { security: securityOf(contributed.conditions) }
       : {}),
     responses: responses(entry, options, contributed, components, warn),
   };
+}
+
+/**
+ * The security a route asks for, as OpenAPI spells it.
+ *
+ * OpenAPI reads the entries of an operation's `security` as alternatives —
+ * any one of them authorizes a request — and the schemes inside one entry
+ * as all required. A route's conditions are the other way round: every
+ * hook runs, so every condition is required, and a condition is satisfied
+ * by any one of its alternatives. The entries are therefore the
+ * combinations — one alternative from each condition, taken together:
+ * a hook accepting a cookie *or* a token, next to a CSRF check, is
+ * `[{ cookie, csrf }, { token, csrf }]`. With no alternatives anywhere
+ * that is a single entry holding every scheme, which is the usual case.
+ *
+ * Two alternatives of one scheme in a combination ask for the scopes of
+ * both; a combination that comes out twice is listed once.
+ */
+function securityOf(
+  conditions: readonly (readonly SecurityRequirement[])[],
+): Record<string, readonly string[]>[] {
+  let combinations: Record<string, readonly string[]>[] = [{}];
+
+  for (const alternatives of conditions) {
+    combinations = combinations.flatMap((combination) =>
+      alternatives.map((requirement) => ({
+        ...combination,
+        [requirement.name]: joined(
+          combination[requirement.name],
+          requirement.scopes,
+        ),
+      })),
+    );
+  }
+
+  const seen = new Set<string>();
+
+  return combinations.filter((combination) => {
+    const key = JSON.stringify(
+      Object.entries(combination)
+        .map(([name, scopes]) => [name, [...scopes].sort()])
+        .sort(),
+    );
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+
+    return true;
+  });
+}
+
+/** The scopes of a scheme already in a combination, and another's. */
+function joined(
+  present: readonly string[] | undefined,
+  added: readonly string[] | undefined,
+): readonly string[] {
+  const scopes = [...(present ?? [])];
+
+  for (const scope of added ?? []) {
+    if (!scopes.includes(scope)) {
+      scopes.push(scope);
+    }
+  }
+
+  return scopes;
 }
 
 /**
