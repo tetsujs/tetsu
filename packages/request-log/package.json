@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/request-log",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Request logs for Tetsu: a line when a request arrives, and a line when it is done",
   "keywords": [
     "bun",
