@@ -52,11 +52,11 @@
     },
     "packages/core": {
       "name": "@tetsujs/core",
-      "version": "0.4.0",
+      "version": "0.4.1",
     },
     "packages/cors": {
       "name": "@tetsujs/cors",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
@@ -66,11 +66,11 @@
     },
     "packages/lifecycle": {
       "name": "@tetsujs/lifecycle",
-      "version": "0.4.0",
+      "version": "0.4.1",
     },
     "packages/openapi": {
       "name": "@tetsujs/openapi",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
@@ -80,7 +80,7 @@
     },
     "packages/rate-limit": {
       "name": "@tetsujs/rate-limit",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "dependencies": {
         "@tetsujs/openapi": "workspace:^",
       },
@@ -93,7 +93,7 @@
     },
     "packages/request-id": {
       "name": "@tetsujs/request-id",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
@@ -103,7 +103,7 @@
     },
     "packages/request-log": {
       "name": "@tetsujs/request-log",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
         "@tetsujs/request-id": "workspace:*",
@@ -114,7 +114,7 @@
     },
     "packages/secure-headers": {
       "name": "@tetsujs/secure-headers",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
@@ -124,7 +124,7 @@
     },
     "packages/sse": {
       "name": "@tetsujs/sse",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
@@ -134,7 +134,7 @@
     },
     "packages/typebox": {
       "name": "@tetsujs/typebox",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@tetsujs/core": "workspace:*",
       },
