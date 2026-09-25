@@ -127,9 +127,24 @@ export const auth = secured(
 );
 
 export const guard = documented(hook.beforeParse(check), {
-  responses: [{ status: 429, description: "Rate limit exceeded", error: "RATE_LIMITED" }],
+  responses: [
+    {
+      status: 429,
+      description: "Rate limit exceeded",
+      error: "RATE_LIMITED",
+      fields: { retryAfter: { type: "integer", minimum: 0 } },
+      headers: { "retry-after": { schema: { type: "integer", minimum: 0 } } },
+    },
+  ],
 });
 ```
+
+A response with an `error` code is the framework's envelope, defined once
+in `components` and named after the code. `fields` adds what the hook puts
+next to `status`, `message` and `error`, each always present; `headers`,
+what it sets on the response. Both are JSON Schema written by hand, typed
+keyword by keyword (`JsonSchema`), so a misspelled keyword does not
+compile. A hook whose body is not the envelope passes a `schema` instead.
 
 Hooks from `@tetsujs/rate-limit` are already documented this way. A scheme
 is identified by its `name`: the same one mounted twice is one

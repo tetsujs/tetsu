@@ -27,6 +27,7 @@ import { operationIds, operationOf } from "./operation.ts";
 import { toTemplate } from "./parameters.ts";
 
 export type {
+  DocumentedHeader,
   DocumentedResponse,
   HookContributions,
   HookDocs,
@@ -41,12 +42,18 @@ export type {
   ContentMap,
   DocumentInfo,
   DocumentServer,
+  HeaderObject,
   OpenApiDocument,
   OperationObject,
   ParameterObject,
   PathItemObject,
   ResponseObject,
 } from "./document.ts";
+export type {
+  JsonSchema,
+  JsonSchemaKeywords,
+  JsonSchemaType,
+} from "./json-schema.ts";
 export type { DocsAssets, DocsPageOptions, DocsUi } from "./page.ts";
 export { docsPage } from "./page.ts";
 

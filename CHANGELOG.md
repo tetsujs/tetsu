@@ -3,6 +3,23 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Added
+
+- `@tetsujs/openapi`: `fields` and `headers` on a response passed to
+  `documented()` — what a hook adds to the error envelope, and the headers
+  it sets. The envelope stays one definition in `components`, with the
+  fields in it. Both take the new `JsonSchema` type, JSON Schema 2020-12
+  keyword by keyword: a misspelled keyword or an unknown `type` does not
+  compile.
+
+### Fixed
+
+- `@tetsujs/rate-limit`: the documented `429` now has the `retryAfter`
+  field and the `retry-after` header the refusal carries; the document
+  described the bare envelope.
+
 ## 0.4.1 — 2026-09-25
 
 ### Added

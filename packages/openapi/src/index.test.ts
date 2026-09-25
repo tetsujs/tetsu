@@ -1112,7 +1112,37 @@ describe("responses contributed by hooks", () => {
     },
   );
 
+  const challenged = documented(
+    hook.beforeParse(() => undefined),
+    {
+      responses: [
+        {
+          status: 403,
+          description: "Captcha required",
+          error: "CAPTCHA_REQUIRED",
+          fields: {
+            siteKey: { type: "string" },
+            error: { type: "integer" },
+          },
+          headers: {
+            "x-captcha-site": {
+              description: "Where the challenge is served",
+              schema: { type: "string", format: "uri" },
+            },
+          },
+        },
+      ],
+    },
+  );
+
   class LimitedController {
+    guarded = route({
+      method: "GET",
+      path: "/guarded",
+      hooks: { beforeParse: [challenged] },
+      handler: () => ({}),
+    });
+
     read = route({
       method: "GET",
       path: "/limited",
@@ -1153,6 +1183,41 @@ describe("responses contributed by hooks", () => {
     expect(
       deref(document, responses["503"]?.content?.["application/json"]?.schema),
     ).toMatchObject({ required: ["status", "message", "error"] });
+  });
+
+  test("fields the hook adds to the envelope are documented with it", () => {
+    const responses = document.paths["/guarded"]?.get?.responses ?? {};
+    const schema = responses["403"]?.content?.["application/json"]?.schema;
+
+    expect(schema).toEqual({ $ref: "#/components/schemas/CaptchaRequired" });
+    expect(deref(document, schema)).toMatchObject({
+      required: ["status", "message", "error", "siteKey"],
+      properties: { siteKey: { type: "string" } },
+    });
+  });
+
+  test("headers the hook sets are documented on its response", () => {
+    const responses = document.paths["/guarded"]?.get?.responses ?? {};
+
+    expect(responses["403"]?.headers).toEqual({
+      "x-captcha-site": {
+        description: "Where the challenge is served",
+        schema: { type: "string", format: "uri" },
+      },
+    });
+    expect(responses["500"]?.headers).toBeUndefined();
+  });
+
+  test("an added field does not redefine the envelope's own", () => {
+    const responses = document.paths["/guarded"]?.get?.responses ?? {};
+    const schema = deref(
+      document,
+      responses["403"]?.content?.["application/json"]?.schema,
+    );
+
+    expect(schema).toMatchObject({
+      properties: { error: { type: "string", const: "CAPTCHA_REQUIRED" } },
+    });
   });
 
   test("what the route declared itself comes first", () => {

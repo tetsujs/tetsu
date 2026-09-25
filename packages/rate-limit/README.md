@@ -115,7 +115,8 @@ rateLimit({
 ## Notes
 
 - With [`@tetsujs/openapi`](../openapi), every operation the limiter
-  guards is documented with a `429`, without the routes declaring it.
+  guards is documented with a `429`, its `retryAfter` and its
+  `retry-after` header, without the routes declaring it.
 - A refusal is returned, not thrown — it is cheaper, and a limiter under
   load refuses a lot. So `onError` hooks do not see it; `beforeResponse`
   and `afterResponse` hooks do.

@@ -157,6 +157,13 @@ export function rateLimit(options: RateLimitOptions) {
         status,
         description: "Too many requests within the configured window",
         error: "RATE_LIMITED",
+        fields: { retryAfter: { type: "integer", minimum: 0 } },
+        headers: {
+          "retry-after": {
+            description: "Seconds until the window resets",
+            schema: { type: "integer", minimum: 0 },
+          },
+        },
       },
     ],
   });

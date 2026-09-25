@@ -17,6 +17,7 @@
  */
 
 import type { AnyHook, AnySchema } from "@tetsujs/core";
+import type { JsonSchema } from "./json-schema.ts";
 
 /**
  * The definition of a scheme, as OpenAPI spells it.
@@ -83,6 +84,48 @@ export interface DocumentedResponse {
 
   /** An example of the envelope's `message`, for the same reason. */
   readonly message?: string;
+
+  /**
+   * Fields the hook adds to the envelope, as JSON Schema by name — the
+   * `retryAfter` of `{ ...errorBody(429, "RATE_LIMITED"), retryAfter }`.
+   *
+   * Each is documented as always present. The envelope's own `status`,
+   * `message` and `error` are not redefined by a field of the same name:
+   * `error` is what a client discriminates on, and it stays the code the
+   * hook declared. Ignored when the response has a `schema`, which says
+   * everything about the body itself.
+   *
+   * @example
+   * ```ts
+   * documented(limiter, {
+   *   responses: [
+   *     {
+   *       status: 429,
+   *       description: "Too many requests",
+   *       error: "RATE_LIMITED",
+   *       fields: { retryAfter: { type: "integer", minimum: 0 } },
+   *     },
+   *   ],
+   * });
+   * ```
+   */
+  readonly fields?: Readonly<Record<string, JsonSchema>>;
+
+  /**
+   * Headers the hook sets on this response, by name — the `retry-after`
+   * of a refusal.
+   *
+   * Documented as possible rather than required: a status several sources
+   * answer with is one response in the document, and a header one of them
+   * sets is not on the others'.
+   */
+  readonly headers?: Readonly<Record<string, DocumentedHeader>>;
+}
+
+/** A header a hook's response carries. */
+export interface DocumentedHeader {
+  readonly description?: string;
+  readonly schema: JsonSchema;
 }
 
 /**

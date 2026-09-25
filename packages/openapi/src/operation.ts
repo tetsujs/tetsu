@@ -16,12 +16,17 @@ import type {
   BodyType,
   RouteTableEntry,
 } from "@tetsujs/core";
-import type { HookContributions, SecurityRequirement } from "./annotations.ts";
+import type {
+  DocumentedResponse,
+  HookContributions,
+  SecurityRequirement,
+} from "./annotations.ts";
 import { contributionsOf } from "./annotations.ts";
 import type { SchemaComponents } from "./components.ts";
 import { failureName } from "./components.ts";
 import type {
   ContentMap,
+  HeaderObject,
   OperationObject,
   ResponseObject,
 } from "./document.ts";
@@ -393,10 +398,11 @@ function frameworkFailures(
     status: number,
     error?: string,
     message?: string,
+    fields?: DocumentedResponse["fields"],
   ): Record<string, unknown> =>
     components.ref(
       failureName(status, error),
-      envelope(status, error, message),
+      envelope(status, error, message, fields),
     ) as unknown as Record<string, unknown>;
 
   if (schema?.params || schema?.query || schema?.headers || schema?.body) {
@@ -429,7 +435,13 @@ function frameworkFailures(
       description: response.description,
       schema:
         described ??
-        envelopeRef(response.status, response.error, response.message),
+        envelopeRef(
+          response.status,
+          response.error,
+          response.message,
+          response.fields,
+        ),
+      ...(response.headers ? { headers: response.headers } : {}),
     });
   }
 
@@ -471,6 +483,7 @@ function frameworkFailures(
 interface Failure {
   readonly description: string;
   readonly schema: Record<string, unknown>;
+  readonly headers?: Readonly<Record<string, HeaderObject>>;
 }
 
 /**
@@ -487,6 +500,9 @@ interface Failure {
  * the answer the endpoint is about, and the failures are what can happen
  * to it. Identical bodies are folded together — a `$ref` repeated is one
  * alternative, not two.
+ *
+ * Headers are gathered the same way, the first description of a name
+ * standing for all of them.
  */
 function merge(
   declared: ResponseObject | undefined,
@@ -503,9 +519,17 @@ function merge(
   ]);
 
   const [only] = schemas;
+  const headers: Record<string, HeaderObject> = {};
+
+  for (const failure of list) {
+    for (const [name, header] of Object.entries(failure.headers ?? {})) {
+      headers[name] ??= header;
+    }
+  }
 
   return {
     description: descriptions.join("; "),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
     ...(schemas.length === 1 && only
       ? { content: { "application/json": { schema: only } } }
       : { content: { "application/json": { schema: { anyOf: schemas } } } }),
@@ -582,22 +606,29 @@ function describeStatus(status: string): string {
  * The message is documented by example, never as a `const` — it is wording
  * meant for a human, the one field a client must not match on, and the one
  * this project reserves the right to reword.
+ *
+ * Fields a hook adds come after the three, and never in their place.
  */
 function envelope(
   status: number,
   error?: string,
   message?: string,
+  fields: DocumentedResponse["fields"] = {},
 ): JsonSchemaObject {
+  const own = {
+    status: { type: "integer", const: status },
+    message: message
+      ? { type: "string", examples: [message] }
+      : { type: "string" },
+    error: error ? { type: "string", const: error } : { type: "string" },
+  };
+
+  const added = Object.keys(fields).filter((name) => !Object.hasOwn(own, name));
+
   return {
     type: "object",
-    required: ["status", "message", "error"],
-    properties: {
-      status: { type: "integer", const: status },
-      message: message
-        ? { type: "string", examples: [message] }
-        : { type: "string" },
-      error: error ? { type: "string", const: error } : { type: "string" },
-    },
+    required: ["status", "message", "error", ...added],
+    properties: { ...fields, ...own },
   };
 }
 
