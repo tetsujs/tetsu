@@ -14,8 +14,19 @@ API.
   keyword by keyword: a misspelled keyword or an unknown `type` does not
   compile.
 
+### Changed
+
+- `@tetsujs/openapi`: every error envelope is one definition in
+  `components` per status and code, named after the code — a route's own
+  included, which used to be inlined next to a named twin from a hook or
+  the framework. The route's definition is the one kept; a definition
+  with different fields is reported as a warning.
+
 ### Fixed
 
+- `@tetsujs/openapi`: a status and code declared by both the route and a
+  hook was listed twice under the status, and a union the route declared
+  was nested inside the status's `anyOf` instead of joining it.
 - `@tetsujs/rate-limit`: the documented `429` now has the `retryAfter`
   field and the `retry-after` header the refusal carries; the document
   described the bare envelope.

@@ -32,6 +32,8 @@ import type {
 } from "./document.ts";
 import type { JsonSchemaObject } from "./emit.ts";
 import { emitted } from "./emit.ts";
+import type { Envelopes } from "./envelopes.ts";
+import { branchesOf, envelopeCode } from "./envelopes.ts";
 import { partParameters, pathParameters } from "./parameters.ts";
 
 /** Describes one route. */
@@ -39,6 +41,7 @@ export function operationOf(
   entry: RouteTableEntry,
   options: AppOptions,
   components: SchemaComponents,
+  envelopes: Envelopes,
   ids: OperationIds,
   warn: (message: string) => void,
 ): OperationObject {
@@ -73,8 +76,84 @@ export function operationOf(
     ...(contributed.security.length > 0
       ? { security: securityOf(contributed.conditions) }
       : {}),
-    responses: responses(entry, options, contributed, components, warn),
+    responses: responses(
+      entry,
+      options,
+      contributed,
+      components,
+      envelopes,
+      warn,
+    ),
   };
+}
+
+/**
+ * Records the envelopes a route declares, so that its definitions are the
+ * ones the document keeps — whichever operation refers to them first.
+ *
+ * Runs before any operation is built. A schema that cannot describe itself
+ * is skipped without a word: building the operation says so, once.
+ */
+export function declareEnvelopes(
+  entry: RouteTableEntry,
+  envelopes: Envelopes,
+): void {
+  for (const [status, schema] of declaredResponses(entry)) {
+    const described =
+      schema === null ? undefined : emitted(schema, "", () => {});
+
+    for (const branch of described ? branchesOf(described) : []) {
+      const code = envelopeCode(branch);
+
+      if (code !== undefined) {
+        envelopes.declare(Number(status), code, branch);
+      }
+    }
+  }
+}
+
+/** The route's response map as pairs; a single schema is its `200`. */
+function declaredResponses(
+  entry: RouteTableEntry,
+): [status: string, schema: AnySchema | null][] {
+  const response = entry.def.schema?.response;
+
+  if (!response) {
+    return [];
+  }
+
+  if ("~standard" in response) {
+    return [["200", response as AnySchema]];
+  }
+
+  return Object.entries(response) as [string, AnySchema | null][];
+}
+
+/**
+ * A described body as the document carries it: every envelope in it a
+ * reference to the one definition of its status and code, and a union of
+ * several a flat `anyOf` of them.
+ */
+function canonical(
+  schema: JsonSchemaObject,
+  status: number,
+  envelopes: Envelopes,
+  warn: (message: string) => void,
+): Record<string, unknown> {
+  const branches = branchesOf(schema).map((branch) => {
+    const code = envelopeCode(branch);
+
+    return code === undefined
+      ? branch
+      : (envelopes.ref(status, code, branch, warn) as unknown as Record<
+          string,
+          unknown
+        >);
+  });
+
+  const [only] = branches;
+
+  return branches.length === 1 && only ? only : { anyOf: branches };
 }
 
 /**
@@ -339,24 +418,25 @@ function responses(
   options: AppOptions,
   contributed: HookContributions,
   components: SchemaComponents,
+  envelopes: Envelopes,
   warn: (message: string) => void,
 ): Record<string, ResponseObject> {
   const declared: Record<string, ResponseObject> = {};
-  const response = entry.def.schema?.response;
 
-  if (response && "~standard" in response) {
-    declared["200"] = jsonResponse(
-      response as AnySchema,
-      "Successful response",
-      warn,
-    );
-  } else if (response) {
-    for (const [status, schema] of Object.entries(response)) {
-      declared[status] =
-        schema === null
-          ? { description: describeStatus(status) }
-          : jsonResponse(schema, describeStatus(status), warn);
-    }
+  for (const [status, schema] of declaredResponses(entry)) {
+    const described =
+      schema === null ? undefined : emitted(schema, "a response", warn);
+
+    declared[status] = described
+      ? {
+          description: describeStatus(status),
+          content: {
+            "application/json": {
+              schema: canonical(described, Number(status), envelopes, warn),
+            },
+          },
+        }
+      : { description: describeStatus(status) };
   }
 
   if (!declared["200"] && !hasSuccess(declared)) {
@@ -371,6 +451,7 @@ function responses(
       contributed,
       declared,
       components,
+      envelopes,
       warn,
     ),
   };
@@ -382,6 +463,7 @@ function frameworkFailures(
   contributed: HookContributions,
   declared: Record<string, ResponseObject>,
   components: SchemaComponents,
+  envelopes: Envelopes,
   warn: (message: string) => void,
 ): Record<string, ResponseObject> {
   const schema = entry.def.schema;
@@ -393,24 +475,35 @@ function frameworkFailures(
     failures.set(key, [...(failures.get(key) ?? []), failure]);
   };
 
-  /** Defines the envelope of one failure once, and refers to it. */
+  /**
+   * Refers to the definition of one failure: the one of its status and
+   * code, or — for a failure whose code only the hook knows and did not
+   * declare — one of its own, named after the status.
+   */
   const envelopeRef = (
     status: number,
     error?: string,
     message?: string,
     fields?: DocumentedResponse["fields"],
-  ): Record<string, unknown> =>
-    components.ref(
-      failureName(status, error),
-      envelope(status, error, message, fields),
-    ) as unknown as Record<string, unknown>;
+  ): Record<string, unknown> => {
+    const described = envelope(status, error, message, fields);
+
+    const ref =
+      error === undefined
+        ? components.ref(failureName(status), described)
+        : envelopes.ref(status, error, described, warn);
+
+    return ref as unknown as Record<string, unknown>;
+  };
 
   if (schema?.params || schema?.query || schema?.headers || schema?.body) {
     add(options.validationStatus, {
       description: "Request failed schema validation",
-      schema: components.ref(
-        failureName(options.validationStatus, "VALIDATION_FAILED"),
+      schema: envelopes.ref(
+        options.validationStatus,
+        "VALIDATION_FAILED",
         validationFailed(options.validationStatus),
+        warn,
       ) as unknown as Record<string, unknown>,
     });
   }
@@ -433,14 +526,14 @@ function frameworkFailures(
 
     add(response.status, {
       description: response.description,
-      schema:
-        described ??
-        envelopeRef(
-          response.status,
-          response.error,
-          response.message,
-          response.fields,
-        ),
+      schema: described
+        ? canonical(described, response.status, envelopes, warn)
+        : envelopeRef(
+            response.status,
+            response.error,
+            response.message,
+            response.fields,
+          ),
       ...(response.headers ? { headers: response.headers } : {}),
     });
   }
@@ -513,10 +606,12 @@ function merge(
     ...list.map((failure) => failure.description),
   ];
 
-  const schemas = distinct([
-    ...declaredSchemas(declared),
-    ...list.map((failure) => failure.schema),
-  ]);
+  const schemas = distinct(
+    [
+      ...declaredSchemas(declared),
+      ...list.map((failure) => failure.schema),
+    ].flatMap((schema) => branchesOf(schema)),
+  );
 
   const [only] = schemas;
   const headers: Record<string, HeaderObject> = {};
@@ -564,23 +659,6 @@ function distinct(
 
     return true;
   });
-}
-
-function jsonResponse(
-  schema: unknown,
-  description: string,
-  warn: (message: string) => void,
-): ResponseObject {
-  const described = emitted(schema, "a response", warn);
-
-  if (!described) {
-    return { description };
-  }
-
-  return {
-    description,
-    content: { "application/json": { schema: described } },
-  };
 }
 
 function hasSuccess(declared: Record<string, ResponseObject>): boolean {

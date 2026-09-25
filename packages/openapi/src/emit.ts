@@ -20,13 +20,15 @@ import { toJsonSchema } from "@tetsujs/core";
 const target = { target: "draft-2020-12" } as const;
 
 /**
- * A JSON Schema as the generator reads it: any keyword, with the two it
+ * A JSON Schema as the generator reads it: any keyword, with the ones it
  * looks into named, so reading them does not depend on the reader's
  * `noPropertyAccessFromIndexSignature`.
  */
 export interface JsonSchemaObject {
   properties?: unknown;
   required?: unknown;
+  anyOf?: unknown;
+  oneOf?: unknown;
   [keyword: string]: unknown;
 }
 

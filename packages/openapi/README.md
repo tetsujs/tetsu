@@ -106,6 +106,15 @@ The `error` code is a constant in each schema, so a generated client can
 tell failures apart by it. A status the route declares itself is kept, and
 the framework's failures for the same status are listed next to it.
 
+Every envelope — the framework's, a hook's, or one the route declares
+itself — is one definition in `components` per status and code, named
+after the code (`ITEM_NOT_FOUND` is `ItemNotFound`), so a generated client
+gets one type per failure. A schema is recognized as an envelope when its
+`error` is required and a single string. When the route and a hook both
+describe one code, the route's definition is kept; if the other one has
+different fields, the generator warns. A union the route declares joins
+the other failures of its status as one flat `anyOf`.
+
 ## Documenting hooks
 
 A hook that answers by itself — an auth check, a limiter — can say so, and
