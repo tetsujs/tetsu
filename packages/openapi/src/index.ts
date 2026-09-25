@@ -30,6 +30,7 @@ export type {
   DocumentedResponse,
   HookContributions,
   HookDocs,
+  SecurityAlternatives,
   SecurityRequirement,
   SecurityScheme,
 } from "./annotations.ts";

@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { RouteDef, StandardSchemaV1 } from "@tetsujs/core";
+import type { AnyHook, RouteDef, StandardSchemaV1 } from "@tetsujs/core";
 import { controller, createApp, group, hook, route, ws } from "@tetsujs/core";
 import { docsOf, securityOf } from "./annotations.ts";
 import type { OpenApiDocument } from "./document.ts";
@@ -688,6 +688,153 @@ describe("structural invariants", () => {
   });
 });
 
+describe("a hook that accepts either of two credentials", () => {
+  const cookie = {
+    name: "session",
+    scheme: { type: "apiKey", in: "cookie", name: "session" },
+  } as const;
+  const bearer = {
+    name: "bearer",
+    scheme: { type: "http", scheme: "bearer" },
+  } as const;
+  const csrf = {
+    name: "csrf",
+    scheme: { type: "apiKey", in: "header", name: "x-csrf-token" },
+    status: 403,
+  } as const;
+
+  const caller = () =>
+    secured(
+      hook.beforeParse(() => ({ user: { id: "u1" } })),
+      {
+        anyOf: [cookie, bearer],
+      },
+    );
+  const csrfCheck = secured(
+    hook.beforeParse(() => undefined),
+    csrf,
+  );
+
+  const securityAt = (
+    hooks: Record<string, readonly AnyHook[]>,
+    appHooks?: Record<string, readonly AnyHook[]>,
+  ) => {
+    const { document } = generate(
+      createApp({
+        ...(appHooks ? { hooks: appHooks as never } : {}),
+        routes: {
+          read: route({
+            method: "GET",
+            path: "/x",
+            hooks: hooks as never,
+            handler: () => ({}),
+          }),
+        },
+      }),
+    );
+
+    return document;
+  };
+
+  test("alone, it is any one of its alternatives", () => {
+    const document = securityAt({ beforeParse: [caller()] });
+
+    expect(document.paths["/x"]?.get?.security).toEqual([
+      { session: [] },
+      { bearer: [] },
+    ]);
+  });
+
+  test("next to another hook, it is each alternative together with it", () => {
+    const document = securityAt({ beforeParse: [caller(), csrfCheck] });
+
+    expect(document.paths["/x"]?.get?.security).toEqual([
+      { session: [], csrf: [] },
+      { bearer: [], csrf: [] },
+    ]);
+  });
+
+  test("every scheme it mentions is registered, and every refusal answered", () => {
+    const document = securityAt({ beforeParse: [caller(), csrfCheck] });
+
+    expect(Object.keys(document.components?.securitySchemes ?? {})).toEqual([
+      "session",
+      "bearer",
+      "csrf",
+    ]);
+    expect(Object.keys(document.paths["/x"]?.get?.responses ?? {})).toEqual(
+      expect.arrayContaining(["401", "403"]),
+    );
+  });
+
+  test("the same guard on the application and the route is one condition", () => {
+    const document = securityAt(
+      { beforeParse: [caller()] },
+      { beforeParse: [caller()] },
+    );
+
+    expect(document.paths["/x"]?.get?.security).toEqual([
+      { session: [] },
+      { bearer: [] },
+    ]);
+  });
+
+  test("two hooks with alternatives give every pairing of them", () => {
+    const signed = secured(
+      hook.beforeParse(() => undefined),
+      {
+        anyOf: [
+          {
+            name: "hmac",
+            scheme: { type: "apiKey", in: "header", name: "x-sig" },
+          },
+          { name: "mtls", scheme: { type: "mutualTLS" } },
+        ],
+      },
+    );
+
+    const document = securityAt({ beforeParse: [caller(), signed] });
+
+    expect(document.paths["/x"]?.get?.security).toEqual([
+      { session: [], hmac: [] },
+      { session: [], mtls: [] },
+      { bearer: [], hmac: [] },
+      { bearer: [], mtls: [] },
+    ]);
+  });
+
+  test("an alternative of a scheme another hook requires joins its scopes", () => {
+    const oauth = { type: "oauth2", flows: {} } as const;
+    const either = secured(
+      hook.beforeParse(() => undefined),
+      {
+        anyOf: [
+          { name: "oauth", scheme: oauth, scopes: ["notes:read"] },
+          {
+            name: "apiKey",
+            scheme: { type: "apiKey", in: "header", name: "x-key" },
+          },
+        ],
+      },
+    );
+    const writes = secured(
+      hook.beforeParse(() => undefined),
+      {
+        name: "oauth",
+        scheme: oauth,
+        scopes: ["notes:write"],
+      },
+    );
+
+    const document = securityAt({ beforeParse: [either, writes] });
+
+    expect(document.paths["/x"]?.get?.security).toEqual([
+      { oauth: ["notes:read", "notes:write"] },
+      { apiKey: [], oauth: ["notes:write"] },
+    ]);
+  });
+});
+
 describe("security carried by hooks", () => {
   const bearer = {
     name: "bearerAuth",
@@ -734,10 +881,49 @@ describe("security carried by hooks", () => {
     });
   });
 
-  test("requires them on the operations that run them", () => {
+  test("requires every one a route runs, together, not any one of them", () => {
+    // OpenAPI reads the entries of `security` as alternatives and the keys
+    // of one entry as all required. Every hook of a chain runs, so every
+    // scheme they carry is required at once: one entry.
     expect(document.paths["/secured"]?.get?.security).toEqual([
-      { apiKey: [] },
-      { bearerAuth: [] },
+      { apiKey: [], bearerAuth: [] },
+    ]);
+  });
+
+  test("two hooks of one scheme require the scopes of both", () => {
+    const oauth = { type: "oauth2", flows: {} } as const;
+    const reads = secured(
+      hook.beforeParse(() => undefined),
+      {
+        name: "oauth",
+        scheme: oauth,
+        scopes: ["notes:read"],
+      },
+    );
+    const writes = secured(
+      hook.beforeParse(() => undefined),
+      {
+        name: "oauth",
+        scheme: oauth,
+        scopes: ["notes:write", "notes:read"],
+      },
+    );
+
+    class NotesController {
+      change = route({
+        method: "PUT",
+        path: "/notes",
+        hooks: { beforeParse: [reads, writes] },
+        handler: () => ({}),
+      });
+    }
+
+    const { document: scoped } = generate(
+      createApp({ routes: new NotesController() }),
+    );
+
+    expect(scoped.paths["/notes"]?.put?.security).toEqual([
+      { oauth: ["notes:read", "notes:write"] },
     ]);
   });
 
@@ -986,7 +1172,7 @@ describe("responses contributed by hooks", () => {
       },
     );
 
-    expect(docsOf(auth)?.security?.name).toBe("bearerAuth");
+    expect(docsOf(auth)?.security).toMatchObject({ name: "bearerAuth" });
     expect(docsOf(auth)?.responses).toBeUndefined();
   });
 
@@ -1002,7 +1188,7 @@ describe("responses contributed by hooks", () => {
       { responses: [{ status: 429, description: "Too many" }] },
     );
 
-    expect(docsOf(both)?.security?.name).toBe("apiKey");
+    expect(docsOf(both)?.security).toMatchObject({ name: "apiKey" });
     expect(docsOf(both)?.responses).toHaveLength(1);
   });
 });
