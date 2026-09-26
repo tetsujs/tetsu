@@ -30,6 +30,38 @@ reported before the first request.
 prefix, guard it with hooks, or leave it out in production. Its own two
 routes are left out of the document.
 
+### The page runs someone else's code on your origin
+
+The page loads its renderer — Scalar, Swagger UI or Redoc — from
+jsDelivr and runs it on the application's origin, with that origin's
+cookies. If a session cookie lives there, a renderer that is not what it
+should be acts as the signed-in user. The defaults are pinned to an exact
+version with a Subresource Integrity hash, so a file the CDN changes is
+refused by the browser; that does not make the renderer yours, and what it
+loads in turn is not covered.
+
+Where the origin carries a session, serve the document alone:
+
+```ts
+docs({ info, ui: false });
+```
+
+`/openapi.json` is served and there is no page. For a page anyway, host
+the renderer yourself or pin your own copy, with its hash:
+
+```ts
+docs({
+  info,
+  assets: {
+    script: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.1/dist/browser/standalone.js",
+    integrity: { script: "sha384-…" },
+  },
+});
+```
+
+`curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A` prints
+the hash, to be prefixed with `sha384-`.
+
 ## Options
 
 | Option | Default | |
@@ -38,9 +70,9 @@ routes are left out of the document.
 | `servers` | — | where the API is reachable |
 | `path` | `/openapi.json` | where the document is served |
 | `uiPath` | `/docs` | where the page is served |
-| `ui` | `"scalar"` | `"scalar"`, `"swagger-ui"` or `"redoc"` |
+| `ui` | `"scalar"` | `"scalar"`, `"swagger-ui"`, `"redoc"`, or `false` for no page |
 | `title` | the document's title | the page's title |
-| `assets` | the renderer's CDN | pinned or self-hosted renderer URLs |
+| `assets` | the renderer on jsDelivr, pinned | your own renderer URLs, with `integrity` hashes |
 | `documentSelf` | `false` | include `/openapi.json` and `/docs` in the document |
 | `onWarning` | `console.warn` | receives what could not be described |
 

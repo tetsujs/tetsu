@@ -22,7 +22,11 @@ import type { DocsAssets, DocsUi } from "./page.ts";
 import { docsPage } from "./page.ts";
 
 /** What the documentation controller serves, and from where. */
-export interface DocsOptions<Path extends string, UiPath extends string> {
+export interface DocsOptions<
+  Path extends string,
+  UiPath extends string,
+  Ui extends DocsUi | false = DocsUi | false,
+> {
   /** Title, version and the rest of the document's `info` block. */
   readonly info: OpenApiDocument["info"];
 
@@ -35,8 +39,16 @@ export interface DocsOptions<Path extends string, UiPath extends string> {
   /** Where the page is served. Defaults to `/docs`. */
   readonly uiPath?: UiPath & ValidatePath<UiPath>;
 
-  /** Which renderer the page bootstraps. Defaults to `"scalar"`. */
-  readonly ui?: DocsUi;
+  /**
+   * Which renderer the page bootstraps. Defaults to `"scalar"`.
+   *
+   * `false` serves the document without a page — what production wants
+   * on an origin that carries a session. The page runs its renderer on the
+   * application's origin, so a renderer that is not what it should be acts
+   * in the signed-in user's name there; the document alone runs nothing.
+   * `uiPath`, `title` and `assets` are then unused.
+   */
+  readonly ui?: Ui;
 
   /** Browser title of the page. Defaults to the document's own title. */
   readonly title?: string;
@@ -69,20 +81,27 @@ export interface DocsOptions<Path extends string, UiPath extends string> {
  * Instantiated through the factory, never directly — the routes carry the
  * configured paths in their types, which only the factory can infer.
  */
-export class DocsController<Path extends string, UiPath extends string> {
+export class DocsController<
+  Path extends string,
+  UiPath extends string,
+  Page extends boolean = true,
+> {
   /** The document itself, as `application/json`. */
   readonly json: RouteDef<Path, SchemaConfig, never, undefined, "GET">;
 
-  /** The page that renders it. */
-  readonly ui: RouteDef<UiPath, SchemaConfig, never, undefined, "GET">;
+  /** The page that renders it — none with `ui: false`. */
+  readonly ui: Page extends true
+    ? RouteDef<UiPath, SchemaConfig, never, undefined, "GET">
+    : undefined;
 
   private document: OpenApiDocument | undefined;
+
+  private page: string | undefined;
 
   constructor(
     private readonly options: DocsOptions<Path, UiPath>,
     documentPath: string,
     uiPath: string,
-    page: string,
   ) {
     const hidden = !options.documentSelf;
 
@@ -98,7 +117,7 @@ export class DocsController<Path extends string, UiPath extends string> {
       path: "/docs",
       docs: { summary: "Rendered documentation", tags: ["docs"], hidden },
       handler: () =>
-        new Response(page, {
+        new Response(this.page, {
           headers: { "content-type": "text/html; charset=utf-8" },
         }),
     });
@@ -113,10 +132,20 @@ export class DocsController<Path extends string, UiPath extends string> {
      * configured path lands at runtime.
      */
     this.json = { ...json, path: documentPath } as unknown as this["json"];
-    this.ui = { ...ui, path: uiPath } as unknown as this["ui"];
+    this.ui = (
+      options.ui === false ? undefined : { ...ui, path: uiPath }
+    ) as this["ui"];
   }
 
-  /** Generates the document of the application this was mounted in. */
+  /**
+   * Generates the document of the application this was mounted in, and
+   * the page that renders it.
+   *
+   * The page is built here rather than with the routes because only the
+   * application knows where the document ended up: a group this controller
+   * is mounted under prefixes its path, and a page pointing at the path as
+   * configured would fetch a `404`.
+   */
   [onMount](app: App): void {
     const generated = openapi(app, {
       info: this.options.info,
@@ -124,6 +153,19 @@ export class DocsController<Path extends string, UiPath extends string> {
     });
 
     this.document = generated.document;
+
+    const ui = this.options.ui ?? "scalar";
+    const json: unknown = this.json;
+    const served = app.entries.find((entry) => entry.def === json);
+
+    if (ui !== false && served) {
+      this.page = docsPage({
+        ui,
+        documentUrl: served.path,
+        title: this.options.title ?? this.options.info.title,
+        ...(this.options.assets ? { assets: this.options.assets } : {}),
+      });
+    }
 
     const report = this.options.onWarning ?? warn;
 
@@ -156,18 +198,15 @@ export class DocsController<Path extends string, UiPath extends string> {
 export function docs<
   const Path extends string = "/openapi.json",
   const UiPath extends string = "/docs",
->(options: DocsOptions<Path, UiPath>): DocsController<Path, UiPath> {
-  const documentPath = options.path ?? "/openapi.json";
-  const uiPath = options.uiPath ?? "/docs";
-
-  const page = docsPage({
-    ui: options.ui ?? "scalar",
-    documentUrl: documentPath,
-    title: options.title ?? options.info.title,
-    ...(options.assets ? { assets: options.assets } : {}),
-  });
-
-  return new DocsController(options, documentPath, uiPath, page);
+  const Ui extends DocsUi | false = "scalar",
+>(
+  options: DocsOptions<Path, UiPath, Ui>,
+): DocsController<Path, UiPath, Ui extends false ? false : true> {
+  return new DocsController(
+    options,
+    options.path ?? "/openapi.json",
+    options.uiPath ?? "/docs",
+  ) as DocsController<Path, UiPath, Ui extends false ? false : true>;
 }
 
 function warn(warning: GeneratorWarning): void {
