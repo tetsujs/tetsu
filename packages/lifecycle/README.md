@@ -44,6 +44,24 @@ import { shutdown } from "@tetsujs/lifecycle";
 const { forced, failures } = await shutdown(server, { close: [() => pool.end()] });
 ```
 
+### Several servers
+
+A process that serves more than one surface — a public API and an admin
+API, each on its own port — passes them all at once:
+
+```ts
+const api = Bun.serve({ ...publicApp, port: 3000 });
+const admin = Bun.serve({ ...adminApp, port: 3001 });
+
+onShutdownSignals([api, admin], { close: [() => pool.end()] });
+```
+
+They drain side by side within the one `graceMs`; only a server still
+draining when it runs out is cut, and `forced` is `true` if any was. The
+closers run once, after the last server has stopped. Calling
+`onShutdownSignals` once per server instead would run the closers twice
+and end the process as soon as the first server is done.
+
 ## Behind a load balancer
 
 A balancer keeps sending requests for a while after the signal: in

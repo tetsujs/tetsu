@@ -24,6 +24,10 @@ API.
   returned, typed with `Requires` — a client address worked out once, for
   the limiter and whatever else needs it. The limiter then demands the
   field where it is mounted, like any hook with `Requires`.
+- `@tetsujs/lifecycle`: `onShutdownSignals()` and `shutdown()` take a list
+  of servers — one process serving several surfaces. They drain within one
+  grace period, only a server still draining is cut, and the closers run
+  once, after the last server.
 
 ### Changed
 

@@ -187,6 +187,47 @@ const heldOpen = `
   });
 `;
 
+describe("several servers", () => {
+  test("stop together, and what they used is closed once, after all", async () => {
+    const quick = stubServer({ graceful: 20 });
+    const slow = stubServer({ graceful: 40 });
+    const order: string[] = [];
+
+    const stopping = shutdown([quick, slow], {
+      close: [
+        () => {
+          order.push("pool");
+        },
+      ],
+    });
+
+    await Bun.sleep(10);
+
+    expect(quick.calls).toEqual(["stop()"]);
+    expect(slow.calls).toEqual(["stop()"]);
+
+    await Bun.sleep(20);
+
+    expect(order).toEqual([]);
+
+    const result = await stopping;
+
+    expect(order).toEqual(["pool"]);
+    expect(result).toEqual({ forced: false, failures: [] });
+  });
+
+  test("only a server still draining is forced", async () => {
+    const drained = stubServer({ graceful: 1 });
+    const stuck = stubServer({ graceful: "never", forced: 1 });
+
+    const result = await shutdown([drained, stuck], { graceMs: 20 });
+
+    expect(drained.calls).toEqual(["stop()"]);
+    expect(stuck.calls).toEqual(["stop()", "stop(true)"]);
+    expect(result.forced).toBe(true);
+  });
+});
+
 describe("signals", () => {
   test("a handler is installed and can be taken off again", () => {
     const server = stubServer({ graceful: 1 });
@@ -250,6 +291,59 @@ describe("signals", () => {
     }
 
     expect(output).toContain("pool closed");
+    expect(code).toBe(0);
+  });
+
+  test("SIGTERM stops every server it was given, and closes once", async () => {
+    const script = `
+      import { onShutdownSignals } from "${import.meta.dir}/index.ts";
+
+      const api = Bun.serve({ port: 0, fetch: () => new Response("api") });
+      const admin = Bun.serve({ port: 0, fetch: () => new Response("admin") });
+
+      onShutdownSignals([api, admin], {
+        close: [() => console.log("pool closed")],
+      });
+
+      console.log("listening");
+      setInterval(() => {}, 1000);
+    `;
+
+    const child = Bun.spawn(["bun", "-e", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+
+    let output = "";
+
+    while (!output.includes("listening")) {
+      const chunk = await reader.read();
+
+      if (chunk.done) {
+        break;
+      }
+
+      output += decoder.decode(chunk.value);
+    }
+
+    child.kill("SIGTERM");
+
+    const code = await child.exited;
+
+    while (true) {
+      const chunk = await reader.read();
+
+      if (chunk.done) {
+        break;
+      }
+
+      output += decoder.decode(chunk.value);
+    }
+
+    expect(output.split("pool closed").length - 1).toBe(1);
     expect(code).toBe(0);
   });
 
