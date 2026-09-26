@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/core",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "An HTTP framework for Bun: controllers as plain classes, lifecycle hooks and end-to-end type inference, without decorators or dependencies",
   "keywords": [
     "bun",

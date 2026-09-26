@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/openapi",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "An OpenAPI 3.1 document and docs page generated from Tetsu routes",
   "keywords": [
     "bun",

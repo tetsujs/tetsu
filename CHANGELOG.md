@@ -3,7 +3,11 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.4.2 — 2026-09-26
+
+The generated document describes each error once: every envelope is one
+definition per status and code, whoever declared it, and a status of
+envelopes can be discriminated by its code.
 
 ### Added
 
@@ -42,7 +46,8 @@ API.
   `components` per status and code, named after the code — a route's own
   included, which used to be inlined next to a named twin from a hook or
   the framework. The route's definition is the one kept; a definition
-  with different fields is reported as a warning.
+  with different fields is reported as a warning. A client regenerated
+  from the document gets named types where it had anonymous ones.
 
 ### Fixed
 

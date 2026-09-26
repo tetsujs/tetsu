@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/cors",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "CORS headers and preflight responses for Tetsu",
   "keywords": [
     "bun",
