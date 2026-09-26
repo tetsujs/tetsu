@@ -1004,6 +1004,43 @@ describe("the documentation page", () => {
 
     expect(page).toContain('src="/vendor/scalar.js"');
     expect(page).not.toContain("jsdelivr");
+    expect(page).not.toContain("integrity");
+  });
+
+  test("loads a pinned renderer the browser can verify", () => {
+    // Unpinned, the page ran whatever the CDN served that minute — a new
+    // major, or a compromised release — on the application's own origin.
+    for (const ui of ["scalar", "swagger-ui", "redoc"] as const) {
+      const page = docsPage({ ui, documentUrl: "/openapi.json" });
+      const tags = page.match(/<(script|link)[^>]*jsdelivr[^>]*>/g) ?? [];
+
+      expect(tags.length).toBeGreaterThan(0);
+
+      for (const tag of tags) {
+        expect(tag).toMatch(/@\d+\.\d+\.\d+\//);
+        expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/]{64}"/);
+        expect(tag).toContain('crossorigin="anonymous"');
+      }
+    }
+  });
+
+  test("a copy of your own carries the integrity you give it", () => {
+    const page = docsPage({
+      ui: "swagger-ui",
+      documentUrl: "/openapi.json",
+      assets: {
+        script: "https://cdn.example.com/swagger-ui-bundle.js",
+        style: "https://cdn.example.com/swagger-ui.css",
+        integrity: { script: "sha384-script", style: "sha384-style" },
+      },
+    });
+
+    expect(page).toContain(
+      '<script src="https://cdn.example.com/swagger-ui-bundle.js" integrity="sha384-script" crossorigin="anonymous"></script>',
+    );
+    expect(page).toContain(
+      '<link rel="stylesheet" href="https://cdn.example.com/swagger-ui.css" integrity="sha384-style" crossorigin="anonymous" />',
+    );
   });
 
   test("escapes what it interpolates", () => {

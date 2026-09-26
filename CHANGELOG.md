@@ -16,9 +16,16 @@ API.
 - `@tetsujs/openapi`: a status whose alternatives are all error envelopes
   has a `discriminator` on `error`, mapping each code to its definition,
   so a generated client narrows on the code.
+- `@tetsujs/openapi`: `docs({ ui: false })` serves the document without
+  a page — for an origin that carries a session, where the page would run
+  a CDN's code as the signed-in user. `assets` takes `integrity` hashes
+  for a renderer of your own.
 
 ### Changed
 
+- `@tetsujs/openapi`: the default renderers are pinned to an exact version
+  and carry a Subresource Integrity hash — Scalar 1.72.1, Swagger UI
+  5.33.0, Redoc 2.5.4. Scalar used to load whatever version was latest.
 - `@tetsujs/openapi`: every error envelope is one definition in
   `components` per status and code, named after the code — a route's own
   included, which used to be inlined next to a named twin from a hook or
@@ -27,6 +34,9 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi`: the page of `docs()` mounted in a group fetched the
+  document from the path as configured, without the group's prefix, and
+  showed nothing.
 - `@tetsujs/openapi`: a status and code declared by both the route and a
   hook was listed twice under the status, and a union the route declared
   was nested inside the status's `anyOf` instead of joining it.

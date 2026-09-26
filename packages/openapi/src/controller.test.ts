@@ -52,6 +52,23 @@ describe("docs()", () => {
   });
 });
 
+describe("docs({ ui: false })", () => {
+  const request = serve(
+    createApp({ routes: [users, docs({ info, ui: false })] }),
+  );
+
+  test("serves the document", async () => {
+    const res = await request("/openapi.json");
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as OpenApiDocument).info).toEqual(info);
+  });
+
+  test("serves no page", async () => {
+    expect((await request("/docs")).status).toBe(404);
+  });
+});
+
 describe("options", () => {
   test("the paths are the application's to choose", async () => {
     const request = serve(
@@ -209,5 +226,22 @@ describe("mounting", () => {
 
     expect((await request("/internal/openapi.json")).status).toBe(200);
     expect((await request("/internal/docs")).status).toBe(200);
+  });
+
+  test("the page fetches the document where the group put it", async () => {
+    const request = serve(
+      createApp({
+        routes: [
+          users,
+          group("/internal", {
+            children: [docs({ info, path: "/spec.json", ui: "redoc" })],
+          }),
+        ],
+      }),
+    );
+
+    const html = await (await request("/internal/docs")).text();
+
+    expect(html).toContain('spec-url="/internal/spec.json"');
   });
 });

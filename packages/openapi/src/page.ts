@@ -12,6 +12,13 @@
  * a parameter, so a self-hosted copy is one option away. Nothing is
  * fetched unless this function is called.
  *
+ * What the CDN serves runs on the application's origin, with its cookies.
+ * The default renderers are therefore pinned to an exact version and
+ * carry the hash of that file: a CDN, or a package release, that serves
+ * something else is refused by the browser rather than run. A page on an
+ * origin with a session is still somebody else's application in the
+ * user's session — which is why `docs()` can serve the document alone.
+ *
  * @module
  */
 
@@ -22,6 +29,20 @@ export type DocsUi = "scalar" | "swagger-ui" | "redoc";
 export interface DocsAssets {
   readonly script: string;
   readonly style?: string;
+
+  /**
+   * Subresource Integrity hashes of the two files, for a copy that is not
+   * on the application's own origin: the browser runs the file only if it
+   * hashes to this. Absent, the files are loaded as they are.
+   *
+   * One line computes one:
+   * `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`,
+   * prefixed with `sha384-`.
+   */
+  readonly integrity?: {
+    readonly script?: string;
+    readonly style?: string;
+  };
 }
 
 /** What the page needs to know. */
@@ -39,17 +60,42 @@ export interface DocsPageOptions {
   readonly assets?: DocsAssets;
 }
 
+/**
+ * The renderers by default: an exact version, the file by its full path,
+ * and the hash of that file.
+ *
+ * The full path because a bare package URL is not a file — jsDelivr
+ * answers it with a build of its own, whose bytes differ from the file's.
+ * Moving to a newer version means a new hash, computed as
+ * {@link DocsAssets.integrity} describes.
+ */
 const defaults: Record<DocsUi, DocsAssets> = {
   scalar: {
-    script: "https://cdn.jsdelivr.net/npm/@scalar/api-reference",
+    script:
+      "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.1/dist/browser/standalone.js",
+    integrity: {
+      script:
+        "sha384-U11tb2XnKvmwt8RlTvnwUnYgrN+ur4Xyh9htLhjajWNR/Oyl5AX5DEz00qRmlrmK",
+    },
   },
   "swagger-ui": {
     script:
-      "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
-    style: "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
+      "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui-bundle.js",
+    style: "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui.css",
+    integrity: {
+      script:
+        "sha384-YDALVcy8kj8yltLBVi1vBiBAUqdxvus673gM8XKwiy6aDUJFXivF/KCufekjYbVf",
+      style:
+        "sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW",
+    },
   },
   redoc: {
-    script: "https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js",
+    script:
+      "https://cdn.jsdelivr.net/npm/redoc@2.5.4/bundles/redoc.standalone.js",
+    integrity: {
+      script:
+        "sha384-w447zOpYfw/1Tv/5AK9NfHTlQIqE3RVR6KY62jCyy9zNDgO64cMwGGP1Fj0zJVf5",
+    },
   },
 };
 
@@ -84,12 +130,12 @@ export function docsPage(options: DocsPageOptions): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1" />',
     `<title>${title}</title>`,
     assets.style
-      ? `<link rel="stylesheet" href="${escapeHtml(assets.style)}" />`
+      ? `<link rel="stylesheet" href="${escapeHtml(assets.style)}"${verified(assets.integrity?.style)} />`
       : "",
     "</head>",
     "<body>",
     body(options.ui, url),
-    `<script src="${escapeHtml(assets.script)}"></script>`,
+    `<script src="${escapeHtml(assets.script)}"${verified(assets.integrity?.script)}></script>`,
     bootstrap(options.ui, url),
     "</body>",
     "</html>",
@@ -120,6 +166,19 @@ function bootstrap(ui: DocsUi, url: string): string {
     `SwaggerUIBundle({ url: "${url}", dom_id: "#swagger-ui" });`,
     "</script>",
   ].join("\n");
+}
+
+/**
+ * The attributes that make the browser check a file against its hash.
+ *
+ * `crossorigin` comes with it: a file from another origin is checked only
+ * when fetched with CORS, and without the attribute the browser refuses
+ * it outright rather than skip the check.
+ */
+function verified(integrity: string | undefined): string {
+  return integrity
+    ? ` integrity="${escapeHtml(integrity)}" crossorigin="anonymous"`
+    : "";
 }
 
 /**
