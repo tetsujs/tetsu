@@ -20,6 +20,10 @@ API.
   a page — for an origin that carries a session, where the page would run
   a CDN's code as the signed-in user. `assets` takes `integrity` hashes
   for a renderer of your own.
+- `@tetsujs/rate-limit`: `key` reads what earlier `beforeParse` hooks
+  returned, typed with `Requires` — a client address worked out once, for
+  the limiter and whatever else needs it. The limiter then demands the
+  field where it is mounted, like any hook with `Requires`.
 
 ### Changed
 

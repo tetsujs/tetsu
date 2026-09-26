@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createApp, route } from "@tetsujs/core";
+import type { Requires } from "@tetsujs/core";
+import { createApp, hook, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import { openapi } from "@tetsujs/openapi";
 import { rateLimit } from "./index.ts";
@@ -39,6 +40,34 @@ const serveWith = (options: Parameters<typeof rateLimit>[0]) => {
     }),
   );
 };
+
+describe("a key from an earlier hook", () => {
+  const client = hook.beforeParse((ctx) => ({
+    client: ctx.req.headers.get("x-client") ?? "anonymous",
+  }));
+
+  const limit = rateLimit({
+    limit: 1,
+    windowMs: 60_000,
+    key: (ctx: Requires<{ client: string }>) => ctx.client,
+  });
+
+  const request = serve(
+    createApp({
+      hooks: { beforeParse: [client, limit] },
+      routes: new ApiController(),
+    }),
+  );
+
+  test("counts what the earlier hook worked out", async () => {
+    const as = (name: string) =>
+      request("/items", { headers: { "x-client": name } });
+
+    expect((await as("a")).status).toBe(200);
+    expect((await as("a")).status).toBe(429);
+    expect((await as("b")).status).toBe(200);
+  });
+});
 
 describe("within the limit", () => {
   const request = serveWith({

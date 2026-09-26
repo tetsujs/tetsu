@@ -40,7 +40,8 @@ groups is one budget shared between them. For separate budgets, make two.
 `key` decides what is counted, and there is no default: the right answer
 depends on your deployment. It runs before the request is parsed, so it
 reads the request itself — headers, and cookies through Bun's
-`ctx.req.cookies` (`ctx.cookies` is not filled in yet).
+`ctx.req.cookies` (`ctx.cookies` is not filled in yet) — and what the
+`beforeParse` hooks before it returned.
 
 ```ts
 key: (ctx) => ctx.req.cookies?.get("session") ?? undefined      // per session
@@ -55,6 +56,23 @@ callers or health checks:
 key: (ctx) =>
   ctx.req.headers.get("x-internal") ? undefined : ctx.req.headers.get("authorization") ?? undefined,
 ```
+
+A key another hook already worked out — a client address, a tenant — is
+read from the context, once `key` says it needs it with `Requires`:
+
+```ts
+const perClient = rateLimit({
+  limit: 60,
+  windowMs: 60_000,
+  key: (ctx: Requires<{ clientIp: string }>) => ctx.clientIp,
+});
+
+createApp({ hooks: { beforeParse: [clientIp, perClient] }, routes });
+```
+
+The limiter then demands the field where it is mounted, like any hook
+with `Requires`: mounted before `clientIp`, or on a route nothing provides
+it to, it does not compile.
 
 **Limiting by client address behind a proxy** means reading
 `x-forwarded-for`, and the first entry is the wrong one: the client can

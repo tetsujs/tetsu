@@ -21,9 +21,11 @@
  * every other request gets its headers in `ctx.out`, which the core lays
  * over whatever response leaves, errors and the `404` included.
  *
- * **Mount it first in `beforeParse`.** A hook before it that answers on
- * its own — a rate limit refusing — answers before the headers are
- * written, and the browser cannot read that answer.
+ * **Mount it before every hook that can refuse.** A hook before it that
+ * answers on its own — a rate limit refusing — answers before the headers
+ * are written, and the browser cannot read that answer. A hook that never
+ * refuses — `requestId()`, `arrivalLog()` — may come before it, and then
+ * a preflight gets its id and its log line as well.
  *
  * **Mount it on the application, not on a group.** Group hooks do not run
  * on protocol responses — `404`, `405` and the `OPTIONS` preflight — which

@@ -23,12 +23,21 @@ after it included.
 
 Mount it **on the application**, not on a group: group hooks do not run
 for `404`, `405` and `OPTIONS` preflights, so CORS on a group would be
-missing from exactly the preflight it is for. And mount it **first** in
-`beforeParse`: a hook before it that refuses — a rate limit, an
+missing from exactly the preflight it is for. And mount it **before every
+hook that can refuse**: a hook before it that refuses — a rate limit, an
 authentication check — answers before the headers are written, and the
-browser cannot read that answer. Mounted first, it also answers a
-preflight before those hooks see it, which matters: a preflight carries no
+browser cannot read that answer. Before those hooks, it also answers a
+preflight before they see it, which matters: a preflight carries no
 credentials, and an authentication check would refuse it.
+
+A hook that never refuses can go before it, and then covers preflights
+too: after `requestId()`, a preflight's answer carries `x-request-id`;
+after `arrivalLog()`, it gets an arrival line. After `cors()`, preflights
+stay out of both — pick by whether you want them in your logs.
+
+```ts
+createApp({ hooks: { beforeParse: [id, arrival, browser, auth, limit] }, routes });
+```
 
 ## Options
 
