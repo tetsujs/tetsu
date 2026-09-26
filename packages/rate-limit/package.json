@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/rate-limit",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Fixed-window rate limiting for Tetsu, with a replaceable store",
   "keywords": [
     "bun",

@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/sse",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Server-sent events and streamed responses for Tetsu, from an async generator",
   "keywords": [
     "bun",
