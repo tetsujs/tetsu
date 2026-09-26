@@ -92,7 +92,13 @@ key: (ctx) => {
 ```
 
 Without a proxy, `ctx.server.requestIP(ctx.req)?.address` is the client's
-address.
+address — in the form the server's socket reports it. `Bun.serve` without
+a `hostname` listens on both IPv4 and IPv6, and a client that connects
+over IPv4 is then `::ffff:203.0.113.7`, not `203.0.113.7`. As a key that
+is harmless: one client, one form, one bucket. Compared with a list of
+addresses — a trusted proxy, an allow-list — it silently never matches:
+strip the `::ffff:` prefix before comparing, or listen on `0.0.0.0`, which
+is IPv4 only and turns IPv6 clients away.
 
 ## Options
 
