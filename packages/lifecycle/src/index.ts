@@ -7,6 +7,11 @@
  * onShutdownSignals(server, { close: [() => pool.end()] });
  * ```
  *
+ * A process with several servers — a public API and an admin surface, each
+ * on its own port — passes them all: `onShutdownSignals([api, admin], …)`.
+ * They drain together, within one grace period, and what they share is
+ * closed once, after the last of them.
+ *
  * Starting needs nothing from this package: opening a pool and warming a
  * cache is an `await` before `Bun.serve`, and an `onStart` would only hide
  * where the process actually begins.
@@ -32,6 +37,16 @@ import type { Server } from "bun";
 
 /** A resource to release once the server is done with it. */
 export type Closer = () => unknown | Promise<unknown>;
+
+/**
+ * What can be stopped: a `Bun.serve` server, or anything with its `stop`.
+ * The package asks for nothing else, so it stops any server, not only a
+ * Tetsu application's.
+ */
+export type Stoppable = Pick<Server<unknown>, "stop">;
+
+/** One server, or all the servers of a process. */
+export type Servers = Stoppable | readonly Stoppable[];
 
 /** How the shutdown is paced. */
 export interface ShutdownOptions {
@@ -127,7 +142,10 @@ export interface ShutdownHandle {
 
 /** What the shutdown ended up doing. */
 export interface ShutdownResult {
-  /** Whether the grace period ran out and connections had to be cut. */
+  /**
+   * Whether the grace period ran out and connections had to be cut — on
+   * any of the servers, when there are several.
+   */
   readonly forced: boolean;
 
   /** Whatever the closers threw, in the order they threw it. */
@@ -135,7 +153,7 @@ export interface ShutdownResult {
 }
 
 /**
- * Stops a server and releases what it was using.
+ * Stops a server, or several, and releases what they were using.
  *
  * Never rejects: a closer that throws is collected into the result rather
  * than aborting the rest, because the point of the sequence is that every
@@ -150,10 +168,10 @@ export interface ShutdownResult {
  * ```
  */
 export async function shutdown(
-  server: Pick<Server<unknown>, "stop">,
+  servers: Servers,
   options: ShutdownOptions = {},
 ): Promise<ShutdownResult> {
-  return drain(server, options);
+  return drain(servers, options);
 }
 
 /**
@@ -165,12 +183,20 @@ export async function shutdown(
  * sequence rather than two is the point: an operator in a hurry should get
  * the same release of resources, sooner, not a different and shorter path
  * through the code.
+ *
+ * Several servers drain side by side, within the one grace period, and
+ * only those still draining when it ends are forced: a server that
+ * stopped cleanly has nothing left to cut.
  */
 async function drain(
-  server: Pick<Server<unknown>, "stop">,
+  servers: Servers,
   options: ShutdownOptions,
   stopWaiting?: Promise<void>,
 ): Promise<ShutdownResult> {
+  const all: readonly Stoppable[] = Array.isArray(servers)
+    ? servers
+    : [servers as Stoppable];
+
   const graceMs = options.graceMs ?? 10_000;
   const forceMs = options.forceMs ?? 1_000;
   const preStopDelayMs = options.preStopDelayMs ?? 0;
@@ -179,10 +205,29 @@ async function drain(
     await within(Bun.sleep(preStopDelayMs), preStopDelayMs, stopWaiting);
   }
 
-  const drained = await within(server.stop(), graceMs, stopWaiting);
+  const stopped = new Set<Stoppable>();
+
+  const drained = await within(
+    Promise.all(
+      all.map(async (server) => {
+        await server.stop();
+
+        stopped.add(server);
+      }),
+    ),
+    graceMs,
+    stopWaiting,
+  );
 
   if (!drained) {
-    await within(server.stop(true), forceMs);
+    await within(
+      Promise.all(
+        all
+          .filter((server) => !stopped.has(server))
+          .map((server) => server.stop(true)),
+      ),
+      forceMs,
+    );
   }
 
   const failures: unknown[] = [];
@@ -267,7 +312,7 @@ export interface ShutdownFailure {
  * again, for a process that outlives the server — a test suite, mostly.
  */
 export function onShutdownSignals(
-  server: Pick<Server<unknown>, "stop">,
+  servers: Servers,
   options: SignalOptions = {},
 ): ShutdownHandle {
   const signals = options.signals ?? ["SIGTERM", "SIGINT"];
@@ -301,7 +346,7 @@ export function onShutdownSignals(
      */
     stopping.abort();
 
-    const result = await drain(server, options, stopWaiting);
+    const result = await drain(servers, options, stopWaiting);
     const clean = !result.forced && result.failures.length === 0;
 
     for (const failure of result.failures) {
