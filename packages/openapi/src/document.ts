@@ -15,6 +15,8 @@
  * @module
  */
 
+import type { JsonSchema } from "./json-schema.ts";
+
 /** Metadata every OpenAPI document must carry. */
 export interface DocumentInfo {
   readonly title: string;
@@ -44,9 +46,16 @@ export type ContentMap = Record<
   { readonly schema?: Record<string, unknown> }
 >;
 
+/** A header a response carries. */
+export interface HeaderObject {
+  readonly description?: string;
+  readonly schema: JsonSchema;
+}
+
 /** One response of an operation. */
 export interface ResponseObject {
   readonly description: string;
+  readonly headers?: Record<string, HeaderObject>;
   readonly content?: ContentMap;
 }
 

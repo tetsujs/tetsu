@@ -106,6 +106,19 @@ The `error` code is a constant in each schema, so a generated client can
 tell failures apart by it. A status the route declares itself is kept, and
 the framework's failures for the same status are listed next to it.
 
+Every envelope — the framework's, a hook's, or one the route declares
+itself — is one definition in `components` per status and code, named
+after the code (`ITEM_NOT_FOUND` is `ItemNotFound`), so a generated client
+gets one type per failure. A schema is recognized as an envelope when its
+`error` is required and a single string. When the route and a hook both
+describe one code, the route's definition is kept; if the other one has
+different fields, the generator warns. A union the route declares joins
+the other failures of its status as one flat `anyOf`.
+
+When every alternative of a status is an envelope, the union carries a
+`discriminator` on `error`, with the mapping from each code to its
+definition, and a generated client narrows on the code.
+
 ## Documenting hooks
 
 A hook that answers by itself — an auth check, a limiter — can say so, and
@@ -127,9 +140,24 @@ export const auth = secured(
 );
 
 export const guard = documented(hook.beforeParse(check), {
-  responses: [{ status: 429, description: "Rate limit exceeded", error: "RATE_LIMITED" }],
+  responses: [
+    {
+      status: 429,
+      description: "Rate limit exceeded",
+      error: "RATE_LIMITED",
+      fields: { retryAfter: { type: "integer", minimum: 0 } },
+      headers: { "retry-after": { schema: { type: "integer", minimum: 0 } } },
+    },
+  ],
 });
 ```
+
+A response with an `error` code is the framework's envelope, defined once
+in `components` and named after the code. `fields` adds what the hook puts
+next to `status`, `message` and `error`, each always present; `headers`,
+what it sets on the response. Both are JSON Schema written by hand, typed
+keyword by keyword (`JsonSchema`), so a misspelled keyword does not
+compile. A hook whose body is not the envelope passes a `schema` instead.
 
 Hooks from `@tetsujs/rate-limit` are already documented this way. A scheme
 is identified by its `name`: the same one mounted twice is one

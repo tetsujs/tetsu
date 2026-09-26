@@ -239,15 +239,21 @@ describe("documentation", () => {
       | undefined;
 
     expect(schema?.$ref).toBe("#/components/schemas/RateLimited");
+    expect(responses["429"]?.headers?.["retry-after"]?.schema).toEqual({
+      type: "integer",
+      minimum: 0,
+    });
 
     const schemas = (
       document.components as { schemas: Record<string, unknown> }
     ).schemas;
 
     expect(schemas.RateLimited).toMatchObject({
+      required: ["status", "message", "error", "retryAfter"],
       properties: {
         status: { const: 429 },
         error: { const: "RATE_LIMITED" },
+        retryAfter: { type: "integer", minimum: 0 },
       },
     });
   });

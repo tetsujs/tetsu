@@ -23,10 +23,12 @@ import type { App } from "@tetsujs/core";
 import { contributionsOf } from "./annotations.ts";
 import { schemaComponents } from "./components.ts";
 import type { OpenApiDocument, PathItemObject } from "./document.ts";
-import { operationIds, operationOf } from "./operation.ts";
+import { envelopes as envelopeDefinitions } from "./envelopes.ts";
+import { declareEnvelopes, operationIds, operationOf } from "./operation.ts";
 import { toTemplate } from "./parameters.ts";
 
 export type {
+  DocumentedHeader,
   DocumentedResponse,
   HookContributions,
   HookDocs,
@@ -41,12 +43,18 @@ export type {
   ContentMap,
   DocumentInfo,
   DocumentServer,
+  HeaderObject,
   OpenApiDocument,
   OperationObject,
   ParameterObject,
   PathItemObject,
   ResponseObject,
 } from "./document.ts";
+export type {
+  JsonSchema,
+  JsonSchemaKeywords,
+  JsonSchemaType,
+} from "./json-schema.ts";
 export type { DocsAssets, DocsPageOptions, DocsUi } from "./page.ts";
 export { docsPage } from "./page.ts";
 
@@ -103,7 +111,15 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   const warnings: GeneratorWarning[] = [];
   const schemes: Record<string, unknown> = {};
   const components = schemaComponents();
+  const envelopes = envelopeDefinitions(components);
   const ids = operationIds();
+  const described = app.entries.filter(
+    (entry) => !entry.ws && !entry.def.docs?.hidden,
+  );
+
+  for (const entry of described) {
+    declareEnvelopes(entry, envelopes);
+  }
 
   // Which route already occupies each slot of the document. Two routes the
   // router keeps apart can still meet here, because a template says less
@@ -114,11 +130,7 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   // that works. It still loses it; it no longer does so without saying.
   const occupied = new Map<string, string>();
 
-  for (const entry of app.entries) {
-    if (entry.ws || entry.def.docs?.hidden) {
-      continue;
-    }
-
+  for (const entry of described) {
     const template = toTemplate(entry.path);
     const route = `${entry.method} ${entry.path}`;
 
@@ -126,6 +138,7 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
       entry,
       app.options,
       components,
+      envelopes,
       ids,
       (message) => {
         warnings.push({ route, message });

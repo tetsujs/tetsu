@@ -3,6 +3,42 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Added
+
+- `@tetsujs/openapi`: `fields` and `headers` on a response passed to
+  `documented()` — what a hook adds to the error envelope, and the headers
+  it sets. The envelope stays one definition in `components`, with the
+  fields in it. Both take the new `JsonSchema` type, JSON Schema 2020-12
+  keyword by keyword: a misspelled keyword or an unknown `type` does not
+  compile.
+- `@tetsujs/openapi`: a status whose alternatives are all error envelopes
+  has a `discriminator` on `error`, mapping each code to its definition,
+  so a generated client narrows on the code.
+
+### Changed
+
+- `@tetsujs/openapi`: every error envelope is one definition in
+  `components` per status and code, named after the code — a route's own
+  included, which used to be inlined next to a named twin from a hook or
+  the framework. The route's definition is the one kept; a definition
+  with different fields is reported as a warning.
+
+### Fixed
+
+- `@tetsujs/openapi`: a status and code declared by both the route and a
+  hook was listed twice under the status, and a union the route declared
+  was nested inside the status's `anyOf` instead of joining it.
+- `@tetsujs/openapi`: a status the route declared and a hook or the
+  framework described was documented as `"Response 403; <their
+  description>"`. The placeholder is left out when something else
+  describes the status, and a status only the route declares is named by
+  its reason phrase — `"Not Found"`, not `"Response 404"`.
+- `@tetsujs/rate-limit`: the documented `429` now has the `retryAfter`
+  field and the `retry-after` header the refusal carries; the document
+  described the bare envelope.
+
 ## 0.4.1 — 2026-09-25
 
 ### Added
