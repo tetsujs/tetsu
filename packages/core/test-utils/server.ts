@@ -30,6 +30,20 @@ export interface RequestFn {
   readonly url: URL;
 }
 
+/** Where the test server listens. */
+export interface ServeOptions {
+  /**
+   * The address to listen on. Bun's default when absent.
+   *
+   * The default listens on both IPv4 and IPv6, and reports a client that
+   * connects over IPv4 as `::ffff:127.0.0.1`: `"127.0.0.1"` is how a test
+   * becomes an IPv4 client, to check what compares against `127.0.0.1` —
+   * a trusted proxy, an allow-list. The request function goes to the
+   * address the server listens on.
+   */
+  readonly hostname?: string;
+}
+
 /**
  * Serves an application on an ephemeral port and returns a request function
  * bound to it.
@@ -49,9 +63,18 @@ export interface RequestFn {
  *   expect(res.status).toBe(200);
  * });
  * ```
+ *
+ * @example An IPv4 client
+ * ```ts
+ * const request = serve(app, { hostname: "127.0.0.1" });
+ * ```
  */
-export function serve(app: App): RequestFn {
-  const server = Bun.serve({ ...app, port: 0 });
+export function serve(app: App, options: ServeOptions = {}): RequestFn {
+  const server = Bun.serve({
+    ...app,
+    port: 0,
+    ...(options.hostname === undefined ? {} : { hostname: options.hostname }),
+  });
 
   running.push(server);
 

@@ -28,6 +28,10 @@ API.
   of servers — one process serving several surfaces. They drain within one
   grace period, only a server still draining is cut, and the closers run
   once, after the last server.
+- `@tetsujs/core/testing`: `serve(app, { hostname })`. Bun listens on both
+  IPv4 and IPv6 by default and reports an IPv4 client as
+  `::ffff:127.0.0.1`; `hostname: "127.0.0.1"` makes a test an IPv4 client,
+  for checks that compare against `127.0.0.1`.
 
 ### Changed
 

@@ -147,6 +147,10 @@ export interface BaseCtx {
    * address, `ctx.server.upgrade(ctx.req)` for WebSockets,
    * `ctx.server.timeout(ctx.req, seconds)` for a per-request idle timeout.
    *
+   * An address is in the form the socket reports it: a server listening on
+   * both stacks — Bun's default — reports an IPv4 client as
+   * `::ffff:203.0.113.7`, which a comparison with `203.0.113.7` misses.
+   *
    * Deliberately not a facade: every hook is code the
    * application author wrote or vetted, and hiding `stop`/`reload` from
    * in-process code protects nothing. They are still process-level

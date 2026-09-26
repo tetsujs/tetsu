@@ -507,6 +507,11 @@ const request = serve(createApp({ routes: usersController({ users }) }));
 expect((await request("/users/1")).status).toBe(200);
 ```
 
+The server listens where Bun listens by default — on both IPv4 and IPv6,
+where a client over IPv4 is reported as `::ffff:127.0.0.1`. To test what
+compares an address against `127.0.0.1`, listen on IPv4:
+`serve(app, { hostname: "127.0.0.1" })`.
+
 ### Logging
 
 The framework has no logger of its own, and writes no lines of its own

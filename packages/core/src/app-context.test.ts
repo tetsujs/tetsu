@@ -54,6 +54,22 @@ describe("server access and repeated headers", () => {
     expect(typeof body.port).toBe("number");
   });
 
+  test("a test can be an IPv4 client, where it listens on IPv4", async () => {
+    // Without a hostname Bun listens on both stacks, and a client that
+    // connects over IPv4 is reported as `::ffff:127.0.0.1` — a test of a
+    // check against `127.0.0.1`, a trusted proxy, could not be written.
+    const request = serve(createApp({ routes: new ConnectionController() }), {
+      hostname: "127.0.0.1",
+    });
+
+    const body = (await (await request("/who")).json()) as {
+      address: string | null;
+    };
+
+    expect(request.url.hostname).toBe("127.0.0.1");
+    expect(body.address).toBe("127.0.0.1");
+  });
+
   test("a Headers instance carries repeated Set-Cookie", async () => {
     const res = await connectionRequest("/cookies");
 

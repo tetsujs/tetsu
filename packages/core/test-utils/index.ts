@@ -5,7 +5,7 @@
  *
  * - `serve()` — integration: serves an application on an ephemeral port the
  *   way production does, because Bun's native router is unreachable in
- *   process. Pair with `stopServers` in `afterAll`.
+ *   process. It stops the server when the test file finishes.
  * - `testCtx()` — unit: builds a typed context for calling a route handler
  *   directly, with no server and no HTTP.
  *
@@ -19,5 +19,5 @@
 export { testCtx } from "./ctx.ts";
 export type { CapturedErrors } from "./logs.ts";
 export { captureErrors } from "./logs.ts";
-export type { RequestFn } from "./server.ts";
+export type { RequestFn, ServeOptions } from "./server.ts";
 export { serve, stopServers } from "./server.ts";
