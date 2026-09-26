@@ -424,9 +424,11 @@ A few habits keep it that way:
   route's chain — on a group and on a route under it — is refused at
   startup.
 - **Order within a slot is yours.** The compiler checks what a hook needs
-  (`scope` after `id`), not what should come first: mount `cors()` first in
-  `beforeParse`, so that a hook refusing early still answers with the
-  headers a browser needs to read it.
+  (`scope` after `id`), not what should come first. The rule to keep:
+  `cors()` goes before every hook that can refuse, so that the refusal
+  carries the headers a browser needs to read it. A hook that never
+  refuses — `requestId()`, `arrivalLog()` — may go before it, and then a
+  preflight gets its id and its log line too.
 - **A package is one hook.** Writing your own, return the hook from a
   function that takes the options. A package that seems to need two slots
   is usually missing something the core should provide — say so in an

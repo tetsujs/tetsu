@@ -4,8 +4,10 @@
  * Every package is one hook, made once and mounted by name in the slot it
  * runs in, beside the application's own. CORS belongs on the application
  * rather than a group, because a group's hooks do not run on the `OPTIONS`
- * preflight — no route of the group answered it — and first in its slot,
- * so that a refusal after it still carries its headers.
+ * preflight — no route of the group answered it — and before every hook
+ * that can refuse, so that a refusal still carries its headers.
+ * `requestId()` never refuses, so it goes before `cors()`, and a preflight
+ * carries its `x-request-id` too.
  *
  * A group hook may guard, but what it contributes does not reach the
  * handlers' types: a route that reads a field mounts the hook itself. The
@@ -85,7 +87,7 @@ const adminController = controller("Admin", () => ({
 
 export default createApp({
   hooks: {
-    beforeParse: [browser, id],
+    beforeParse: [id, browser],
     beforeResponse: [secure],
     afterResponse: [log],
   },

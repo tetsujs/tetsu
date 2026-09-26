@@ -83,6 +83,19 @@ describe("recipes", () => {
       (await request("/api/status")).headers.get("x-request-id"),
     ).toBeTruthy();
     expect((await request("/api/admin/stats")).status).toBe(403);
+
+    const preflight = await request("/api/status", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "GET",
+      },
+    });
+
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:5173",
+    );
+    expect(preflight.headers.get("x-request-id")).toBeTruthy();
   });
 
   test("cookies", async () => {

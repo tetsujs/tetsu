@@ -35,8 +35,12 @@ import { memoryStore } from "./store.ts";
 export type { RateLimitStore, WindowState } from "./store.ts";
 export { memoryStore } from "./store.ts";
 
-/** How the limit is counted and what happens when it is reached. */
-export interface RateLimitOptions {
+/**
+ * How the limit is counted and what happens when it is reached.
+ *
+ * `Ctx` is what `key` reads, inferred from how its parameter is typed.
+ */
+export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
   /** Hits allowed per window. */
   readonly limit: number;
 
@@ -67,6 +71,11 @@ export interface RateLimitOptions {
    * and not the validated parts: `ctx.cookies` is not filled in yet, and a
    * cookie is read from Bun's `ctx.req.cookies`.
    *
+   * What an earlier `beforeParse` hook returned is there too, once the
+   * parameter says so with `Requires`: the limiter then demands it where
+   * it is mounted, as any hook does, and a limiter mounted before the hook
+   * that provides the field does not compile.
+   *
    * @example
    * ```ts
    * rateLimit({
@@ -75,8 +84,19 @@ export interface RateLimitOptions {
    *   key: (ctx) => ctx.req.cookies?.get("session") ?? undefined,
    * });
    * ```
+   *
+   * @example A key another hook worked out
+   * ```ts
+   * const perClient = rateLimit({
+   *   limit: 60,
+   *   windowMs: 60_000,
+   *   key: (ctx: Requires<{ clientIp: string }>) => ctx.clientIp,
+   * });
+   *
+   * createApp({ hooks: { beforeParse: [clientIp, perClient] }, routes });
+   * ```
    */
-  readonly key: (ctx: BaseCtx) => string | undefined;
+  readonly key: (ctx: Ctx) => string | undefined;
 
   /** Where counters live. In-process by default. */
   readonly store?: RateLimitStore;
@@ -98,9 +118,10 @@ export interface RateLimitOptions {
  *
  * Read off `rateLimit()` rather than written by hand: an annotation of
  * `AnyHook` would erase which slot the hook belongs to, and the stack
- * validation would reject it.
+ * validation would reject it. This is the hook whose key reads the request
+ * alone; one whose key demands more is `ReturnType` of that call.
  */
-export type RateLimitHook = ReturnType<typeof rateLimit>;
+export type RateLimitHook = ReturnType<typeof rateLimit<BaseCtx>>;
 
 /**
  * Builds the rate-limiting hook.
@@ -114,12 +135,14 @@ export type RateLimitHook = ReturnType<typeof rateLimit>;
  * });
  * ```
  */
-export function rateLimit(options: RateLimitOptions) {
+export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
+  options: RateLimitOptions<Ctx>,
+) {
   const store = options.store ?? memoryStore();
   const status = options.status ?? 429;
   const withHeaders = options.headers ?? true;
 
-  const guard = hook.beforeParse(async (ctx) => {
+  const guard = hook.beforeParse(async (ctx: Ctx) => {
     const key = options.key(ctx);
 
     if (key === undefined) {
