@@ -539,6 +539,27 @@ const request = serve(createApp({ routes: usersController({ users }) }));
 expect((await request("/users/1")).status).toBe(200);
 ```
 
+A test that signs in and then acts as that user needs the session carried
+from one request to the next. `request.client()` is a client with its own
+headers and a cookie jar:
+
+```ts
+const client = request.client({ headers: { "x-real-ip": "10.0.0.7" } });
+
+await client("/session", { method: "POST", json: { email } });
+
+expect((await client("/me")).status).toBe(200);
+expect(client.cookies.get("session")).toBeDefined();
+```
+
+The jar keeps every cookie a response sets, sends each back where its
+`Path` matches, and forgets it when a response deletes or expires it. A
+signed cookie is held as it arrived, signature included. `json` sends a
+value as JSON; `body` sends what it is given, a malformed body included. A
+header set to `null` is not sent at all — `{ cookie: null }` is a request
+without the jar. A redirect is returned, not followed, so the cookie it
+sets is kept.
+
 The server listens where Bun listens by default — on both IPv4 and IPv6,
 where a client over IPv4 is reported as `::ffff:127.0.0.1`. To test what
 compares an address against `127.0.0.1`, listen on IPv4:

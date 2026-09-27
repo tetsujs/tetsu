@@ -3,6 +3,17 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Added
+
+- `@tetsujs/core/testing`: `serve(app).client({ headers })` is a client
+  that sends its own headers with every request and keeps a cookie jar: the
+  cookies a response sets go back with the next requests where their
+  `Path` matches, and a response that deletes or expires one removes it.
+  `json` sends a value as JSON, and a header set to `null` is not sent.
+  `client.cookies` reads and plants values.
+
 ## 0.5.2 — 2026-09-27
 
 Descriptions for the document's tags, a check that holds a response to
