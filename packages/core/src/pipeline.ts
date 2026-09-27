@@ -74,6 +74,7 @@ import { checkResponse, responseSchemaFor, validate } from "./validate.ts";
 import {
   applyOutgoingHeaders,
   parseBody,
+  parseRaw,
   serialize,
   statusFor,
 } from "./wire.ts";
@@ -115,6 +116,7 @@ export interface Executable {
     readonly schema?: SchemaConfig;
     readonly bodyType?: BodyType | undefined;
     readonly maxBodySize?: number;
+    readonly rawBody?: boolean | undefined;
     readonly handler: (ctx: never) => unknown;
   };
 }
@@ -173,6 +175,7 @@ export interface PipelineCtx {
   readonly startedAt: number;
   params: unknown;
   body?: unknown;
+  rawBody?: Uint8Array;
   query?: unknown;
   headers?: unknown;
   cookies?: unknown;
@@ -283,8 +286,21 @@ function parse(
   ctx: PipelineCtx,
   options: PipelineOptions,
 ): PromiseLike<undefined> | undefined {
-  if (!entry.def.schema?.body && !entry.def.bodyType) {
+  if (!entry.def.schema?.body && !entry.def.bodyType && !entry.def.rawBody) {
     return undefined;
+  }
+
+  if (entry.def.rawBody) {
+    return parseRaw(
+      ctx.req,
+      entry.def.maxBodySize ?? options.maxBodySize,
+      entry.def.bodyType === "text" ? "text" : "json",
+    ).then((read) => {
+      ctx.rawBody = read.raw;
+      ctx.body = read.body;
+
+      return undefined;
+    });
   }
 
   const body = parseBody(

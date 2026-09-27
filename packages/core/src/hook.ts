@@ -111,7 +111,8 @@ type PipelineOwnedKey =
   | "route"
   | "res"
   | "error"
-  | "startedAt";
+  | "startedAt"
+  | "rawBody";
 
 /**
  * The keys of a hook's return value that actually reach the context.

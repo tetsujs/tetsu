@@ -203,14 +203,16 @@ what the first contributed. Each has its budget.
 
 | mounting | routes | types | instantiations | memory | check |
 | --- | --- | --- | --- | --- | --- |
-| flat | 2 | 7 631 | 19 823 | 53 MB | 0.02 s |
-| flat | 200 | 24 969 | 174 171 | 74 MB | 0.09 s |
-| flat | 800 | 77 469 | 641 871 | 137 MB | 0.33 s |
-| grouped | 2 | 8 259 | 22 024 | 53 MB | 0.02 s |
-| grouped | 200 | 28 567 | 187 361 | 81 MB | 0.10 s |
-| grouped | 800 | 90 065 | 688 361 | 164 MB | 0.39 s |
+| flat | 2 | 8 465 | 22 636 | 54 MB | 0.03 s |
+| flat | 200 | 25 803 | 180 845 | 77 MB | 0.09 s |
+| flat | 800 | 78 303 | 660 245 | 143 MB | 0.34 s |
+| grouped | 2 | 9 093 | 24 837 | 55 MB | 0.03 s |
+| grouped | 200 | 29 401 | 194 035 | 83 MB | 0.10 s |
+| grouped | 800 | 90 899 | 706 735 | 170 MB | 0.42 s |
 
-TypeScript 7.0.2, 2026-09-27. A group costs about 130 instantiations. It
+TypeScript 7.0.2, 2026-09-27. `rawBody` added about 33 instantiations a
+route, the routes that do not ask for it included — the option is a type
+parameter of every route. A group costs about 130 instantiations. It
 cost about 1 090 when the variant was first measured — 288 115 at 200
 routes, 1 084 315 and 296 MB at 800: `group()` typed its children as the
 intersection of two array types, and the checker built every method of an

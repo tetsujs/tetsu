@@ -164,7 +164,8 @@ type Signatures<
           infer _H,
           infer B,
           infer M,
-          infer _R
+          infer _R,
+          infer _Raw
         >
       ? Entry<M, `${Prefix}${P}`, S, B>
       : Node extends object
@@ -175,7 +176,8 @@ type Signatures<
               infer _H,
               infer B,
               infer M,
-              infer _R
+              infer _R,
+              infer _Raw
             >
               ? Entry<M, `${Prefix}${P}`, S, B>
               : never;

@@ -299,6 +299,32 @@ while the body is read, so an oversized request is refused with `413`
 without buffering the rest of it. A streamed body is counted too, chunk by
 chunk, without being buffered.
 
+A webhook is signed over the bytes it was sent as and handled as the payload
+they carry. `rawBody: true` keeps both: the bytes in `ctx.rawBody`, the body
+parsed and validated in `ctx.body`, and a `beforeValidation` hook between
+them to check the signature before anything is validated:
+
+```ts
+const signed = hook.beforeValidation((ctx: Requires<{ rawBody: Uint8Array }>) => {
+  if (!verify(ctx.rawBody, ctx.req.headers.get("x-signature"))) {
+    throw httpError(401, "BAD_SIGNATURE");
+  }
+});
+
+route({
+  method: "POST",
+  path: "/webhooks/payments",
+  rawBody: true,
+  schema: { body: PaymentEvent },
+  hooks: { beforeValidation: [signed] },
+  handler: (ctx) => payments.record(ctx.body),
+});
+```
+
+`ctx.rawBody` is typed only on a route that asks, so a hook that needs it
+cannot be mounted on one that does not. It goes with a `json` or `text`
+body: a form is parsed natively, and a stream is the raw body already.
+
 ### Responses and errors
 
 What the handler returns becomes the response: `undefined` is `204` with
