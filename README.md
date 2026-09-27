@@ -108,7 +108,9 @@ and `Bun.serve` takes it as it is. There is no server object of our own.
 ### Routes and controllers
 
 A route is created by `route()`. A controller is a name and a function from
-its dependencies to its routes:
+its dependencies to its routes, and each half has a job: the name is the
+contract a generated client sees, and the function gives every route its
+dependencies where the route is declared.
 
 ```ts
 import { controller, route } from "@tetsujs/core";
@@ -132,19 +134,6 @@ const app = createApp({
 });
 ```
 
-It is a function, and not a class, because a route reads what it declares
-— its hooks, its schemas, its body limit — when it is declared. A function
-has its dependencies from its first line; a class's fields are initialized
-before its constructor's parameters are assigned, so a hook built from a
-constructor argument in a field is built from `undefined`. Services stay
-classes: a service is behaviour other code calls, a controller is a
-declaration made once.
-
-A hook that needs a service is built inside the controller, next to the
-routes that mount it. A hook whose state several controllers must share —
-one rate limit budget — is made once in `main.ts` and passed in like a
-service.
-
 The name is a contract: `@tetsujs/openapi` builds every `operationId` from
 it (`ordersList`), and a generated client names its methods after those.
 Renaming the variable changes nothing a client sees; changing the name
@@ -158,6 +147,19 @@ const users = ({ users }: UsersDeps) => ({ list: route({ … }) });
 export const usersV1 = controller("UsersV1", users);
 export const usersV2 = controller("UsersV2", users);
 ```
+
+It is a function, and not a class, because a route reads what it declares
+— its hooks, its schemas, its body limit — when it is declared. A function
+has its dependencies from its first line; a class's fields are initialized
+before its constructor's parameters are assigned, so a hook built from a
+constructor argument in a field is built from `undefined`. Services stay
+classes: a service is behaviour other code calls, a controller is a
+declaration made once.
+
+A hook that needs a service is built inside the controller, next to the
+routes that mount it. A hook whose state several controllers must share —
+one rate limit budget — is made once in `main.ts` and passed in like a
+service.
 
 Paths are checked at compile time: `:id` is a parameter, `*` is allowed
 only as the whole last segment, and syntax that looks like a parameter but

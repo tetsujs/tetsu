@@ -1,7 +1,7 @@
 {
   "name": "@tetsujs/core",
   "version": "0.5.1",
-  "description": "An HTTP framework for Bun: controllers as plain classes, lifecycle hooks and end-to-end type inference, without decorators or dependencies",
+  "description": "An HTTP framework for Bun: controllers built from their dependencies, lifecycle hooks in fixed slots and end-to-end type inference, without decorators or dependencies",
   "keywords": [
     "bun",
     "http",
@@ -49,6 +49,12 @@
     "!dist/**/*.tsbuildinfo",
     "src",
     "test-utils",
+    "!test-utils/types.ts",
+    "!test-utils/mock-schema.ts",
+    "!test-utils/socket.ts",
+    "!dist/test-utils/types.d.ts*",
+    "!dist/test-utils/mock-schema.d.ts*",
+    "!dist/test-utils/socket.d.ts*",
     "!**/*.test.ts",
     "!**/*.test-d.ts"
   ]

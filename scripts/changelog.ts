@@ -67,6 +67,33 @@ export function releaseSection(
 }
 
 /**
+ * The notes of a GitHub release: the version's section, and a link to
+ * every commit since the version before it — the one whose section comes
+ * next. The first release has nothing to compare with, and no link.
+ */
+export function releaseNotes(
+  changelog: string,
+  version: string,
+  repository: string,
+): string | undefined {
+  const section = releaseSection(changelog, version);
+
+  if (section === undefined) {
+    return undefined;
+  }
+
+  const start = sectionStart(changelog, version);
+  const after = changelog.slice(changelog.indexOf("\n", start) + 1);
+  const previous = /^## (\d+\.\d+\.\d+)/m.exec(after)?.[1];
+
+  if (previous === undefined) {
+    return section;
+  }
+
+  return `${section}\n\n**Full Changelog**: ${repository}/compare/v${previous}...v${version}`;
+}
+
+/**
  * Where a version's heading starts. A released heading is followed by a
  * date, `Unreleased` by nothing; both are matched whole, so `0.1.0` does
  * not find `0.1.0-beta`.
@@ -75,6 +102,20 @@ function sectionStart(changelog: string, version: string): number {
   const heading = new RegExp(`^## ${literal(version)}( — .*)?$`, "m");
 
   return changelog.search(heading);
+}
+
+/**
+ * The repository's address, as the core's manifest records it —
+ * `git+https://github.com/tetsujs/tetsu.git` read as the page it names.
+ */
+async function repositoryUrl(): Promise<string> {
+  const manifest = await Bun.file(
+    join(import.meta.dir, "..", "packages", "core", "package.json"),
+  ).json();
+
+  return String(manifest.repository.url)
+    .replace(/^git\+/, "")
+    .replace(/\.git$/, "");
 }
 
 function literal(text: string): string {
@@ -89,12 +130,16 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const section = releaseSection(await Bun.file(changelogPath).text(), version);
+  const notes = releaseNotes(
+    await Bun.file(changelogPath).text(),
+    version,
+    await repositoryUrl(),
+  );
 
-  if (section === undefined) {
+  if (notes === undefined) {
     console.error(`CHANGELOG.md has no section for ${version}`);
     process.exit(1);
   }
 
-  console.log(section);
+  console.log(notes);
 }

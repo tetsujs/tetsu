@@ -3,6 +3,14 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Changed
+
+- `@tetsujs/core`: the package no longer ships the test helpers of this
+  repository that `@tetsujs/core/testing` does not export — type
+  assertions, a mock schema, a socket client. They were never importable.
+
 ## 0.5.1 — 2026-09-27
 
 ### Changed

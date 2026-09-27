@@ -5,7 +5,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { releaseSection, stampRelease } from "./changelog.ts";
+import { releaseNotes, releaseSection, stampRelease } from "./changelog.ts";
 
 const changelog = `# Changelog
 
@@ -57,4 +57,20 @@ test("a version is matched whole", () => {
   expect(releaseSection(changelog, "0.1")).toBeUndefined();
   expect(releaseSection(changelog, "0.1.0-beta")).toBeUndefined();
   expect(releaseSection(changelog, "0x1x0")).toBeUndefined();
+});
+
+test("the notes of a release link every change since the one before", () => {
+  const released = stampRelease(changelog, "0.2.0", "2026-09-25");
+
+  expect(
+    releaseNotes(released, "0.2.0", "https://github.com/tetsujs/tetsu"),
+  ).toBe(
+    "- a new thing\n- a fix\n\n**Full Changelog**: https://github.com/tetsujs/tetsu/compare/v0.1.0...v0.2.0",
+  );
+});
+
+test("the first release has nothing before it to compare with", () => {
+  expect(
+    releaseNotes(changelog, "0.1.0", "https://github.com/tetsujs/tetsu"),
+  ).toBe("First release.");
 });
