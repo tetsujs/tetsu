@@ -15,6 +15,13 @@ API.
   in its body, and reaches the application's `onError` hooks. It used to
   be a returned `Response` that `onError` never saw.
 
+### Changed
+
+- `@tetsujs/core`: the error path is synchronous until something on it
+  waits, as the success path is. Every failure takes it — a `404`, a
+  refusal, a thrown `HttpError` — and each now costs 110–170 ns less, a
+  refusal through the pipeline 776 ns where it was 880.
+
 ### Moving from 0.4
 
 An `onError` hook on the application now receives `404`, `405` and a rate

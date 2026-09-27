@@ -487,14 +487,24 @@ function conclude(
   return observe(entry, ctx, res);
 }
 
-/** The error path, then the observers, which see every outcome. */
-async function recoverThenObserve(
+/**
+ * The error path, then the observers, which see every outcome.
+ *
+ * Synchronous until something along it waits, like the success path: every
+ * failure comes this way — a `404`, a refusal, a thrown `HttpError` — and an
+ * `async` frame with nothing to await costs its frame all the same.
+ */
+function recoverThenObserve(
   entry: Executable,
   ctx: PipelineCtx,
   error: unknown,
   progress: FinalizeProgress,
-): Promise<Response> {
-  return observe(entry, ctx, await recover(entry, ctx, error, progress));
+): Response | Promise<Response> {
+  const res = recover(entry, ctx, error, progress, 0);
+
+  return isThenable(res)
+    ? res.then((done) => observe(entry, ctx, done))
+    : observe(entry, ctx, res);
 }
 
 /** Starts the `afterResponse` observers over the response that leaves. */
@@ -632,30 +642,86 @@ function settle(ctx: PipelineCtx, res: Response): Response {
  * The loop terminates on its own: a failing `finalize` has consumed at
  * least one hook, and a failing `mapError` leaves a plain error, which its
  * last branch always maps. The bound is a backstop, not the mechanism.
+ *
+ * An attempt that waits continues the loop from its own number once it
+ * settles, so the bound is the same however the attempts were spread
+ * across ticks.
  */
-async function recover(
+function recover(
   entry: Executable,
   ctx: PipelineCtx,
   error: unknown,
   progress: FinalizeProgress,
-): Promise<Response> {
+  from: number,
+): Response | Promise<Response> {
   const attempts = entry.hooks.beforeResponse.length + 2;
 
   let pending = error;
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const mapped = await mapError(entry, ctx, pending);
+  for (let attempt = from; attempt < attempts; attempt += 1) {
+    let res: Response | PromiseLike<Response>;
 
-      return await finalize(entry, ctx, mapped, progress);
+    try {
+      res = attemptRecovery(entry, ctx, pending, progress);
     } catch (failure) {
       ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
 
       pending = failure;
+
+      continue;
     }
+
+    if (isThenable(res)) {
+      const next = attempt + 1;
+
+      return Promise.resolve(res).then(undefined, (failure: unknown) => {
+        ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
+
+        return recover(entry, ctx, failure, progress, next);
+      });
+    }
+
+    return res;
   }
 
   return hardFailure(ctx);
+}
+
+/**
+ * One attempt of {@link recover}: the error mapped through `onError`, and
+ * the response that makes taken the rest of the way out. A route without
+ * `beforeResponse` hooks skips `finalize` here as it does on the success
+ * path, releasing what the request had built before it failed.
+ */
+function attemptRecovery(
+  entry: Executable,
+  ctx: PipelineCtx,
+  error: unknown,
+  progress: FinalizeProgress,
+): Response | PromiseLike<Response> {
+  const mapped = mapError(entry, ctx, error);
+
+  if (isThenable(mapped)) {
+    return mapped.then((res) => deliver(entry, ctx, res, progress));
+  }
+
+  return deliver(entry, ctx, mapped, progress);
+}
+
+/** A mapped error response, through what is left of the way out. */
+function deliver(
+  entry: Executable,
+  ctx: PipelineCtx,
+  res: Response,
+  progress: FinalizeProgress,
+): Response | Promise<Response> {
+  if (progress.ran < entry.hooks.beforeResponse.length) {
+    return finalize(entry, ctx, res, progress);
+  }
+
+  release(ctx.res, res);
+
+  return settle(ctx, res);
 }
 
 /**
@@ -729,29 +795,70 @@ function observersFrom(
   }
 }
 
-async function mapError(
+function mapError(
   entry: Executable,
   ctx: PipelineCtx,
   error: unknown,
-): Promise<Response> {
+): Response | Promise<Response> {
   ctx.error = error;
 
-  for (const hook of entry.hooks.onError) {
+  return mapFrom(0, entry, ctx, error);
+}
+
+/**
+ * Offers the error to the `onError` hooks from `index` on, synchronously
+ * until one of them returns a promise; the rest continue once it settles.
+ * A hook that throws or rejects is reported and passed over.
+ */
+function mapFrom(
+  index: number,
+  entry: Executable,
+  ctx: PipelineCtx,
+  error: unknown,
+): Response | Promise<Response> {
+  const hooks = entry.hooks.onError;
+
+  for (let at = index; at < hooks.length; at += 1) {
+    const hook = hooks[at];
+
+    if (hook === undefined) {
+      break;
+    }
+
+    let mapped: unknown;
+
     try {
-      let mapped = call(hook, ctx);
-
-      if (isThenable(mapped)) {
-        mapped = await mapped;
-      }
-
-      if (mapped instanceof Response) {
-        return mapped;
-      }
+      mapped = call(hook, ctx);
     } catch (hookError) {
       ctx[reporterKey]({ source: "onError", error: hookError, ctx });
+
+      continue;
+    }
+
+    if (isThenable(mapped)) {
+      const next = at + 1;
+
+      return Promise.resolve(mapped).then(
+        (value) =>
+          value instanceof Response ? value : mapFrom(next, entry, ctx, error),
+        (hookError: unknown) => {
+          ctx[reporterKey]({ source: "onError", error: hookError, ctx });
+
+          return mapFrom(next, entry, ctx, error);
+        },
+      );
+    }
+
+    if (mapped instanceof Response) {
+      return mapped;
     }
   }
 
+  return defaultMapping(ctx, error);
+}
+
+/** What answers an error no `onError` hook answered. */
+function defaultMapping(ctx: PipelineCtx, error: unknown): Response {
   if (error instanceof HttpError) {
     return Response.json(serializedBody(error), { status: error.status });
   }
