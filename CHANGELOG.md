@@ -3,6 +3,26 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Breaking changes
+
+- `@tetsujs/core`: `404` and `405` are thrown as an `HttpError` and reach
+  the application's `onError` hooks, like every other failure. An `onError`
+  hook that answers every error — or logs each one — now sees unmatched
+  paths and methods too. The response without such a hook is unchanged.
+- `@tetsujs/rate-limit`: a refusal is a thrown `HttpError` with `retryAfter`
+  in its body, and reaches the application's `onError` hooks. It used to
+  be a returned `Response` that `onError` never saw.
+
+### Moving from 0.4
+
+An `onError` hook on the application now receives `404`, `405` and a rate
+limit's `429` as an `HttpError`. A hook that maps only errors it knows —
+returning nothing for the rest — needs no change: the default envelope
+answers as before. A hook that answers or logs every error should check
+`error.status` if those three are not meant for it.
+
 ## 0.4.2 — 2026-09-26
 
 The generated document describes each error once: every envelope is one

@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { Requires } from "@tetsujs/core";
-import { createApp, hook, route } from "@tetsujs/core";
+import { createApp, HttpError, hook, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import { openapi } from "@tetsujs/openapi";
 import { rateLimit } from "./index.ts";
@@ -124,6 +124,64 @@ describe("over the limit", () => {
     expect(res.status).toBe(429);
     expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(res.headers.get("x-ratelimit-remaining")).toBe("0");
+  });
+
+  test("the body carries retryAfter", async () => {
+    const res = await serveWith({
+      limit: 0,
+      windowMs: 60_000,
+      key: () => "one-client",
+      store: scriptedStore([{ count: 1, resetAt }]),
+    })("/items");
+
+    const body = (await res.json()) as { retryAfter: number };
+
+    expect(body.retryAfter).toBeGreaterThan(0);
+  });
+
+  test("the application's onError sees the refusal and can answer it", async () => {
+    const seen: unknown[] = [];
+
+    const own = hook.onError(({ error }) => {
+      seen.push(error);
+
+      if (!(error instanceof HttpError)) {
+        return undefined;
+      }
+
+      const body = error.body as { error: string; retryAfter: number };
+
+      return Response.json(
+        { code: body.error, wait: body.retryAfter },
+        { status: error.status },
+      );
+    });
+
+    const request = serve(
+      createApp({
+        hooks: {
+          beforeParse: [
+            rateLimit({
+              limit: 0,
+              windowMs: 60_000,
+              key: () => "one-client",
+              store: scriptedStore([{ count: 1, resetAt }]),
+            }),
+          ],
+          onError: [own],
+        },
+        routes: new ApiController(),
+      }),
+    );
+
+    const res = await request("/items");
+    const body = (await res.json()) as { code: string; wait: number };
+
+    expect(res.status).toBe(429);
+    expect(body.code).toBe("RATE_LIMITED");
+    expect(body.wait).toBeGreaterThan(0);
+    expect(Number(res.headers.get("retry-after"))).toBe(body.wait);
+    expect(seen).toHaveLength(1);
   });
 
   test("the status is configurable", async () => {
