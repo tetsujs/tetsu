@@ -165,16 +165,18 @@ returning a `Response` against one that throws an `HttpError`:
 
 | | ns/iter |
 | --- | --- |
-| build a `Response` | 146–151 |
-| build an `HttpError`, never thrown | 142–145 |
-| throw and catch an `HttpError` | 248–255 |
-| refuse by returning, through the pipeline | 368–396 |
-| refuse by throwing, through the pipeline | 1160–1280 |
+| build a `Response` | 141–142 |
+| build an `HttpError`, never thrown | 138–139 |
+| throw and catch an `HttpError` | 246–247 |
+| refuse by returning, through the pipeline | 237–241 |
+| refuse by throwing, through the pipeline | 776–777 |
 
-Throwing is 3.1–3.2× the cost end to end. Building the error is not the
+Throwing is about 3.2× the cost end to end. Building the error is not the
 expensive part: unwinding is about 100 ns, and the rest is the longer
 error path — the one any refusal the application's `onError` sees has to
-take, returned or thrown. The rate limiter throws for that reason.
+take, returned or thrown. The rate limiter throws for that reason. The
+error path is synchronous until something on it waits, as the success
+path is; before it was, a refusal by throwing cost 880–892 ns.
 
 ## What the types cost
 
