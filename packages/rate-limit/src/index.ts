@@ -11,14 +11,14 @@
  * createApp({ hooks: { beforeParse: [limit] }, routes });
  * ```
  *
- * The refusal is a returned `Response`, not a thrown `HttpError`. Both
- * reach the client identically, but throwing costs 3.1–3.2× as much
- * through the pipeline — measured, `bench/src/refusal.ts` — and a limiter
- * refuses in bulk, by design. Where rejection is the hot path, return.
- *
- * Not because the error captures a stack: building an `HttpError` is a few
- * percent *cheaper* than building a `Response`. The cost is unwinding, and
- * then the distance the error path covers that a short-circuit does not.
+ * The refusal is a thrown `HttpError`, so it reaches the application's
+ * `onError` hooks like every other failure, and an application with an
+ * error format of its own formats this one too. It used to be a returned
+ * `Response`, for speed: throwing costs 3.1–3.2× as much through the
+ * pipeline (`bench/src/refusal.ts`). But the difference is about 800 ns,
+ * spent after TLS, HTTP parsing and `Bun.serve` have had the request —
+ * not what gives out first under a flood — and nearly all of it is the
+ * error path itself, which any refusal that `onError` can see must take.
  *
  * The hook is annotated with what it answers, so a generated document says
  * `429` on every operation it guards without the routes repeating it.
@@ -27,7 +27,7 @@
  */
 
 import type { BaseCtx } from "@tetsujs/core";
-import { errorBody, hook } from "@tetsujs/core";
+import { errorBody, HttpError, hook } from "@tetsujs/core";
 import { documented } from "@tetsujs/openapi";
 import type { RateLimitStore } from "./store.ts";
 import { memoryStore } from "./store.ts";
@@ -168,10 +168,10 @@ export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
 
     ctx.out.headers.set("retry-after", String(seconds));
 
-    return Response.json(
-      { ...errorBody(status, "RATE_LIMITED"), retryAfter: seconds },
-      { status },
-    );
+    throw new HttpError(status, {
+      ...errorBody(status, "RATE_LIMITED"),
+      retryAfter: seconds,
+    });
   });
 
   return documented(guard, {

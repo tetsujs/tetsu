@@ -19,6 +19,10 @@
  * answer a preflight, and keeps zone guards away from those requests — an
  * authentication hook on `/admin` must not reject a browser preflight.
  *
+ * `404` and `405` are failures like any other: they are thrown as an
+ * `HttpError`, so the application's `onError` hooks see them and one hook
+ * sets the format of every error the application answers with.
+ *
  * Keeping a second matcher of our own was the previous design; it produced a
  * class of defects where the two disagreed — tests exercising one path while
  * production served the other. One router means that class cannot exist.
@@ -34,7 +38,7 @@ import type { CookieMap, Server, WebSocketHandler } from "bun";
 import type { BaseCtx } from "./context.ts";
 import type { CookieOptions } from "./cookie.ts";
 import { cookieSealer } from "./cookie.ts";
-import { errorBody } from "./error.ts";
+import { httpError } from "./error.ts";
 import type { GroupHooks } from "./group.ts";
 import { slotHooks } from "./group.ts";
 import { appBrand, onMount } from "./mount.ts";
@@ -499,8 +503,8 @@ function bunBodyCap(
   return needed > bunDefaultBodyCap ? { maxRequestBodySize: needed } : {};
 }
 
-function notFound(): Response {
-  return Response.json(errorBody(404), { status: 404 });
+function notFound(): never {
+  throw httpError(404);
 }
 
 /**
@@ -546,9 +550,11 @@ function buildPathHandler(
     () => new Response(null, { status: 204, headers: { allow } }),
   );
 
-  const notAllowed = protocolEntry(() =>
-    Response.json(errorBody(405), { status: 405, headers: { allow } }),
-  );
+  const notAllowed = protocolEntry((ctx: BaseCtx) => {
+    ctx.out.headers.set("allow", allow);
+
+    throw httpError(405);
+  });
 
   const head = async (
     req: RoutedRequest,

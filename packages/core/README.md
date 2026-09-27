@@ -320,8 +320,10 @@ throw httpError(409, "ALREADY_SHIPPED", "Order already shipped");
 ```
 
 `error` is the code to branch on; `message` is for people and may change.
-A validation failure adds `issues`. An `onError` hook replaces the format
-for the whole application.
+A validation failure adds `issues`. An `onError` hook on the application
+replaces the format for the whole application: every failure reaches it —
+a thrown `HttpError`, a validation or body failure, an unmatched path
+(`404`) or method (`405`), a rate limit's refusal.
 
 ### Cookies
 

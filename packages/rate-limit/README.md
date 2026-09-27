@@ -141,6 +141,6 @@ rateLimit({
 - With [`@tetsujs/openapi`](../openapi), every operation the limiter
   guards is documented with a `429`, its `retryAfter` and its
   `retry-after` header, without the routes declaring it.
-- A refusal is returned, not thrown — it is cheaper, and a limiter under
-  load refuses a lot. So `onError` hooks do not see it; `beforeResponse`
-  and `afterResponse` hooks do.
+- A refusal is a thrown `HttpError`, with `retryAfter` in its body, so the
+  application's `onError` hooks see it like any other failure — an
+  application with its own error format formats this one too.

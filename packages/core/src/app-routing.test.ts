@@ -125,6 +125,118 @@ describe("unmatched requests", () => {
   });
 });
 
+describe("the application's onError sees every failure", () => {
+  class ItemsController {
+    get = route({
+      method: "GET",
+      path: "/items",
+      handler: () => ({ ok: true }),
+    });
+  }
+
+  const seen: unknown[] = [];
+
+  const toProblem = hook.onError(({ error }) => {
+    seen.push(error);
+
+    if (!(error instanceof HttpError)) {
+      return undefined;
+    }
+
+    return new Response(
+      JSON.stringify({ title: (error.body as { error: string }).error }),
+      {
+        status: error.status,
+        headers: { "content-type": "application/problem+json" },
+      },
+    );
+  });
+
+  const reported: unknown[] = [];
+
+  const problemRequest = serve(
+    createApp({
+      hooks: { onError: [toProblem] },
+      routes: new ItemsController(),
+      reportError: (event) => {
+        reported.push(event);
+      },
+    }),
+  );
+
+  const plainRequest = serve(createApp({ routes: new ItemsController() }));
+
+  test("a 404 is an HttpError it can answer in its own format", async () => {
+    seen.length = 0;
+
+    const res = await problemRequest("/nothing");
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toBe("application/problem+json");
+    expect(await res.json()).toEqual({ title: "NOT_FOUND" });
+    expect(seen).toHaveLength(1);
+  });
+
+  test("so is a 405, and it keeps its allow header", async () => {
+    const res = await problemRequest("/items", { method: "DELETE" });
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+    expect(await res.json()).toEqual({ title: "METHOD_NOT_ALLOWED" });
+  });
+
+  test("a HEAD to nothing is still a 404 without a body", async () => {
+    const res = await problemRequest("/nothing", { method: "HEAD" });
+
+    expect(res.status).toBe(404);
+    expect(await res.text()).toBe("");
+  });
+
+  test("a protocol failure is an answer, not something to report", async () => {
+    reported.length = 0;
+
+    await problemRequest("/nothing");
+    await problemRequest("/items", { method: "DELETE" });
+
+    expect(reported).toEqual([]);
+  });
+
+  test("without one, the envelope is what it was", async () => {
+    const missing = await plainRequest("/nothing");
+    const wrongMethod = await plainRequest("/items", { method: "DELETE" });
+
+    expect(await missing.json()).toEqual({
+      status: 404,
+      message: "Not Found",
+      error: "NOT_FOUND",
+    });
+    expect(await wrongMethod.json()).toEqual({
+      status: 405,
+      message: "Method Not Allowed",
+      error: "METHOD_NOT_ALLOWED",
+    });
+    expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+  });
+
+  test("a fallback that answers is not a failure", async () => {
+    seen.length = 0;
+
+    const spa = serve(
+      createApp({
+        hooks: { onError: [toProblem] },
+        routes: new ItemsController(),
+        fallback: () => new Response("index"),
+      }),
+    );
+
+    const res = await spa("/anything");
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("index");
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("application hooks reach every outcome", () => {
   const decorate = hook.beforeParse((ctx) => {
     ctx.out.headers.set("x-zone", "public");
