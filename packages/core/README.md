@@ -625,10 +625,10 @@ processor time per request and the share of raw Bun's throughput:
 
 | Route | raw Bun, µs | Tetsu, µs | share of raw |
 | --- | --- | --- | --- |
-| `GET`, no hooks | 4.62 | 4.88 | 95.6% |
-| `GET` + 2 hooks | 4.75 | 5.11 | 94.3% |
-| `POST`, parsed and validated | 5.75 | 6.36 | 92.0% |
-| `404` | 4.67 | 4.97 | 94.9% |
+| `GET`, no hooks | 4.78 | 4.95 | 97.0% |
+| `GET` + 2 hooks | 4.81 | 5.09 | 95.3% |
+| `POST`, parsed and validated | 5.85 | 6.60 | 90.1% |
+| `404` | 4.82 | 5.13 | 94.9% |
 
 Hono, Elysia, memory, startup and the cost of types are in
 [`bench/`](https://github.com/tetsujs/tetsu/tree/main/bench).

@@ -7,10 +7,11 @@ API.
 
 ### Breaking changes
 
-- `@tetsujs/core`: `404` and `405` are thrown as an `HttpError` and reach
-  the application's `onError` hooks, like every other failure. An `onError`
-  hook that answers every error — or logs each one — now sees unmatched
-  paths and methods too. The response without such a hook is unchanged.
+- `@tetsujs/core`: `404` and `405` reach the application's `onError` hooks
+  as an `HttpError`, like every other failure. An `onError` hook that
+  answers every error — or logs each one — now sees unmatched paths and
+  methods too. An application without `onError` hooks answers them as
+  before, with the same response and at the same cost.
 - `@tetsujs/rate-limit`: a refusal is a thrown `HttpError` with `retryAfter`
   in its body, and reaches the application's `onError` hooks. It used to
   be a returned `Response` that `onError` never saw.

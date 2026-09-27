@@ -71,6 +71,24 @@ describe("a failure nothing waits on", () => {
   });
 });
 
+describe("a protocol failure the application's onError sees", () => {
+  test("is answered in the same tick when the hook answers so", () => {
+    const passing = createApp({
+      hooks: { onError: [hook.onError(() => undefined)] },
+      routes,
+    });
+
+    const res = passing.routes["/gone"]?.(
+      request("DELETE", "/gone") as never,
+      server,
+    );
+
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
+    expect((res as Response).headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+  });
+});
+
 describe("a failure something waits on", () => {
   test("an asynchronous onError hook is waited for", async () => {
     const waiting = createApp({
