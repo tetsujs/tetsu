@@ -84,8 +84,9 @@ jobs:
         with:
           bun-version: "1.4.2"
 
-      # The notes are the version's CHANGELOG section, word for word. A
-      # release that already exists — a re-run — is left as it is.
+      # The notes are the version's CHANGELOG section, word for word, and a
+      # link comparing it with the version before. A release that already
+      # exists — a re-run — is left as it is.
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

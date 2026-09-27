@@ -9,7 +9,9 @@
  * which an ESM-only package does not serve by design. Every tarball must
  * also carry a `LICENSE`: npm packs the one in the package's own folder,
  * not the repository's, so a new package without its copy would be
- * published unlicensed.
+ * published unlicensed. And none may carry the core's test helpers that
+ * only this repository's tests use — `@tetsujs/core/testing` does not
+ * export them, so in a tarball they are weight nobody can import.
  *
  * Then the tarballs are installed together into a fresh project outside the
  * repository — the consumer — where neither `paths` nor the workspace can
@@ -75,6 +77,15 @@ const rootManifest: Manifest = await Bun.file(
   join(root, "package.json"),
 ).json();
 
+/**
+ * The core's test helpers that `@tetsujs/core/testing` does not export:
+ * type assertions, a mock schema and a socket client for this repository's
+ * own tests. Their sources and declarations are left out of the package's
+ * `files`; this is what notices when they are not.
+ */
+const internalHelper =
+  /^package\/(dist\/)?test-utils\/(types|mock-schema|socket)\./;
+
 let failed = false;
 
 try {
@@ -102,6 +113,18 @@ try {
 
     if (!contents.split("\n").includes("package/LICENSE")) {
       console.error(`${tarball} carries no LICENSE`);
+
+      failed = true;
+    }
+
+    const leaked = contents
+      .split("\n")
+      .filter((file) => internalHelper.test(file));
+
+    if (leaked.length > 0) {
+      console.error(
+        `${tarball} carries test helpers nothing exports: ${leaked.join(", ")}`,
+      );
 
       failed = true;
     }
