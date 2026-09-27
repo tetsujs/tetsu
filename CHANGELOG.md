@@ -14,6 +14,11 @@ API.
   `json` sends a value as JSON, and a header set to `null` is not sent.
   `client.cookies` reads and plants values.
 
+### Fixed
+
+- `@tetsujs/lifecycle`: the readiness example in the README built its route
+  after the server, where it could not be mounted.
+
 ## 0.5.2 — 2026-09-27
 
 Descriptions for the document's tags, a check that holds a response to
