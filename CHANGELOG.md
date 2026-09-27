@@ -5,6 +5,14 @@ API.
 
 ## Unreleased
 
+### Added
+
+- `@tetsujs/openapi`: `tags` in `openapi()` and `docs()` — what each tag
+  is, by name, in the order a renderer lists the sections. A tag the routes
+  use and `tags` leaves out is listed after them and reported, and so is a
+  described tag no operation uses: either is usually one tag spelled two
+  ways. `docs()` describes its own tag when its routes are documented.
+
 ### Changed
 
 - `@tetsujs/core`: the package no longer ships the test helpers of this

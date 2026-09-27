@@ -22,7 +22,7 @@
 import type { App } from "@tetsujs/core";
 import { contributionsOf } from "./annotations.ts";
 import { schemaComponents } from "./components.ts";
-import type { OpenApiDocument, PathItemObject } from "./document.ts";
+import type { OpenApiDocument, PathItemObject, TagObject } from "./document.ts";
 import { envelopes as envelopeDefinitions } from "./envelopes.ts";
 import type { ErrorFormat } from "./errors.ts";
 import { resolveFormat } from "./errors.ts";
@@ -51,6 +51,7 @@ export type {
   ParameterObject,
   PathItemObject,
   ResponseObject,
+  TagObject,
 } from "./document.ts";
 export type { DocumentedFailure, ErrorFormat } from "./errors.ts";
 export type {
@@ -97,6 +98,29 @@ export interface OpenApiOptions {
    * ```
    */
   readonly errors?: ErrorFormat;
+
+  /**
+   * What each tag is, by name — the sections a renderer's sidebar shows,
+   * in the order given here.
+   *
+   * A tag the routes use and this leaves out is listed after these, in the
+   * order the routes first use it, without a description; so is reported,
+   * as a likely misspelling — `sign_in` for `sign-in` makes a section of its
+   * own. So is a tag described here that no operation uses. Without
+   * `tags`, the document lists none and nothing is reported.
+   *
+   * @example
+   * ```ts
+   * openapi(app, {
+   *   info,
+   *   tags: {
+   *     "sign-in": "Signing in with a code sent by email, and signing out",
+   *     me: "The signed-in user",
+   *   },
+   * });
+   * ```
+   */
+  readonly tags?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -108,6 +132,10 @@ export interface OpenApiOptions {
  * these are returned rather than swallowed.
  */
 export interface GeneratorWarning {
+  /**
+   * The route the warning is about, as `GET /path` — empty for a warning
+   * about the document as a whole, such as a described tag nothing uses.
+   */
   readonly route: string;
   readonly message: string;
 }
@@ -163,6 +191,10 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   // that works. It still loses it; it no longer does so without saying.
   const occupied = new Map<string, string>();
 
+  // Every tag the operations use, with the first route using it: the
+  // order undescribed tags are listed in, and where each is reported.
+  const used = new Map<string, string>();
+
   for (const entry of described) {
     const template = toTemplate(entry.path);
     const route = `${entry.method} ${entry.path}`;
@@ -214,22 +246,74 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
 
     occupied.set(slot, route);
 
+    for (const tag of operation.tags ?? []) {
+      if (!used.has(tag)) {
+        used.set(tag, route);
+      }
+    }
+
     paths[template] = {
       ...paths[template],
       [entry.method.toLowerCase()]: operation,
     };
   }
 
+  const tags = options.tags ? tagsOf(options.tags, used, warnings) : undefined;
+
   return {
     document: {
       openapi: "3.1.0",
       info: options.info,
       ...(options.servers ? { servers: options.servers } : {}),
+      ...(tags ? { tags } : {}),
       paths,
       ...componentsOf(schemes, components.schemas),
     },
     warnings,
   };
+}
+
+/**
+ * The document's tags: the described ones in the order given, then those
+ * the operations use and the description leaves out, in the order they are
+ * first used — so the order of the sections is the application's, not
+ * whatever a renderer does with a tag it was not told about.
+ *
+ * Both kinds of mismatch are reported, since either is usually one tag
+ * spelled two ways: a tag used and not described, at the first route
+ * using it, and a tag described and not used, for the document.
+ */
+function tagsOf(
+  described: Readonly<Record<string, string>>,
+  used: ReadonlyMap<string, string>,
+  warnings: GeneratorWarning[],
+): TagObject[] {
+  const tags: TagObject[] = Object.entries(described).map(
+    ([name, description]) => ({ name, description }),
+  );
+
+  for (const [name, route] of used) {
+    if (Object.hasOwn(described, name)) {
+      continue;
+    }
+
+    tags.push({ name });
+    warnings.push({
+      route,
+      message: `the tag "${name}" is not in tags; it is listed after them, without a description`,
+    });
+  }
+
+  for (const name of Object.keys(described)) {
+    if (!used.has(name)) {
+      warnings.push({
+        route: "",
+        message: `the tag "${name}" is described in tags, but no operation uses it`,
+      });
+    }
+  }
+
+  return tags;
 }
 
 /**

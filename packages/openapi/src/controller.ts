@@ -40,6 +40,13 @@ export interface DocsOptions<
    */
   readonly errors?: ErrorFormat;
 
+  /**
+   * What each tag is — see `tags` on {@link openapi}. The controller's own
+   * tag, `docs`, is described for you when its routes are in the document
+   * (`documentSelf`) and you did not describe it.
+   */
+  readonly tags?: Readonly<Record<string, string>>;
+
   /** Where the document is served. Defaults to `/openapi.json`. */
   readonly path?: Path & ValidatePath<Path>;
 
@@ -145,6 +152,21 @@ export class DocsController<
   }
 
   /**
+   * The tags to describe: the application's, and this controller's own when
+   * its routes are in the document — without it, a described set of tags
+   * would report `docs` as a tag nobody described.
+   */
+  private tagsOf(
+    tags: Readonly<Record<string, string>>,
+  ): Readonly<Record<string, string>> {
+    if (!this.options.documentSelf || Object.hasOwn(tags, "docs")) {
+      return tags;
+    }
+
+    return { ...tags, docs: "This documentation" };
+  }
+
+  /**
    * Generates the document of the application this was mounted in, and
    * the page that renders it.
    *
@@ -158,6 +180,7 @@ export class DocsController<
       info: this.options.info,
       ...(this.options.servers ? { servers: this.options.servers } : {}),
       ...(this.options.errors ? { errors: this.options.errors } : {}),
+      ...(this.options.tags ? { tags: this.tagsOf(this.options.tags) } : {}),
     });
 
     this.document = generated.document;
@@ -218,5 +241,9 @@ export function docs<
 }
 
 function warn(warning: GeneratorWarning): void {
-  console.warn(`[openapi] ${warning.route}: ${warning.message}`);
+  console.warn(
+    warning.route === ""
+      ? `[openapi] ${warning.message}`
+      : `[openapi] ${warning.route}: ${warning.message}`,
+  );
 }

@@ -76,6 +76,7 @@ the hash, to be prefixed with `sha384-`.
 | `documentSelf` | `false` | include `/openapi.json` and `/docs` in the document |
 | `onWarning` | `console.warn` | receives what could not be described |
 | `errors` | the framework's envelope | an error format of your own — see [below](#an-error-format-of-your-own) |
+| `tags` | — | what each tag is, in the order the sidebar lists them — see [below](#tags) |
 
 ## What goes into the document
 
@@ -90,6 +91,30 @@ the hash, to be prefixed with `sha384-`.
 
 `docs: { hidden: true }` leaves a route out of the document; it is served
 as before.
+
+## Tags
+
+A route names its tags in `docs: { tags }`; the document says what each
+one is:
+
+```ts
+docs({
+  info,
+  tags: {
+    "sign-in": "Signing in with a code sent by email, and signing out",
+    me: "The signed-in user",
+  },
+});
+```
+
+The order of the keys is the order of the sections a renderer lists. A tag
+the routes use and `tags` leaves out is listed after them, in the order
+the routes first use it, and reported — it is usually one tag spelled two
+ways, `sign_in` next to `sign-in`. So is a tag described and used by no
+operation. Without `tags` the document lists none, and nothing is
+reported. An application of several surfaces, each with its own `docs()`,
+gives each one only the tags of its own routes: given all of them, every
+`docs()` reports the tags of the others as unused.
 
 ## Operation ids
 
