@@ -34,7 +34,8 @@ import type {
 import type { JsonSchemaObject } from "./emit.ts";
 import { emitted } from "./emit.ts";
 import type { Envelopes } from "./envelopes.ts";
-import { branchesOf, envelopeCode } from "./envelopes.ts";
+import { branchesOf } from "./envelopes.ts";
+import type { JsonSchema } from "./json-schema.ts";
 import { partParameters, pathParameters } from "./parameters.ts";
 
 /** Describes one route. */
@@ -103,11 +104,13 @@ export function declareEnvelopes(
     const described =
       schema === null ? undefined : emitted(schema, "", () => {});
 
-    for (const branch of described ? branchesOf(described) : []) {
-      const code = envelopeCode(branch);
+    const code = envelopes.format.code;
 
-      if (code !== undefined) {
-        envelopes.declare(Number(status), code, branch);
+    for (const branch of described ? branchesOf(described, code) : []) {
+      const found = code(branch);
+
+      if (found !== undefined) {
+        envelopes.declare(Number(status), found, branch);
       }
     }
   }
@@ -142,8 +145,8 @@ function branchesFor(
   envelopes: Envelopes,
   warn: (message: string) => void,
 ): Record<string, unknown>[] {
-  return branchesOf(schema).map((branch) => {
-    const code = envelopeCode(branch);
+  return branchesOf(schema, envelopes.format.code).map((branch) => {
+    const code = envelopes.format.code(branch);
 
     return code === undefined
       ? branch
@@ -492,7 +495,12 @@ function failures(
     message?: string,
     fields?: DocumentedResponse["fields"],
   ): Record<string, unknown> => {
-    const described = envelope(status, error, message, fields);
+    const described = envelopes.format.describe({
+      status,
+      ...(error === undefined ? {} : { error }),
+      ...(message === undefined ? {} : { message }),
+      fields: fields ?? {},
+    });
 
     const ref =
       error === undefined
@@ -511,7 +519,12 @@ function failures(
           envelopes.ref(
             options.validationStatus,
             "VALIDATION_FAILED",
-            validationFailed(options.validationStatus),
+            envelopes.format.describe({
+              status: options.validationStatus,
+              error: "VALIDATION_FAILED",
+              message: "Validation failed",
+              fields: { issues },
+            }),
             warn,
           ) as unknown as Record<string, unknown>,
         ],
@@ -670,7 +683,8 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
  * builds a tagged union and narrows on the code, instead of trying the
  * shapes in turn. The mapping is spelled out, because without it OpenAPI
  * matches the value against the component's name — `Unauthorized`, where
- * the body says `UNAUTHORIZED`.
+ * the body says `UNAUTHORIZED`. The field is the error format's; a format
+ * that names none — its code nested below the top — has no discriminator.
  */
 function unionOf(
   schemas: readonly Record<string, unknown>[],
@@ -680,6 +694,12 @@ function unionOf(
 
   if (schemas.length === 1 && only) {
     return only;
+  }
+
+  const propertyName = envelopes.format.discriminator;
+
+  if (propertyName === undefined) {
+    return { anyOf: schemas };
   }
 
   const mapping: Record<string, string> = {};
@@ -697,7 +717,7 @@ function unionOf(
 
   return {
     anyOf: schemas,
-    discriminator: { propertyName: "error", mapping },
+    discriminator: { propertyName, mapping },
   };
 }
 
@@ -730,65 +750,21 @@ function describeStatus(status: string): string {
 }
 
 /**
- * The body of one framework-produced failure, as JSON Schema.
- *
- * The status is a `const`, and so is the code whenever the framework knows
- * which one it will be: a generated client can then discriminate on
- * `error` instead of receiving "an object with three strings", and a
- * reader of the document sees `"BODY_TOO_LARGE"` rather than `string`.
- *
- * The message is documented by example, never as a `const` — it is wording
- * meant for a human, the one field a client must not match on, and the one
- * this project reserves the right to reword.
- *
- * Fields a hook adds come after the three, and never in their place.
+ * What a validation failure carries besides the code and the message: every
+ * issue, with where it is. Handed to the error format as a field, for the
+ * format to place.
  */
-function envelope(
-  status: number,
-  error?: string,
-  message?: string,
-  fields: DocumentedResponse["fields"] = {},
-): JsonSchemaObject {
-  const own = {
-    status: { type: "integer", const: status },
-    message: message
-      ? { type: "string", examples: [message] }
-      : { type: "string" },
-    error: error ? { type: "string", const: error } : { type: "string" },
-  };
-
-  const added = Object.keys(fields).filter((name) => !Object.hasOwn(own, name));
-
-  return {
+const issues: JsonSchema = {
+  type: "array",
+  items: {
     type: "object",
-    required: ["status", "message", "error", ...added],
-    properties: { ...fields, ...own },
-  };
-}
-
-/** The validation envelope: the standard three fields, plus the issues. */
-function validationFailed(status: number): Record<string, unknown> {
-  const base = envelope(status, "VALIDATION_FAILED", "Validation failed");
-
-  return {
-    ...base,
-    required: ["status", "message", "error", "issues"],
+    required: ["message", "path"],
     properties: {
-      ...(base.properties as Record<string, unknown>),
-      issues: {
-        type: "array",
-        items: {
-          type: "object",
-          required: ["message", "path"],
-          properties: {
-            message: { type: "string" },
-            path: { type: "array", items: { type: ["string", "number"] } },
-          },
-        },
-      },
+      message: { type: "string" },
+      path: { type: "array", items: { type: ["string", "number"] } },
     },
-  };
-}
+  },
+};
 
 /**
  * How a body of this type fails to parse — or nothing, for a text or a

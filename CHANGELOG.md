@@ -15,6 +15,17 @@ API.
   in its body, and reaches the application's `onError` hooks. It used to
   be a returned `Response` that `onError` never saw.
 
+### Added
+
+- `@tetsujs/openapi`: `errors` in `openapi()` and `docs()` — an error format
+  of the application's own, for the document to describe the framework's
+  failures, the hooks' refusals and the routes' own envelopes in it.
+  `schema` describes one failure from its status, code, message and
+  fields; `discriminator` names the top-level field with the code; `code`
+  reads the code from a route's schema, for a format that nests it. A
+  definition that differs from the kept one is now compared at every
+  depth, so a nested format's missing field is reported by its path.
+
 ### Changed
 
 - `@tetsujs/core`: the error path is synchronous until something on it

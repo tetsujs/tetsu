@@ -16,6 +16,7 @@
 import type { App, RouteDef, SchemaConfig, ValidatePath } from "@tetsujs/core";
 import { onMount, route } from "@tetsujs/core";
 import type { OpenApiDocument } from "./document.ts";
+import type { ErrorFormat } from "./errors.ts";
 import type { GeneratorWarning } from "./index.ts";
 import { openapi } from "./index.ts";
 import type { DocsAssets, DocsUi } from "./page.ts";
@@ -32,6 +33,12 @@ export interface DocsOptions<
 
   /** Servers the API is reachable at. */
   readonly servers?: OpenApiDocument["servers"];
+
+  /**
+   * How the application's errors look, when not like the framework's
+   * envelope — see `errors` on {@link openapi}.
+   */
+  readonly errors?: ErrorFormat;
 
   /** Where the document is served. Defaults to `/openapi.json`. */
   readonly path?: Path & ValidatePath<Path>;
@@ -150,6 +157,7 @@ export class DocsController<
     const generated = openapi(app, {
       info: this.options.info,
       ...(this.options.servers ? { servers: this.options.servers } : {}),
+      ...(this.options.errors ? { errors: this.options.errors } : {}),
     });
 
     this.document = generated.document;

@@ -24,6 +24,8 @@ import { contributionsOf } from "./annotations.ts";
 import { schemaComponents } from "./components.ts";
 import type { OpenApiDocument, PathItemObject } from "./document.ts";
 import { envelopes as envelopeDefinitions } from "./envelopes.ts";
+import type { ErrorFormat } from "./errors.ts";
+import { resolveFormat } from "./errors.ts";
 import { declareEnvelopes, operationIds, operationOf } from "./operation.ts";
 import { toTemplate } from "./parameters.ts";
 
@@ -50,6 +52,7 @@ export type {
   PathItemObject,
   ResponseObject,
 } from "./document.ts";
+export type { DocumentedFailure, ErrorFormat } from "./errors.ts";
 export type {
   JsonSchema,
   JsonSchemaKeywords,
@@ -67,6 +70,33 @@ export interface OpenApiOptions {
 
   /** Servers the API is reachable at. */
   readonly servers?: OpenApiDocument["servers"];
+
+  /**
+   * How the application's errors look, when not like the framework's
+   * envelope — for an application whose `onError` hook answers in a format
+   * of its own. The framework's failures, the hooks' refusals and the
+   * routes' own envelopes are then described in it.
+   *
+   * @example `{ code, message }`, discriminated on `code`
+   * ```ts
+   * openapi(app, {
+   *   info,
+   *   errors: {
+   *     schema: ({ error, message, fields }) => ({
+   *       type: "object",
+   *       required: ["code", "message", ...Object.keys(fields)],
+   *       properties: {
+   *         code: error ? { type: "string", const: error } : { type: "string" },
+   *         message: { type: "string", ...(message ? { examples: [message] } : {}) },
+   *         ...fields,
+   *       },
+   *     }),
+   *     discriminator: "code",
+   *   },
+   * });
+   * ```
+   */
+  readonly errors?: ErrorFormat;
 }
 
 /**
@@ -111,7 +141,10 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   const warnings: GeneratorWarning[] = [];
   const schemes: Record<string, unknown> = {};
   const components = schemaComponents();
-  const envelopes = envelopeDefinitions(components);
+  const envelopes = envelopeDefinitions(
+    components,
+    resolveFormat(options.errors),
+  );
   const ids = operationIds();
   const described = app.entries.filter(
     (entry) => !entry.ws && !entry.def.docs?.hidden,

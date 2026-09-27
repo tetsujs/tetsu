@@ -20,6 +20,10 @@
  * read first, before any operation is built, so the winner does not depend
  * on which route happens to come first in the table.
  *
+ * What an envelope looks like — how one is described, where its code is,
+ * what a client discriminates on — is the document's error format, which
+ * the registry carries for everything that builds or reads one.
+ *
  * Internal to the package.
  *
  * @module
@@ -28,9 +32,13 @@
 import type { SchemaComponents, SchemaRef } from "./components.ts";
 import { failureName } from "./components.ts";
 import type { JsonSchemaObject } from "./emit.ts";
+import type { ResolvedFormat } from "./errors.ts";
 
 /** The definitions of every envelope of one document. */
 export interface Envelopes {
+  /** The document's error format. */
+  readonly format: ResolvedFormat;
+
   /**
    * Records a route's definition, before anything is referenced. The first
    * route to declare a status and code defines it.
@@ -59,7 +67,10 @@ export interface Envelopes {
   codeOf(ref: string): string | undefined;
 }
 
-export function envelopes(components: SchemaComponents): Envelopes {
+export function envelopes(
+  components: SchemaComponents,
+  format: ResolvedFormat,
+): Envelopes {
   const declared = new Map<string, JsonSchemaObject>();
   const defined = new Map<string, JsonSchemaObject>();
   const refs = new Map<string, SchemaRef>();
@@ -68,6 +79,8 @@ export function envelopes(components: SchemaComponents): Envelopes {
   const reported = new Set<string>();
 
   return {
+    format,
+
     declare(status, code, schema) {
       const key = keyOf(status, code);
 
@@ -130,42 +143,6 @@ export function envelopes(components: SchemaComponents): Envelopes {
 }
 
 /**
- * The error code of a schema that is an envelope: an object whose `error`
- * is required and holds one string — a `const`, or an `enum` of one value.
- *
- * Read off what the validator emitted, not off a declaration: the route
- * has no other way to say which of its responses is an envelope, and the
- * shape is what a client would branch on anyway.
- */
-export function envelopeCode(schema: JsonSchemaObject): string | undefined {
-  const required = Array.isArray(schema.required) ? schema.required : [];
-
-  if (!required.includes("error")) {
-    return undefined;
-  }
-
-  const error = (
-    schema.properties as
-      | { error?: { const?: unknown; enum?: unknown } }
-      | undefined
-  )?.error;
-
-  if (typeof error?.const === "string") {
-    return error.const;
-  }
-
-  if (
-    Array.isArray(error?.enum) &&
-    error.enum.length === 1 &&
-    typeof error.enum[0] === "string"
-  ) {
-    return error.enum[0];
-  }
-
-  return undefined;
-}
-
-/**
  * The alternatives a schema stands for, as a list the status's own union
  * can take in.
  *
@@ -177,20 +154,25 @@ export function envelopeCode(schema: JsonSchemaObject): string | undefined {
  * beside its union, a `title` or a `$defs`, is left whole: those keywords
  * belong to the union, and would be lost with it.
  */
-export function branchesOf(schema: JsonSchemaObject): JsonSchemaObject[] {
+export function branchesOf(
+  schema: JsonSchemaObject,
+  code: (schema: JsonSchemaObject) => string | undefined,
+): JsonSchemaObject[] {
   const keys = Object.keys(schema);
 
   if (keys.length !== 1) {
     return [schema];
   }
 
+  const within = (branch: JsonSchemaObject) => branchesOf(branch, code);
+
   if (Array.isArray(schema.anyOf)) {
-    return (schema.anyOf as JsonSchemaObject[]).flatMap(branchesOf);
+    return (schema.anyOf as JsonSchemaObject[]).flatMap(within);
   }
 
   if (Array.isArray(schema.oneOf)) {
-    const branches = (schema.oneOf as JsonSchemaObject[]).flatMap(branchesOf);
-    const codes = branches.map(envelopeCode);
+    const branches = (schema.oneOf as JsonSchemaObject[]).flatMap(within);
+    const codes = branches.map(code);
 
     if (
       codes.every((code) => code !== undefined) &&
@@ -209,34 +191,78 @@ function keyOf(status: number, code: string): string {
 
 /**
  * How two definitions of one envelope differ in what a client reads: the
- * fields one has and the other does not, or which of them are required.
- * Wording — a `message` example, `number` against `integer` for the
- * status — is not a difference a client would notice, and is not one.
+ * fields one has and the other does not, or which of them are required —
+ * at any depth, by path, so a format that nests its fields
+ * (`error.retryAfter`) is compared as closely as a flat one. Wording — a
+ * `message` example, `number` against `integer` for the status — is not a
+ * difference a client would notice, and is not one.
  */
 function differenceOf(
   kept: JsonSchemaObject,
   other: JsonSchemaObject,
 ): string | undefined {
-  const fields = (schema: JsonSchemaObject): string[] =>
-    Object.keys((schema.properties as Record<string, unknown>) ?? {});
+  const keptShape = shapeOf(kept);
+  const otherShape = shapeOf(other);
 
-  const keptFields = fields(kept);
-  const otherFields = fields(other);
-
-  const missing = otherFields.filter((name) => !keptFields.includes(name));
-  const extra = keptFields.filter((name) => !otherFields.includes(name));
-  const changed = [...missing, ...extra];
+  const changed = [
+    ...otherShape.fields.filter((path) => !keptShape.fields.includes(path)),
+    ...keptShape.fields.filter((path) => !otherShape.fields.includes(path)),
+  ];
 
   if (changed.length > 0) {
     return `fields: ${changed.join(", ")}`;
   }
 
-  const required = (schema: JsonSchemaObject): string =>
-    JSON.stringify(
-      [...(Array.isArray(schema.required) ? schema.required : [])].sort(),
-    );
-
-  return required(kept) === required(other)
+  return JSON.stringify(keptShape.required) ===
+    JSON.stringify(otherShape.required)
     ? undefined
     : "which fields are required";
+}
+
+/** How deep {@link shapeOf} looks; an envelope is a few levels at most. */
+const shapeDepth = 8;
+
+/**
+ * The paths of an object schema's fields, and of the required ones among
+ * them, following `properties` down. Sorted, so two shapes compare as
+ * strings.
+ */
+function shapeOf(schema: JsonSchemaObject): {
+  fields: string[];
+  required: string[];
+} {
+  const fields: string[] = [];
+  const required: string[] = [];
+
+  const walk = (node: JsonSchemaObject, prefix: string, depth: number) => {
+    const properties = node.properties;
+
+    if (
+      depth > shapeDepth ||
+      properties === null ||
+      typeof properties !== "object"
+    ) {
+      return;
+    }
+
+    const requiredHere = Array.isArray(node.required) ? node.required : [];
+
+    for (const [name, child] of Object.entries(properties)) {
+      const path = `${prefix}${name}`;
+
+      fields.push(path);
+
+      if (requiredHere.includes(name)) {
+        required.push(path);
+      }
+
+      if (child !== null && typeof child === "object") {
+        walk(child as JsonSchemaObject, `${path}.`, depth + 1);
+      }
+    }
+  };
+
+  walk(schema, "", 0);
+
+  return { fields: fields.sort(), required: required.sort() };
 }
