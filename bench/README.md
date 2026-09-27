@@ -196,15 +196,23 @@ runs: it fails when 200 routes cost more instantiations than the budget in
 Each controller — declared with `controller()` — is a `GET` with `params`,
 `query`, a status map and two hooks, one of them reading through
 `Requires`, and a `POST` with a `body`; the core is read from `dist`, as a
-user's compiler reads it.
+user's compiler reads it. The application is measured mounted two ways:
+`flat`, every controller straight into `createApp`, and `grouped`, each in
+a group of its own with a prefix and two group hooks, the second reading
+what the first contributed. Each has its budget.
 
-| routes | types | instantiations | memory | check |
-| --- | --- | --- | --- | --- |
-| 2 | 7 596 | 19 670 | 52 MB | 0.02 s |
-| 200 | 24 934 | 174 018 | 74 MB | 0.09 s |
-| 800 | 77 434 | 641 718 | 137 MB | 0.33 s |
+| mounting | routes | types | instantiations | memory | check |
+| --- | --- | --- | --- | --- | --- |
+| flat | 2 | 7 631 | 19 823 | 53 MB | 0.02 s |
+| flat | 200 | 24 969 | 174 171 | 74 MB | 0.09 s |
+| flat | 800 | 77 469 | 641 871 | 137 MB | 0.33 s |
+| grouped | 2 | 9 919 | 25 362 | 54 MB | 0.02 s |
+| grouped | 200 | 66 164 | 288 115 | 114 MB | 0.15 s |
+| grouped | 800 | 236 562 | 1 084 315 | 296 MB | 0.63 s |
 
-TypeScript 7.0.2, 2026-09-25. The same routes in controller classes cost
+TypeScript 7.0.2, 2026-09-27. A group costs about 1 090 instantiations,
+nearly all of them the group itself: without its hooks it is 282 895 at
+200 routes, so its two hooks add some 50 a group. The same routes in controller classes cost
 198 615 instantiations at 200 routes and 740 115 at 800: every class is a
 type of its own for the checker, an object a factory returns is not. Types and instantiations are the same on every
 machine for a given compiler, which is why they are the gate; memory and
