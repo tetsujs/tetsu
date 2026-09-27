@@ -433,20 +433,16 @@ function responses(
       schema === null ? undefined : emitted(schema, "a response", warn);
 
     add(status, {
-      description: describeStatus(status),
-      placeholder: true,
+      placeholder: describeStatus(status),
+      said: described ? wordsOf(described, envelopes) : [],
       schemas: described
-        ? branchesFor(described, Number(status), envelopes, warn)
+        ? branchesFor(unionOnly(described), Number(status), envelopes, warn)
         : [],
     });
   }
 
   if (![...answers.keys()].some((status) => status.startsWith("2"))) {
-    add("200", {
-      description: "Successful response",
-      placeholder: true,
-      schemas: [],
-    });
+    add("200", { placeholder: "Successful response", said: [], schemas: [] });
   }
 
   for (const [status, answer] of failures(
@@ -514,7 +510,12 @@ function failures(
     found.push([
       options.validationStatus,
       {
-        description: "Request failed schema validation",
+        said: [
+          {
+            code: "VALIDATION_FAILED",
+            text: "Request failed schema validation",
+          },
+        ],
         schemas: [
           envelopes.ref(
             options.validationStatus,
@@ -538,9 +539,13 @@ function failures(
     found.push([
       status,
       {
-        description:
-          requirement.description ??
-          `Request did not satisfy ${requirement.name}`,
+        said: [
+          said(
+            requirement.error,
+            requirement.description ??
+              `Request did not satisfy ${requirement.name}`,
+          ),
+        ],
         schemas: [envelopeRef(status, requirement.error, requirement.message)],
       },
     ]);
@@ -554,7 +559,7 @@ function failures(
     found.push([
       response.status,
       {
-        description: response.description,
+        said: [said(response.error, response.description)],
         schemas: described
           ? branchesFor(described, response.status, envelopes, warn)
           : [
@@ -577,7 +582,12 @@ function failures(
       found.push([
         400,
         {
-          description: "Body could not be parsed in the declared shape",
+          said: [
+            said(
+              unparsable.error,
+              "Body could not be parsed in the declared shape",
+            ),
+          ],
           schemas: [envelopeRef(400, unparsable.error, unparsable.message)],
         },
       ]);
@@ -586,7 +596,9 @@ function failures(
     found.push([
       413,
       {
-        description: "Body exceeded the configured size limit",
+        said: [
+          said("BODY_TOO_LARGE", "Body exceeded the configured size limit"),
+        ],
         schemas: [
           envelopeRef(
             413,
@@ -601,7 +613,12 @@ function failures(
   found.push([
     500,
     {
-      description: "The request failed and nothing mapped the failure",
+      said: [
+        said(
+          "INTERNAL_SERVER_ERROR",
+          "The request failed and nothing mapped the failure",
+        ),
+      ],
       schemas: [
         envelopeRef(500, "INTERNAL_SERVER_ERROR", "Internal Server Error"),
       ],
@@ -619,15 +636,64 @@ function failures(
  * reference to its definition; empty when the answer has no body to
  * describe.
  *
- * A route declares a status by its schema alone and has no words for it,
- * so its description is a `placeholder`: it stands for the status only
- * when nothing else describes it.
+ * `said` is what the answer says about itself, with the code each part is
+ * about when it is known: a hook's description, the framework's, what a
+ * route's schema says. A route whose schema says nothing has only its
+ * `placeholder` — the reason phrase — which stands for the status when
+ * nothing else describes it.
  */
 interface Answer {
-  readonly description: string;
-  readonly placeholder?: boolean;
+  readonly said: readonly Said[];
+  readonly placeholder?: string;
   readonly schemas: readonly Record<string, unknown>[];
   readonly headers?: Readonly<Record<string, HeaderObject>>;
+}
+
+/** One description, and the code it describes when that is known. */
+interface Said {
+  readonly code?: string;
+  readonly text: string;
+}
+
+function said(code: string | undefined, text: string): Said {
+  return code === undefined ? { text } : { code, text };
+}
+
+/**
+ * What a route's schema says about the status it is declared for: its own
+ * `description`, or — for a union that has none — each branch's, with the
+ * branch's code. A schema that says nothing says nothing here either.
+ */
+function wordsOf(schema: JsonSchemaObject, envelopes: Envelopes): Said[] {
+  if (typeof schema.description === "string") {
+    return [said(envelopes.format.code(schema), schema.description)];
+  }
+
+  return branchesOf(unionOnly(schema), envelopes.format.code).flatMap(
+    (branch) =>
+      typeof branch.description === "string"
+        ? [said(envelopes.format.code(branch), branch.description)]
+        : [],
+  );
+}
+
+/**
+ * A union without the `description` it carried as a whole — which says
+ * what the status is, and is used as the status's description — so its
+ * branches can join the status's own alternatives. Anything but a union
+ * is kept as it is, its description included, for its definition.
+ */
+function unionOnly(schema: JsonSchemaObject): JsonSchemaObject {
+  if (
+    typeof schema.description !== "string" ||
+    (!Array.isArray(schema.anyOf) && !Array.isArray(schema.oneOf))
+  ) {
+    return schema;
+  }
+
+  const { description: _, ...union } = schema;
+
+  return union;
 }
 
 /**
@@ -646,12 +712,10 @@ interface Answer {
  * alternative, not two.
  *
  * Headers are gathered the same way, the first description of a name
- * standing for all of them. Descriptions are joined, except a route's
- * placeholder next to one that says something.
+ * standing for all of them; descriptions as {@link wording} words them.
  */
 function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
   const schemas = distinct(list.flatMap((answer) => answer.schemas));
-  const worded = list.filter((answer) => !answer.placeholder);
   const headers: Record<string, HeaderObject> = {};
 
   for (const answer of list) {
@@ -661,9 +725,7 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
   }
 
   return {
-    description: (worded.length > 0 ? worded : list)
-      .map((answer) => answer.description)
-      .join("; "),
+    description: wording(list),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
     ...(schemas.length > 0
       ? {
@@ -673,6 +735,49 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
         }
       : {}),
   };
+}
+
+/**
+ * The description of a status, from everything that answers with it.
+ *
+ * One thing said is the description. Several are a list, each item led
+ * by the code it is about, so a reader sees which description goes with
+ * which code — descriptions are CommonMark, and every renderer draws the
+ * list. The same code said the same way twice, by the route and a hook,
+ * is one item. With nothing said at all, the route's placeholder stands.
+ */
+function wording(list: readonly Answer[]): string {
+  const seen = new Set<string>();
+  const items: Said[] = [];
+
+  for (const answer of list) {
+    for (const item of answer.said) {
+      const key = `${item.code ?? ""}\n${item.text}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        items.push(item);
+      }
+    }
+  }
+
+  const [only] = items;
+
+  if (items.length === 1 && only) {
+    return only.text;
+  }
+
+  if (items.length > 1) {
+    return items
+      .map((item) =>
+        item.code === undefined
+          ? `- ${item.text}`
+          : `- \`${item.code}\`: ${item.text}`,
+      )
+      .join("\n");
+  }
+
+  return list.find((answer) => answer.placeholder)?.placeholder ?? "";
 }
 
 /**

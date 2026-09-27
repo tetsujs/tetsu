@@ -29,6 +29,7 @@ export interface JsonSchemaObject {
   required?: unknown;
   anyOf?: unknown;
   oneOf?: unknown;
+  description?: unknown;
   [keyword: string]: unknown;
 }
 
