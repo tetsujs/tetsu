@@ -795,6 +795,24 @@ function observersFrom(
   }
 }
 
+/**
+ * Answers a failure the way a thrown one is answered — through the entry's
+ * `onError` hooks, then the default envelope — without throwing it.
+ *
+ * For a failure the core raises itself where a handler would answer: the
+ * `404` and `405` of an application with `onError` hooks. Returned as the
+ * handler's result, the response then goes the rest of the way out as any
+ * other does, through `beforeResponse` and `ctx.out`; unwinding a throw to
+ * get to the same place costs about 100 ns a request and buys nothing.
+ */
+export function answerFailure(
+  entry: Executable,
+  ctx: unknown,
+  error: unknown,
+): Response | Promise<Response> {
+  return mapError(entry, ctx as PipelineCtx, error);
+}
+
 function mapError(
   entry: Executable,
   ctx: PipelineCtx,

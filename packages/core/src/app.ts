@@ -19,9 +19,12 @@
  * answer a preflight, and keeps zone guards away from those requests — an
  * authentication hook on `/admin` must not reject a browser preflight.
  *
- * `404` and `405` are failures like any other: they are thrown as an
- * `HttpError`, so the application's `onError` hooks see them and one hook
- * sets the format of every error the application answers with.
+ * `404` and `405` are failures like any other: they reach the
+ * application's `onError` hooks as an `HttpError`, so one hook sets the
+ * format of every error the application answers with. An application with
+ * no `onError` hooks has nothing to hand them to, and answers them with
+ * the envelope straight away — the response the hooks' absence would have
+ * produced anyway, without building an error for nobody.
  *
  * Keeping a second matcher of our own was the previous design; it produced a
  * class of defects where the two disagreed — tests exercising one path while
@@ -38,12 +41,12 @@ import type { CookieMap, Server, WebSocketHandler } from "bun";
 import type { BaseCtx } from "./context.ts";
 import type { CookieOptions } from "./cookie.ts";
 import { cookieSealer } from "./cookie.ts";
-import { httpError } from "./error.ts";
+import { errorBody, httpError } from "./error.ts";
 import type { GroupHooks } from "./group.ts";
 import { slotHooks } from "./group.ts";
 import { appBrand, onMount } from "./mount.ts";
 import type { Executable, PipelineOptions } from "./pipeline.ts";
-import { release, runPipeline } from "./pipeline.ts";
+import { answerFailure, release, runPipeline } from "./pipeline.ts";
 import type { ReportError } from "./report.ts";
 import { reporter } from "./report.ts";
 import type { Method } from "./route.ts";
@@ -420,9 +423,30 @@ export function createApp<
     def: { handler },
   });
 
-  const fallback = protocolEntry(
-    (config.fallback ?? notFound) as (ctx: never) => unknown,
-  );
+  const protocolFailure: ProtocolFailureFactory = (status, prepare) => {
+    if (table.appHooks.onError.length === 0) {
+      const body = errorBody(status);
+
+      return protocolEntry((ctx: BaseCtx) => {
+        prepare?.(ctx);
+
+        return Response.json(body, { status });
+      });
+    }
+
+    const entry: Executable = protocolEntry((ctx: BaseCtx) => {
+      prepare?.(ctx);
+
+      return answerFailure(entry, ctx, httpError(status));
+    });
+
+    return entry;
+  };
+
+  const fallback =
+    config.fallback === undefined
+      ? protocolFailure(404)
+      : protocolEntry(config.fallback as (ctx: never) => unknown);
 
   const app: App<RoutesOf<R>> = {
     [appBrand]: true,
@@ -431,7 +455,7 @@ export function createApp<
       (await runPipeline(fallback, req, server, {}, options)) ??
       new Response(null, { status: 204 }),
     websocket: socketHandler(options.report),
-    routes: buildRoutes(table, options, protocolEntry),
+    routes: buildRoutes(table, options, protocolEntry, protocolFailure),
     entries: table.entries,
     options: settings,
     printRoutes: () => {
@@ -503,10 +527,6 @@ function bunBodyCap(
   return needed > bunDefaultBodyCap ? { maxRequestBodySize: needed } : {};
 }
 
-function notFound(): never {
-  throw httpError(404);
-}
-
 /**
  * Builds a synthetic `Executable` for a protocol response — `404`, `405`,
  * `OPTIONS` — carrying only the application-level hook chains. The single
@@ -515,10 +535,21 @@ function notFound(): never {
  */
 type ProtocolEntryFactory = (handler: (ctx: never) => unknown) => Executable;
 
+/**
+ * Builds the entry for a protocol failure — `404`, `405` — answered as
+ * the application's `onError` hooks answer it. `prepare` runs first, for
+ * what the failure carries besides its body: the `allow` of a `405`.
+ */
+type ProtocolFailureFactory = (
+  status: number,
+  prepare?: (ctx: BaseCtx) => void,
+) => Executable;
+
 function buildRoutes(
   table: RouteTable,
   options: PipelineOptions,
   protocolEntry: ProtocolEntryFactory,
+  protocolFailure: ProtocolFailureFactory,
 ): Record<string, PathHandler> {
   const byPath = new Map<string, Map<string, RouteTableEntry>>();
 
@@ -532,7 +563,12 @@ function buildRoutes(
   const routes: Record<string, PathHandler> = {};
 
   for (const [path, methods] of byPath) {
-    routes[path] = buildPathHandler(methods, options, protocolEntry);
+    routes[path] = buildPathHandler(
+      methods,
+      options,
+      protocolEntry,
+      protocolFailure,
+    );
   }
 
   return routes;
@@ -542,6 +578,7 @@ function buildPathHandler(
   methods: Map<string, RouteTableEntry>,
   options: PipelineOptions,
   protocolEntry: ProtocolEntryFactory,
+  protocolFailure: ProtocolFailureFactory,
 ): PathHandler {
   const allow = buildAllow(methods);
   const getEntry = methods.get("GET");
@@ -550,10 +587,8 @@ function buildPathHandler(
     () => new Response(null, { status: 204, headers: { allow } }),
   );
 
-  const notAllowed = protocolEntry((ctx: BaseCtx) => {
+  const notAllowed = protocolFailure(405, (ctx) => {
     ctx.out.headers.set("allow", allow);
-
-    throw httpError(405);
   });
 
   const head = async (
