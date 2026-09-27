@@ -12,6 +12,8 @@
 
 import { afterAll } from "bun:test";
 import type { App } from "../src/index.ts";
+import type { Client, ClientOptions } from "./client.ts";
+import { createClient } from "./client.ts";
 
 const running: { stop: (closeActiveConnections?: boolean) => void }[] = [];
 
@@ -28,6 +30,23 @@ export interface RequestFn {
 
   /** Where the server is listening. */
   readonly url: URL;
+
+  /**
+   * A client of this server with its own default headers and a cookie
+   * jar — for a test that signs in and then acts as that user. One per
+   * test keeps a test's session out of the next.
+   *
+   * @example
+   * ```ts
+   * const client = request.client({ headers: { "x-real-ip": "10.0.0.7" } });
+   *
+   * await client("/session", { method: "POST", json: { email } });
+   *
+   * expect((await client("/me")).status).toBe(200);
+   * expect(client.cookies.get("session")).toBeDefined();
+   * ```
+   */
+  client(options?: ClientOptions): Client;
 }
 
 /** Where the test server listens. */
@@ -93,7 +112,10 @@ export function serve(app: App, options: ServeOptions = {}): RequestFn {
   const request = (path: string, init?: RequestInit): Promise<Response> =>
     fetch(new URL(path, server.url).href, init);
 
-  return Object.assign(request, { url: server.url });
+  return Object.assign(request, {
+    url: server.url,
+    client: (options?: ClientOptions) => createClient(server.url, options),
+  });
 }
 
 /** Stops every server started by {@link serve} that is still running. */

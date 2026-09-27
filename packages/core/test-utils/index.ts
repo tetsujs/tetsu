@@ -6,6 +6,8 @@
  * - `serve()` — integration: serves an application on an ephemeral port the
  *   way production does, because Bun's native router is unreachable in
  *   process. It stops the server when the test file finishes.
+ *   `serve(app).client()` adds default headers and a cookie jar, for a
+ *   test that acts as one user across requests.
  * - `testCtx()` — unit: builds a typed context for calling a route handler
  *   directly, with no server and no HTTP.
  *
@@ -16,6 +18,7 @@
  * @module
  */
 
+export type { Client, ClientInit, ClientOptions, CookieJar } from "./client.ts";
 export { testCtx } from "./ctx.ts";
 export type { CapturedErrors } from "./logs.ts";
 export { captureErrors } from "./logs.ts";
