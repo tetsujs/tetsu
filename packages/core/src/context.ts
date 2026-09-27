@@ -442,6 +442,15 @@ export interface DeclaredOutgoing<Status extends number> extends Outgoing {
 export type ResponseMap = Record<number, AnySchema | null>;
 
 /**
+ * The bytes of the body, for a route that declared `rawBody: true` — and
+ * nothing for one that did not, as a part without a schema is not typed.
+ * Internal to the core.
+ */
+export type RawBodyOf<Raw> = [Raw] extends [true]
+  ? { readonly rawBody: Uint8Array }
+  : unknown;
+
+/**
  * Fully validated context: `beforeHandle` hooks and the handler see this
  * shape (extended by hook contributions).
  *
@@ -462,12 +471,14 @@ export type ValidatedCtx<
   Path extends string,
   S extends SchemaConfig,
   B = undefined,
-> = BaseCtx & {
-  readonly route: RouteInfo;
-  readonly params: S["params"] extends infer P extends AnySchema
-    ? InferOutput<P>
-    : ExtractParams<Path>;
-} & (S["cookies"] extends infer C extends AnySchema
+  Raw = false,
+> = BaseCtx &
+  RawBodyOf<Raw> & {
+    readonly route: RouteInfo;
+    readonly params: S["params"] extends infer P extends AnySchema
+      ? InferOutput<P>
+      : ExtractParams<Path>;
+  } & (S["cookies"] extends infer C extends AnySchema
     ? { readonly cookies: InferOutput<C> }
     : unknown) &
   (S["query"] extends infer Q extends AnySchema

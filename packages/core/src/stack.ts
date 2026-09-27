@@ -17,6 +17,7 @@ import type {
   BaseCtx,
   EarlyCtx,
   ParsedBody,
+  RawBodyOf,
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
@@ -479,9 +480,15 @@ type SchemaOwned<S extends SchemaConfig> = (S["params"] extends infer P extends
  * done. Also the base the handler context is built on. Internal to the
  * core.
  */
-type BeforeHandleCtx<Path extends string, S extends SchemaConfig, H, B> = Merge<
+type BeforeHandleCtx<
+  Path extends string,
+  S extends SchemaConfig,
+  H,
+  B,
+  Raw,
+> = Merge<
   Merge<
-    Merge<ValidatedCtx<Path, S, B>, ExtOfStack<StackOf<H, "beforeParse">>>,
+    Merge<ValidatedCtx<Path, S, B, Raw>, ExtOfStack<StackOf<H, "beforeParse">>>,
     ExtOfStack<StackOf<H, "beforeValidation">>
   >,
   SchemaOwned<S>
@@ -516,8 +523,12 @@ export type HandlerCtx<
   S extends SchemaConfig,
   H,
   B = undefined,
+  Raw = false,
 > = Prettify<
-  Merge<BeforeHandleCtx<Path, S, H, B>, ExtOfStack<StackOf<H, "beforeHandle">>>
+  Merge<
+    BeforeHandleCtx<Path, S, H, B, Raw>,
+    ExtOfStack<StackOf<H, "beforeHandle">>
+  >
 >;
 
 /**
@@ -559,8 +570,9 @@ export type ResponseCtx<
   S extends SchemaConfig,
   H,
   B = undefined,
+  Raw = false,
 > = Merge<
-  Partial<HandlerCtx<Path, S, H, B>>,
+  Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
     readonly params: ResponseParams<Path, S>;
     readonly res: Response;
@@ -581,8 +593,9 @@ export type ErrorCtx<
   S extends SchemaConfig,
   H,
   B = undefined,
+  Raw = false,
 > = Merge<
-  Partial<HandlerCtx<Path, S, H, B>>,
+  Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
     readonly params: ResponseParams<Path, S>;
     readonly error: unknown;
@@ -610,6 +623,7 @@ export type ValidateHooks<
   Path extends string,
   S extends SchemaConfig,
   B = undefined,
+  Raw = false,
 > = {
   readonly beforeParse?: ValidateStack<
     StackOf<H, "beforeParse">,
@@ -621,7 +635,7 @@ export type ValidateHooks<
     "beforeValidation",
     Merge<
       Merge<
-        EarlyCtx<Path> & { readonly body: ParsedBody<B> },
+        EarlyCtx<Path> & { readonly body: ParsedBody<B> } & RawBodyOf<Raw>,
         ExtOfStack<StackOf<H, "beforeParse">>
       >,
       S["body"] extends AnySchema ? { readonly body: ParsedBody<B> } : unknown
@@ -630,21 +644,21 @@ export type ValidateHooks<
   readonly beforeHandle?: ValidateStack<
     StackOf<H, "beforeHandle">,
     "beforeHandle",
-    BeforeHandleCtx<Path, S, H, B>
+    BeforeHandleCtx<Path, S, H, B, Raw>
   >;
   readonly beforeResponse?: ValidateStaticStack<
     StackOf<H, "beforeResponse">,
     "beforeResponse",
-    ResponseCtx<Path, S, H, B>
+    ResponseCtx<Path, S, H, B, Raw>
   >;
   readonly afterResponse?: ValidateStaticStack<
     StackOf<H, "afterResponse">,
     "afterResponse",
-    ResponseCtx<Path, S, H, B>
+    ResponseCtx<Path, S, H, B, Raw>
   >;
   readonly onError?: ValidateStaticStack<
     StackOf<H, "onError">,
     "onError",
-    ErrorCtx<Path, S, H, B>
+    ErrorCtx<Path, S, H, B, Raw>
   >;
 };

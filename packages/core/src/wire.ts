@@ -45,6 +45,34 @@ export function parseBody(
 }
 
 /**
+ * Reads the body's bytes and parses the declared shape from them — for a
+ * route that declared `rawBody`, and needs both: the bytes a signature is
+ * over, the payload a schema checks.
+ *
+ * The bytes are read within the same limit as any body, and decoded as
+ * UTF-8 the way `Request.text()` decodes them, so the parsed body is the
+ * one the route would have had without asking.
+ */
+export async function parseRaw(
+  req: Request,
+  limit: number,
+  bodyType: "json" | "text",
+): Promise<{ readonly raw: Uint8Array; readonly body: unknown }> {
+  const raw = await readBytesWithinLimit(req, limit);
+  const text = new TextDecoder().decode(raw);
+
+  if (bodyType === "text") {
+    return { raw, body: text };
+  }
+
+  try {
+    return { raw, body: JSON.parse(text) };
+  } catch {
+    throw httpError(400, "MALFORMED_JSON", "Body is not valid JSON");
+  }
+}
+
+/**
  * The shapes that are read whole before they are parsed.
  *
  * Apart from {@link parseBody} because a stream is handed over without

@@ -116,19 +116,32 @@ export interface BodyTypeError<Msg extends string> {
 }
 
 /**
- * Validates the body declaration against the body schema.
+ * Validates the body declaration against what else the route asks of the
+ * body.
  *
- * `unknown` — which an intersection ignores — for every coherent pair, and
- * a {@link BodyTypeError} for the one that is not: a `"stream"` body with
- * a `body` schema. There is nothing to validate a stream against, and the
- * two readings of such a route — buffer it after all, or ignore the schema
- * — are both worse than refusing it.
+ * `unknown` — which an intersection ignores — for every coherent
+ * combination, and a {@link BodyTypeError} for the ones that are not: a
+ * `"stream"` body with a `body` schema, where there is nothing to validate
+ * a stream against, and `rawBody` next to a form, whose bytes are parsed
+ * natively and not kept, or a stream, which is the raw body already.
+ *
+ * One check for all three rather than one per option: every route pays
+ * for each check it is intersected with, and the `rawBody` one on its own
+ * cost 16 instantiations a route (`bench/src/types.ts`).
  */
-export type ValidateBodyType<S extends SchemaConfig, B> = [B] extends ["stream"]
+export type ValidateBodyType<S extends SchemaConfig, B, Raw = false> = [
+  B,
+] extends ["stream"]
   ? S["body"] extends AnySchema
     ? BodyTypeError<"A 'stream' body cannot have a body schema: the bytes are handed to the handler unread, so there is nothing for a validator to see. Drop one of the two.">
-    : unknown
-  : unknown;
+    : [Raw] extends [true]
+      ? BodyTypeError<"rawBody cannot go with a 'stream' body: the stream is the raw body already.">
+      : unknown
+  : [B] extends ["form"]
+    ? [Raw] extends [true]
+      ? BodyTypeError<"rawBody cannot go with a 'form' body: a form is parsed natively and its bytes are not kept. Read it as 'text' and parse it yourself, or drop rawBody.">
+      : unknown
+    : unknown;
 
 declare const resultErrorBrand: unique symbol;
 
@@ -236,6 +249,7 @@ export interface RouteConfig<
   B extends BodyType | undefined,
   M extends Method,
   R = unknown,
+  Raw extends boolean = false,
 > {
   /**
    * The method this route answers.
@@ -280,6 +294,40 @@ export interface RouteConfig<
    */
   readonly maxBodySize?: number;
 
+  /**
+   * Keeps the bytes the body was read from, as `ctx.rawBody`, next to the
+   * body parsed from them — for a webhook, whose signature is over the
+   * bytes it was sent as, and whose payload is handled through a schema.
+   *
+   * The bytes are there from `beforeValidation` on, so a hook can check
+   * the signature before the body is validated, and they are typed only on
+   * a route that asks — the hook that needs them says so with
+   * `Requires<{ rawBody: Uint8Array }>`. A `json` or `text` body only: a
+   * form is parsed natively and a stream is the raw body already.
+   *
+   * Only the route that asks pays for it: its body is held twice, as bytes
+   * and as what was parsed from them.
+   *
+   * @example
+   * ```ts
+   * const signed = hook.beforeValidation((ctx: Requires<{ rawBody: Uint8Array }>) => {
+   *   if (!verify(ctx.rawBody, ctx.req.headers.get("x-signature"))) {
+   *     throw httpError(401, "BAD_SIGNATURE");
+   *   }
+   * });
+   *
+   * route({
+   *   method: "POST",
+   *   path: "/webhooks/payments",
+   *   rawBody: true,
+   *   schema: { body: PaymentEvent },
+   *   hooks: { beforeValidation: [signed] },
+   *   handler: (ctx) => payments.record(ctx.body),
+   * });
+   * ```
+   */
+  readonly rawBody?: Raw;
+
   /** Documentation metadata for OpenAPI generation. */
   readonly docs?: RouteDocs;
 
@@ -289,7 +337,9 @@ export interface RouteConfig<
    * slots could be checked (`HooksIndexError`).
    */
   readonly hooks?: H &
-    (string extends keyof H ? HooksIndexError : ValidateHooks<H, Path, S, B>);
+    (string extends keyof H
+      ? HooksIndexError
+      : ValidateHooks<H, Path, S, B, Raw>);
 
   /**
    * The endpoint logic; `ctx` is fully inferred, never annotate it.
@@ -304,7 +354,7 @@ export interface RouteConfig<
    * the case no contract covers — without a `response` schema
    * `HandlerResult` is `unknown` and accepts every value there is.
    */
-  readonly handler: (ctx: HandlerCtx<Path, S, H, B>) => R;
+  readonly handler: (ctx: HandlerCtx<Path, S, H, B, Raw>) => R;
 }
 
 const routeBrand: unique symbol = Symbol("tetsu.route");
@@ -330,6 +380,7 @@ export interface RouteDef<
   B extends BodyType | undefined = BodyType | undefined,
   M extends Method = Method,
   R = HandlerResult<S> | Promise<HandlerResult<S>>,
+  Raw extends boolean = boolean,
 > {
   readonly [routeBrand]: true;
   readonly method: M;
@@ -337,9 +388,10 @@ export interface RouteDef<
   readonly schema?: S;
   readonly bodyType?: B;
   readonly maxBodySize?: number;
+  readonly rawBody?: Raw;
   readonly docs?: RouteDocs;
   readonly hooks?: H;
-  readonly handler: (ctx: HandlerCtx<Path, S, H, B>) => R;
+  readonly handler: (ctx: HandlerCtx<Path, S, H, B, Raw>) => R;
 }
 
 /**
@@ -374,15 +426,38 @@ export function route<
   R extends HandlerMustReturn<HandlerResult<S> | Promise<HandlerResult<S>>> =
     | HandlerResult<S>
     | Promise<HandlerResult<S>>,
+  const Raw extends boolean = false,
 >(
-  config: RouteConfig<Path, S, H, B, M, R> & {
+  config: RouteConfig<Path, S, H, B, M, R, Raw> & {
     readonly handler: ValidateResult<R>;
-    readonly bodyType?: ValidateBodyType<S, B>;
+    readonly bodyType?: ValidateBodyType<S, B, Raw>;
   },
-): RouteDef<Path, S, H, B, M, R> {
+): RouteDef<Path, S, H, B, M, R, Raw> {
   assertValidPath(config.path);
+  assertRawBody(config.rawBody, config.bodyType);
 
-  return { ...config, [routeBrand]: true } as RouteDef<Path, S, H, B, M, R>;
+  return { ...config, [routeBrand]: true } as RouteDef<
+    Path,
+    S,
+    H,
+    B,
+    M,
+    R,
+    Raw
+  >;
+}
+
+/**
+ * The runtime twin of the `rawBody` half of {@link ValidateBodyType}, for
+ * a route the compiler
+ * did not check.
+ */
+function assertRawBody(rawBody: unknown, bodyType: unknown): void {
+  if (rawBody === true && (bodyType === "form" || bodyType === "stream")) {
+    throw new Error(
+      `rawBody cannot go with a "${bodyType}" body — a form is parsed natively and its bytes are not kept, a stream is the raw body already`,
+    );
+  }
 }
 
 /**

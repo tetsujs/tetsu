@@ -47,6 +47,7 @@ const protectedKeys = new Set([
   "res",
   "error",
   "startedAt",
+  "rawBody",
 ]);
 
 /**

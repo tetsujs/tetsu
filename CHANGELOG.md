@@ -18,6 +18,13 @@ API.
   alternatives of that status, the headers asked about documented — and
   lists every problem at once. `validate` checks the body in full with a
   JSON Schema validator of your choice.
+- `@tetsujs/core`: `rawBody: true` on a route keeps the bytes of a `json`
+  or `text` body as `ctx.rawBody`, next to the body parsed and validated
+  from them — for a webhook signed over its bytes. The field is typed only
+  on a route that asks, so a hook requiring it with `Requires` cannot be
+  mounted where it is missing; a form or a stream with `rawBody` is
+  refused. `rawBody` is now the pipeline's own field: a hook that returned
+  a field of that name no longer adds it to the context.
 
 ### Changed
 
