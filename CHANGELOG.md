@@ -3,7 +3,11 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.5.3 — 2026-09-27
+
+A test client that keeps its headers and cookies from one request to the
+next, and recipes in the README for request metrics, health checks and
+reporting a failed background job.
 
 ### Added
 
