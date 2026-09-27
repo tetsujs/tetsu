@@ -3,6 +3,18 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Changed
+
+- `@tetsujs/openapi`: a status the route declares is described by the
+  `description` of its schema — for any status, a `200` as much as an
+  error — where it used to get only its reason phrase, and the schema's
+  description reached only its definition in `components`. Several
+  descriptions under one status — the route's, a hook's, the framework's —
+  are a list, each item led by its code, where they used to be one line
+  joined by `; `.
+
 ## 0.5.0 — 2026-09-27
 
 Every failure reaches the application's `onError` hooks — a `404`, a

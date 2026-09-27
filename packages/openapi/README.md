@@ -152,6 +152,23 @@ When every alternative of a status is an envelope, the union carries a
 `discriminator` on `error`, with the mapping from each code to its
 definition, and a generated client narrows on the code.
 
+A status is described by what answers with it. The route's part is the
+`description` of the schema it declares — `.describe()` in Zod and
+ArkType, `v.description()` in Valibot, `{ description }` in TypeBox — for
+any status, a `200` as much as a `404`; a union described as a whole is
+one description, one described branch by branch is one per branch. A
+hook's part is its `documented()` description, the framework's its own.
+One description is the status's description; several are a list, each
+led by its code:
+
+```md
+- `ACCOUNT_DISABLED`: this account is disabled
+- `CAPTCHA_FAILED`: the captcha token is missing or did not pass
+```
+
+A status nothing describes keeps its reason phrase — `Not Found`,
+`Successful response`.
+
 ## An error format of your own
 
 Every failure reaches the application's `onError` hooks — a thrown

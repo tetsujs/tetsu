@@ -412,7 +412,10 @@ describe("responses", () => {
     const collided = strictDocument.paths["/validated"]?.post?.responses["400"];
 
     expect(collided?.description).toBe(
-      "Request failed schema validation; Body could not be parsed in the declared shape",
+      [
+        "- `VALIDATION_FAILED`: Request failed schema validation",
+        "- `MALFORMED_JSON`: Body could not be parsed in the declared shape",
+      ].join("\n"),
     );
 
     const schema = collided?.content?.["application/json"]?.schema as {
@@ -478,7 +481,7 @@ describe("responses", () => {
 
     const response = conflicts.paths["/act"]?.post?.responses["409"];
 
-    expect(response?.description).toBe("Already claimed; Already shipped");
+    expect(response?.description).toBe("- Already claimed\n- Already shipped");
     expect(response?.content?.["application/json"]?.schema).toEqual({
       $ref: "#/components/schemas/Failure409",
     });
