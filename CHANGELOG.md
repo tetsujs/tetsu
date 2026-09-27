@@ -3,7 +3,11 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.5.2 — 2026-09-27
+
+Descriptions for the document's tags, a check that holds a response to
+the document in a test, and the raw bytes of a body for a webhook's
+signature; a group is eight times cheaper for the type checker.
 
 ### Added
 
@@ -30,7 +34,7 @@ API.
 
 - `@tetsujs/core`: a `group()` costs the type checker about 130
   instantiations where it cost about 1 090 — an application of 100 groups
-  and 200 routes 187 k where it was 288 k, and 81 MB where it was 114. The
+  and 200 routes 194 k where it was 288 k, and 83 MB where it was 114. The
   children met the configuration's own `children` as an intersection of
   two array types, and every method of an array was built once per group.
   Its options besides the children are `GroupOptions`.
