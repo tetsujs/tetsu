@@ -323,7 +323,9 @@ throw httpError(409, "ALREADY_SHIPPED", "Order already shipped");
 A validation failure adds `issues`. An `onError` hook on the application
 replaces the format for the whole application: every failure reaches it —
 a thrown `HttpError`, a validation or body failure, an unmatched path
-(`404`) or method (`405`), a rate limit's refusal.
+(`404`) or method (`405`), a rate limit's refusal. The document describes
+the same format when told it — `errors` in
+[`@tetsujs/openapi`](https://github.com/tetsujs/tetsu/tree/main/packages/openapi#an-error-format-of-your-own).
 
 ### Cookies
 

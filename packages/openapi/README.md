@@ -75,6 +75,7 @@ the hash, to be prefixed with `sha384-`.
 | `assets` | the renderer on jsDelivr, pinned | your own renderer URLs, with `integrity` hashes |
 | `documentSelf` | `false` | include `/openapi.json` and `/docs` in the document |
 | `onWarning` | `console.warn` | receives what could not be described |
+| `errors` | the framework's envelope | an error format of your own — see [below](#an-error-format-of-your-own) |
 
 ## What goes into the document
 
@@ -150,6 +151,82 @@ the other failures of its status as one flat `anyOf`.
 When every alternative of a status is an envelope, the union carries a
 `discriminator` on `error`, with the mapping from each code to its
 definition, and a generated client narrows on the code.
+
+## An error format of your own
+
+Every failure reaches the application's `onError` hooks — a thrown
+`HttpError`, a validation or body failure, a `404`, a `405`, a rate limit's
+refusal — so one hook answers all of them in your format:
+
+```ts
+const inOurFormat = hook.onError(({ error }) => {
+  if (!(error instanceof HttpError)) return undefined;
+
+  const { status, error: code, ...rest } = error.body as ErrorBody;
+
+  return Response.json({ code, ...rest }, { status });
+});
+```
+
+The document is generated from the routes, not from that hook, so it is
+told the same format with `errors`:
+
+```ts
+const errors: ErrorFormat = {
+  schema: ({ error, message, fields }) => ({
+    type: "object",
+    required: ["code", "message", ...Object.keys(fields)],
+    properties: {
+      code: error ? { type: "string", const: error } : { type: "string" },
+      message: { type: "string", ...(message ? { examples: [message] } : {}) },
+      ...fields,
+    },
+  }),
+  discriminator: "code",
+};
+
+createApp({
+  hooks: { onError: [inOurFormat] },
+  routes: [api, docs({ info, errors })],
+});
+```
+
+`schema` describes one failure from what the generator knows of it: its
+status, its code when known, an example message, and in `fields` what it
+carries besides — `issues` for a validation failure, `retryAfter` for a
+rate limit, a hook's own `fields`. It is used for the framework's failures
+and the hooks' refusals alike.
+
+`discriminator` names the top-level field that holds the code. Statuses of
+envelopes are then discriminated on it, and a route's own envelope is
+recognized by it — a `{ code: "ITEM_NOT_FOUND", … }` the route declares is
+the same definition as a hook's. A format that nests its code has no
+top-level field to name; it gives `code` instead, reading the code from a
+route's schema:
+
+```ts
+code: (schema) => {
+  const error = schema.properties?.error;
+  const code = typeof error === "object" ? error.properties?.code : undefined;
+
+  return typeof code === "object" && typeof code.const === "string" ? code.const : undefined;
+},
+```
+
+The hook and `errors` describe one format in two places — the core knows
+nothing about documents, and a function cannot be read for the shape it
+returns — so keep a test that holds them together: provoke a failure and
+check its body against the document, with the JSON Schema validator of
+your choice.
+
+```ts
+test("a validation failure is what the document says", async () => {
+  const res = await request("/items", { method: "POST", body: "{}" });
+  const schema = document.components?.schemas?.ValidationFailed;
+
+  expect(validator.validate(schema, await res.json())).toBe(true);
+});
+```
 
 ## Documenting hooks
 
