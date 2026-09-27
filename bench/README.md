@@ -29,7 +29,7 @@ real socket reaches it — which is why none of this runs in process.
 a comma-separated list of target names. Raw readings land in
 `out/http.json`.
 
-## Snapshot (Bun 1.4.2, Apple M5 Pro, 2026-09-23, 3 rounds)
+## Snapshot (Bun 1.4.2, Apple M5 Pro, 2026-09-27, 3 rounds)
 
 Four routes, the same in every target: `GET /ping`; `GET /users/:id`
 behind a hook contributing `user` and an observer after the response;
@@ -41,29 +41,29 @@ Processor time per request, µs, lower is better:
 
 | | ping | users + 2 hooks | POST, validated | 404 |
 | --- | --- | --- | --- | --- |
-| raw Bun | 4.62 | 4.75 | 5.75 | 4.67 |
-| **Tetsu** | **4.88** | **5.11** | **6.36** | **4.97** |
-| Tetsu + TypeBox DTO | 5.23 | 5.47 | 6.89 | 5.40 |
-| Hono 4.13.8 | 4.98 | 5.69 | 6.73 | 5.27 |
-| Hono, `hono/quick` | 5.30 | 6.12 | 6.74 | 5.58 |
-| Elysia 1.4.30 | 4.74 | 4.98 | 6.12 | 4.75 |
-| Elysia 1.4.30, `aot: false` | 6.85 | 7.36 | 8.91 | 5.83 |
-| Elysia 1.4.30, `precompile` | 4.75 | 4.98 | 6.15 | 4.76 |
-| Elysia 2.0.0-beta.16 | 4.92 | 5.33 | 6.10 | 4.96 |
-| Elysia 2 beta, bundled | 4.90 | 5.32 | 6.17 | 4.97 |
-| Elysia 2 beta, AOT build | 4.87 | 5.33 | 6.09 | 4.88 |
+| raw Bun | 4.78 | 4.81 | 5.85 | 4.82 |
+| **Tetsu** | **4.95** | **5.09** | **6.60** | **5.13** |
+| Tetsu + TypeBox DTO | 5.07 | 5.21 | 6.80 | 5.21 |
+| Hono 4.13.8 | 5.16 | 5.87 | 6.88 | 5.41 |
+| Hono, `hono/quick` | 5.47 | 6.29 | 6.89 | 5.77 |
+| Elysia 1.4.30 | 4.89 | 5.13 | 6.31 | 4.91 |
+| Elysia 1.4.30, `aot: false` | 7.05 | 7.56 | 8.85 | 6.01 |
+| Elysia 1.4.30, `precompile` | 4.90 | 5.15 | 6.30 | 4.90 |
+| Elysia 2.0.0-beta.16 | 5.07 | 5.47 | 6.29 | 5.10 |
+| Elysia 2 beta, bundled | 5.06 | 5.49 | 6.27 | 5.13 |
+| Elysia 2 beta, AOT build | 5.03 | 5.50 | 6.29 | 5.04 |
 
 req/s, and Tetsu's share of raw Bun:
 
 | | ping | users + 2 hooks | POST, validated | 404 |
 | --- | --- | --- | --- | --- |
-| raw Bun | 220,836 | 214,229 | 176,678 | 218,429 |
-| Tetsu | 211,096 (95.6%) | 202,008 (94.3%) | 162,530 (92.0%) | 207,311 (94.9%) |
-| Hono | 206,790 | 183,889 | 155,127 | 196,999 |
-| Elysia 1.4.30 | 218,580 | 209,225 | 170,017 | 216,844 |
-| Elysia 2 beta, AOT | 212,080 | 196,528 | 170,432 | 211,640 |
+| raw Bun | 213,330 | 212,342 | 174,072 | 211,614 |
+| Tetsu | 206,987 (97.0%) | 202,352 (95.3%) | 156,838 (90.1%) | 200,818 (94.9%) |
+| Hono | 199,173 | 177,884 | 151,442 | 191,827 |
+| Elysia 1.4.30 | 211,693 | 203,316 | 164,684 | 209,272 |
+| Elysia 2 beta, AOT | 205,295 | 190,217 | 164,963 | 204,880 |
 
-p50 is 0.39–0.44 ms and p99 0.84–1.14 ms for every target except Elysia 1
+p50 is 0.40–0.59 ms and p99 0.88–1.27 ms for every target except Elysia 1
 with `aot: false` (up to 1.59 ms): with 96 connections in a closed loop,
 latency is mostly queueing, and it ranks the targets as req/s does.
 
@@ -71,45 +71,53 @@ Startup and memory:
 
 | | startup | slowest first request | idle RSS | peak RSS under load | heap after load |
 | --- | --- | --- | --- | --- | --- |
-| raw Bun | 3 ms | 0.27 ms | 14.3 MB | 37–53 MB | 0.2 MB |
-| **Tetsu** | **5 ms** | **0.54 ms** | **20.9 MB** | **44–56 MB** | **0.6 MB** |
-| Tetsu + TypeBox DTO | 38 ms | 0.55 ms | 49.9 MB | 63–72 MB | 2.1 MB |
-| Hono | 6 ms | 1.15 ms | 22.6 MB | 51–62 MB | 0.7 MB |
-| Elysia 1.4.30 | 22 ms | 2.11 ms | 38.0 MB | 59–71 MB | 1.5 MB |
-| Elysia 1.4.30, `precompile` | 24 ms | 0.45 ms | 43.1 MB | 57–70 MB | 1.5 MB |
-| Elysia 2 beta | 13 ms | 2.20 ms | 41.9 MB | 66–78 MB | 3.1 MB |
-| Elysia 2 beta, bundled | 10 ms | 2.11 ms | 32.9 MB | 54–69 MB | 2.9 MB |
-| Elysia 2 beta, AOT build | 14 ms | 1.15 ms | 25.1 MB | 51–63 MB | 1.7 MB |
+| raw Bun | 3 ms | 0.28 ms | 14.3 MB | 38–53 MB | 0.2 MB |
+| **Tetsu** | **5 ms** | **0.51 ms** | **21.7 MB** | **47–59 MB** | **0.6 MB** |
+| Tetsu + TypeBox DTO | 39 ms | 0.53 ms | 49.4 MB | 65–75 MB | 2.1 MB |
+| Hono | 6 ms | 1.17 ms | 22.1 MB | 51–60 MB | 0.7 MB |
+| Elysia 1.4.30 | 24 ms | 2.15 ms | 38.3 MB | 59–72 MB | 1.5 MB |
+| Elysia 1.4.30, `precompile` | 25 ms | 0.47 ms | 43.2 MB | 58–71 MB | 1.5 MB |
+| Elysia 2 beta | 13 ms | 2.24 ms | 41.2 MB | 65–77 MB | 3.1 MB |
+| Elysia 2 beta, bundled | 10 ms | 2.20 ms | 32.9 MB | 54–68 MB | 2.9 MB |
+| Elysia 2 beta, AOT build | 15 ms | 1.16 ms | 25.2 MB | 51–61 MB | 1.7 MB |
 
 The targets read Tetsu from its sources. The published packages are
-bundled, one file per entry point, and the core idles at 13.7 MB that way
-rather than the 20.9 MB above.
+bundled, one file per entry point, and the core idles at 14.1 MB that way
+rather than the 21.7 MB above.
 
 Reading:
 
-- **0.26–0.61 µs a request over raw Bun**, 92–96% of its throughput; ahead
-  of Hono on every route, level with the Elysia 2 beta, 0.13–0.24 µs behind
-  Elysia 1.4.30, which compiles a function per route.
-- **The least memory and the fastest start of the frameworks**, and no
-  heap growth after load for any target.
-- **A TypeBox DTO is the heavy part of an application that uses one:** 25
-  MB of the 29 MB it adds is `import "typebox"` alone, and the heavier heap
-  makes every route slightly slower, the ones without a DTO included. On a
-  two-field body it loses to a hand-written check; on larger bodies, and
-  against the libraries an application would use instead, its compiled
-  check wins by up to 18× ([What validation costs](#what-validation-costs)).
+- **0.17–0.75 µs a request over raw Bun**, 90–97% of its throughput;
+  ahead of Hono on every route; ahead of the Elysia 2 beta on the `GET`s,
+  level on the `404` and 0.31 µs behind on the validated `POST`; level with
+  Elysia 1.4.30 on the `GET`s, which compiles a function per route, and
+  0.22–0.29 µs behind it on the `404` and the `POST`.
+- **The `404` of an application without `onError` hooks is answered
+  straight away.** With such a hook it takes the error path instead, so
+  the hook sees it and formats it like every other failure — about 0.2 µs
+  more in process. The error path is what every failure costs: see
+  [A refusal](#per-request-overhead-in-process).
+- **The fastest start of the frameworks, and with Hono the least memory**,
+  and no heap growth after load for any target.
+- **A TypeBox DTO is the heavy part of an application that uses one:**
+  nearly all of the 28 MB it adds is `import "typebox"` itself, and the
+  heavier heap makes every route slightly slower, the ones without a DTO
+  included. On a two-field body it loses to a hand-written check; on
+  larger bodies, and against the libraries an application would use
+  instead, its compiled check wins by up to 18×
+  ([What validation costs](#what-validation-costs)).
 
 ## What Elysia's options do
 
-- **`aot` in 1.x is not optional in practice.** `aot: false` costs 45% more
-  processor time a request and 28% of the throughput.
+- **`aot` in 1.x is not optional in practice.** `aot: false` costs 40–47% more
+  processor time a request on the routes and 28–30% of the throughput.
 - **`precompile` in 1.x** changes nothing under load; it moves compilation
-  from the first request (2.11 ms) to startup (0.45 ms), for 5 MB and 2 ms.
+  from the first request (2.15 ms) to startup (0.47 ms), for 5 MB and 1 ms.
 - **2.x has no `aot` option: ahead-of-time compilation is a build plugin**
   (`elysia/plugin/aot/bun`), so `http.ts` builds that target first. It
   leaves throughput where it was and halves the first request, and it is
-  what brings 2.x's memory down, from 41.9 MB to 25.1 — bundling alone
-  accounts for 9 MB of that, which is why a plain bundle of the same file
+  what brings 2.x's memory down, from 41.2 MB to 25.2 — bundling alone
+  accounts for 8 MB of that, which is why a plain bundle of the same file
   is measured next to it.
 - **`precompile: true` fails on 2.0.0-beta.16** for a route with a body
   schema (`this.tb.buildResult is undefined` while compiling `POST
