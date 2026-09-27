@@ -17,7 +17,8 @@
  * `controller()`, the form the README shows — a `GET` with `params`,
  * `query`, a status map and two hooks — one contributing, one reading
  * through `Requires` — and a `POST` with a `body` and a status of its own;
- * all of it mounted by one `createApp`. It imports the core from `dist`,
+ * all of it mounted by one `createApp`, either straight in or each
+ * controller in a group of its own — see {@link Mounting}. It imports the core from `dist`,
  * the way a user's compiler reads it, so the core's own sources are not
  * part of the bill.
  *
@@ -45,7 +46,7 @@ const ladder = [2, 200, 800] as const;
 
 /**
  * Instantiations the 200-route application may cost, on the compiler the
- * repository pins.
+ * repository pins, mounted each way.
  *
  * Set a quarter above the last measured count (174 517, with controllers
  * declared by `controller()`; classes cost 198 615), which leaves room for
@@ -53,10 +54,20 @@ const ladder = [2, 200, 800] as const;
  * Lower it when a change makes the types cheaper, so the room does not
  * accumulate; raising it is a decision to make on purpose, with the new
  * count in the commit message.
+ *
+ * `grouped` was first measured at 288 115 (2026-09-27): about 1 090
+ * instantiations a group, nearly all of them the intersection `group()`
+ * made of its children with the configuration's — see `GroupOptions` in
+ * `packages/core/src/group.ts`. Apart, it is 187 361, about 130 a group,
+ * and the budget is set the same quarter above that.
  */
-const budget = 218_000;
+const budgets: Record<Mounting, number> = {
+  flat: 218_000,
+  grouped: 234_000,
+};
 
 interface Cost {
+  readonly mounting: Mounting;
   readonly routes: number;
   readonly types: number;
   readonly instantiations: number;
@@ -64,10 +75,19 @@ interface Cost {
   readonly checkSeconds: number;
 }
 
-function application(routes: number): string {
+/**
+ * How the controllers are mounted: all of them straight into `createApp`,
+ * or each in a group of its own — a prefix and two group hooks, the second
+ * reading what the first contributed. Groups have type machinery of their
+ * own — prefixes joined into the route map, a group's hooks checked against
+ * the context of their level — and the flat application never touches it.
+ */
+type Mounting = "flat" | "grouped";
+
+function application(routes: number, mounting: Mounting): string {
   const controllers = routes / 2;
   const lines = [
-    `import { controller, createApp, hook, route, type Requires, type StandardSchemaV1 } from ${JSON.stringify(core)};`,
+    `import { controller, createApp, group, hook, route, type Requires, type StandardSchemaV1 } from ${JSON.stringify(core)};`,
     "declare const Params: StandardSchemaV1<unknown, { id: number }>;",
     "declare const Query: StandardSchemaV1<unknown, { page?: number }>;",
     "declare const Body: StandardSchemaV1<unknown, { name: string; qty: number }>;",
@@ -75,6 +95,8 @@ function application(routes: number): string {
     "declare const NotFound: StandardSchemaV1<unknown, { code: string }>;",
     'const auth = hook.beforeParse(() => ({ user: { id: "u" } }));',
     "const owner = hook.beforeHandle((ctx: Requires<{ user: { id: string }; params: { id: number } }>) => ({ owner: ctx.user.id + ctx.params.id }));",
+    'const zone = hook.beforeParse(() => ({ tenant: "t" }));',
+    "const scope = hook.beforeParse((ctx: Requires<{ tenant: string }>) => ({ scope: ctx.tenant }));",
   ];
 
   for (let index = 0; index < controllers; index += 1) {
@@ -101,9 +123,10 @@ function application(routes: number): string {
 }));`);
   }
 
-  const mounted = Array.from(
-    { length: controllers },
-    (_, index) => `c${index}()`,
+  const mounted = Array.from({ length: controllers }, (_, index) =>
+    mounting === "flat"
+      ? `c${index}()`
+      : `group("/g${index}", { hooks: { beforeParse: [zone, scope] }, children: [c${index}()] })`,
   );
 
   lines.push(
@@ -135,11 +158,11 @@ function field(output: string, name: string): number {
   return Number(match[1]);
 }
 
-async function measure(routes: number): Promise<Cost> {
+async function measure(routes: number, mounting: Mounting): Promise<Cost> {
   const directory = await mkdtemp(join(tmpdir(), "tetsu-types-"));
 
   try {
-    await Bun.write(join(directory, "app.ts"), application(routes));
+    await Bun.write(join(directory, "app.ts"), application(routes, mounting));
     await Bun.write(
       join(directory, "tsconfig.json"),
       JSON.stringify({ compilerOptions, files: ["app.ts"] }),
@@ -155,6 +178,7 @@ async function measure(routes: number): Promise<Cost> {
     }
 
     return {
+      mounting,
       routes,
       types: field(output, "Types"),
       instantiations: field(output, "Instantiations"),
@@ -170,23 +194,38 @@ await $`bun run build`.cwd(root).quiet();
 
 const costs: Cost[] = [];
 
-for (const routes of ladder) {
-  costs.push(await measure(routes));
+for (const mounting of ["flat", "grouped"] as const) {
+  for (const routes of ladder) {
+    costs.push(await measure(routes, mounting));
+  }
 }
 
 console.table(costs);
 
 if (process.argv.includes("--check")) {
-  const gated = costs.find((cost) => cost.routes === 200);
+  let over = false;
 
-  if (gated === undefined || gated.instantiations > budget) {
-    console.error(
-      `200 routes cost ${gated?.instantiations} instantiations, over the budget of ${budget}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+  for (const mounting of ["flat", "grouped"] as const) {
+    const budget = budgets[mounting];
+    const gated = costs.find(
+      (cost) => cost.routes === 200 && cost.mounting === mounting,
     );
-    process.exit(1);
+
+    if (gated === undefined || gated.instantiations > budget) {
+      console.error(
+        `200 routes, ${mounting}, cost ${gated?.instantiations} instantiations, over the budget of ${budget}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+      );
+      over = true;
+
+      continue;
+    }
+
+    console.log(
+      `200 routes, ${mounting}: ${gated.instantiations} of ${budget} instantiations`,
+    );
   }
 
-  console.log(
-    `200 routes: ${gated.instantiations} of ${budget} instantiations`,
-  );
+  if (over) {
+    process.exit(1);
+  }
 }

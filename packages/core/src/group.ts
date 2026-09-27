@@ -45,12 +45,25 @@ import type {
 export type GroupHooks = HooksConfig;
 
 /**
- * The configuration accepted by `group()`.
+ * What `group()` takes besides its children: the zone's hooks.
+ *
+ * Apart from {@link GroupConfig} because `group()` types its children
+ * itself, as a tuple of what was written. Declared together with the
+ * configuration's own `children`, they met as the intersection of two
+ * array types, and the checker built the members of that intersection —
+ * every method of an array — once per group: about 1 090 instantiations a
+ * group, where apart it costs about 140 (`bench/src/types.ts`).
  */
-export interface GroupConfig<H extends GroupHooksInput = GroupHooks> {
+export interface GroupOptions<H extends GroupHooksInput = GroupHooks> {
   /** Zone-wide hooks, keyed by slot; see `GroupHooks` for what belongs here. */
   readonly hooks?: H & ValidateGroupHooksInput<H>;
+}
 
+/**
+ * The configuration accepted by `group()`.
+ */
+export interface GroupConfig<H extends GroupHooksInput = GroupHooks>
+  extends GroupOptions<H> {
   /** Controllers and nested groups mounted under this prefix. */
   readonly children: readonly object[];
 }
@@ -110,7 +123,7 @@ export function group<
   const H extends GroupHooksInput = GroupHooks,
 >(
   prefix: Prefix & ValidatePrefix<Prefix>,
-  config: GroupConfig<H> & { readonly children: C },
+  config: GroupOptions<H> & { readonly children: C },
 ): GroupNode<Prefix, C> {
   if (!prefix.startsWith("/")) {
     throw new Error(`Group prefix must start with "/", got "${prefix}"`);
