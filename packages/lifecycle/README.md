@@ -70,27 +70,87 @@ and the removal takes time to propagate. Stopping at once cuts exactly
 those requests.
 
 Keep serving for a few seconds, and fail the readiness check meanwhile, so
-the balancer stops routing to you:
+the balancer stops routing to you — the controller is in
+[Health checks](#health-checks):
 
 ```ts
-const { stopping } = onShutdownSignals(server, {
-  preStopDelayMs: 5_000,
-  close: [() => pool.end()],
+const checks = { database: () => pool.query("select 1") };
+
+const server = Bun.serve({
+  ...createApp({
+    routes: [
+      healthController({ stopping: () => shutdown.stopping.aborted, checks }),
+      ordersController({ orders }),
+    ],
+  }),
 });
 
-ready = route({
-  method: "GET",
-  path: "/readyz",
-  handler: () => {
-    if (stopping.aborted) throw new HttpError(503);
-
-    return { ok: true };
-  },
+const shutdown = onShutdownSignals(server, {
+  preStopDelayMs: 5_000,
+  close: [() => pool.end()],
 });
 ```
 
 Use both or neither: the delay without a failing readiness check only
 postpones the cut.
+
+### Health checks
+
+The readiness check fails while stopping, and while something the instance
+needs is not there. Each check has its own deadline and they run side by
+side, so one that hangs fails alone and the probe still answers in time;
+the answer says which one failed:
+
+```ts
+import { controller, httpError, route } from "@tetsujs/core";
+
+async function passes(check: () => Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  try {
+    await Promise.race([check(), Bun.sleep(timeoutMs).then(() => Promise.reject())]);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface HealthDeps {
+  readonly stopping: () => boolean;
+  readonly checks: Readonly<Record<string, () => Promise<unknown>>>;
+}
+
+export const healthController = controller("Health", ({ stopping, checks }: HealthDeps) => ({
+  live: route({ method: "GET", path: "/livez", docs: { hidden: true }, handler: () => "ok" }),
+
+  ready: route({
+    method: "GET",
+    path: "/readyz",
+    docs: { hidden: true },
+    handler: async () => {
+      if (stopping()) throw httpError(503, "STOPPING", "Shutting down");
+
+      const results = await Promise.all(
+        Object.entries(checks).map(async ([name, check]) => ({ name, ok: await passes(check, 1_000) })),
+      );
+
+      const failing = results.filter((result) => !result.ok).map((result) => result.name);
+
+      if (failing.length > 0) throw httpError(503, "NOT_READY", `Not ready: ${failing.join(", ")}`);
+
+      return "ok";
+    },
+  }),
+}));
+```
+
+- `stopping` is a function because the signal exists only once the server
+  does, and the server is built from the controller.
+- Liveness checks nothing but the process: a database that is down takes
+  the instance out of rotation, while a failing liveness probe would
+  restart it, and every instance at once.
+- `docs: { hidden: true }` keeps both out of the
+  [OpenAPI document](../openapi); a filter in `write` keeps them out of
+  [request logs and metrics](../request-log#metrics).
 
 ## Background jobs
 
@@ -105,7 +165,7 @@ const job = Bun.cron("*/5 * * * *", async () => {
   if (running) return; // the previous run is still going
 
   running = sweep()
-    .catch((error) => console.error("sweep failed:", error))
+    .catch((error) => reportError({ source: "job", error }))
     .finally(() => {
       running = undefined;
     });
@@ -121,7 +181,15 @@ stopping.addEventListener("abort", () => job.stop(), { once: true });
 ```
 
 The guard keeps a slow run from overlapping the next one, and the `catch`
-keeps a failed run from ending the schedule.
+keeps a failed run from ending the schedule. `reportError` is the receiver
+the application was given, so a failed run reaches the same logger as a
+failed request — `source` takes any string:
+
+```ts
+const reportError = ({ source, error }: FailureReport) => logger.error({ err: error, source }, "tetsu");
+
+const app = createApp({ reportError, routes });
+```
 
 ## Options
 

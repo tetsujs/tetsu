@@ -90,18 +90,68 @@ where it can be grouped by.
 
 ## Metrics
 
-A record has everything request metrics need — count, status, duration —
-so a metrics registry is fed from the same `write`. Label by `route`, never
-by `path`: `route` is `/users/:id` whatever was requested, while `path`
-makes a new series for every id.
+A record has everything request metrics need — the method, the route, the
+status, the duration — so a registry is fed from the same `write`. With
+[`prom-client`](https://github.com/siimon/prom-client):
 
 ```ts
-accessLog({
-  write: (record) => {
-    const route = record.route ?? "unmatched";
+import { collectDefaultMetrics, Histogram } from "prom-client";
 
-    requests.labels(record.method, route, String(record.status)).inc();
-    latency.labels(record.method, route).observe(record.durationMs);
+collectDefaultMetrics();
+
+const duration = new Histogram({
+  name: "http_request_duration_seconds",
+  help: "How long a request took, from arrival to response",
+  labelNames: ["method", "route", "status"],
+});
+
+const probes = new Set(["/livez", "/readyz"]);
+
+const measured = accessLog({
+  write: (record) => {
+    if (record.route !== undefined && probes.has(record.route)) return;
+
+    duration.observe(
+      { method: record.method, route: record.route ?? "unmatched", status: record.status },
+      record.durationMs / 1000,
+    );
   },
 });
 ```
+
+Label by `route`, never by `path`: `route` is `/users/:id` whatever was
+requested, while `path` makes a new series for every id — and for every
+path a scanner tries, which is why a request no route answered is counted
+as `unmatched`. The histogram's `_count` is the request count, so no
+counter is needed beside it. The balancer's probes are left out in `write`,
+by the route the record carries: they arrive every few seconds and would
+outweigh the traffic.
+
+The registry is served by an application of its own, on a port the
+balancer does not route to — Prometheus reads it, the API's clients do not,
+and it stays out of the API's document, logs and rate limits:
+
+```ts
+import { register } from "prom-client";
+
+const metricsController = controller("Metrics", () => ({
+  metrics: route({
+    method: "GET",
+    path: "/metrics",
+    handler: async () =>
+      new Response(await register.metrics(), {
+        headers: { "content-type": register.contentType },
+      }),
+  }),
+}));
+
+const api = Bun.serve({ ...createApp({ hooks: { afterResponse: [measured] }, routes }), port: 3000 });
+const internal = Bun.serve({ ...createApp({ routes: metricsController() }), port: 9464 });
+
+onShutdownSignals([api, internal], { close: [() => pool.end()] });
+```
+
+One [`onShutdownSignals`](../lifecycle#several-servers) stops both servers.
+`collectDefaultMetrics()` adds the process's own — memory, CPU, event loop
+lag, garbage collection. They are named `nodejs_*` although the process is
+Bun: `prom-client` reads them through the Node APIs Bun implements.
