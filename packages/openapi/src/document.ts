@@ -78,12 +78,31 @@ export interface OperationObject {
 /** Every operation declared on one path template. */
 export type PathItemObject = Record<string, OperationObject>;
 
+/**
+ * A tag the document describes: its name and what its operations are.
+ *
+ * Open to the rest of the specification's fields — `externalDocs` — as
+ * `info` is: the generator fills in two, and a document a caller builds
+ * or extends by hand may carry more.
+ */
+export interface TagObject {
+  readonly name: string;
+  readonly description?: string;
+  readonly [key: string]: unknown;
+}
+
 /** The generated document. */
 export interface OpenApiDocument {
   readonly openapi: "3.1.0";
   readonly info: DocumentInfo;
   readonly servers?: readonly DocumentServer[];
   readonly paths: Record<string, PathItemObject>;
+
+  /**
+   * The tags the operations are grouped under, in the order a renderer
+   * lists them. Present only when the generator was given descriptions.
+   */
+  readonly tags?: readonly TagObject[];
 
   /**
    * What the operations refer to rather than repeat: the security schemes
