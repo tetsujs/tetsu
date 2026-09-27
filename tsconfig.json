@@ -32,6 +32,7 @@
     // `exports` to `dist`; `tsconfig.lib.json` clears these for the build.
     "paths": {
       "@tetsujs/core/testing": ["./packages/core/test-utils/index.ts"],
+      "@tetsujs/openapi/testing": ["./packages/openapi/src/testing.ts"],
       "@tetsujs/*": ["./packages/*/src/index.ts"]
     }
   },

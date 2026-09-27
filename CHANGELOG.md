@@ -12,6 +12,12 @@ API.
   use and `tags` leaves out is listed after them and reported, and so is a
   described tag no operation uses: either is usually one tag spelled two
   ways. `docs()` describes its own tag when its routes are documented.
+- `@tetsujs/openapi/testing`: `assertDescribed(document, "POST /session",
+  res)` throws unless a response a test provoked is one the document
+  describes for the operation — its status declared, its body one of the
+  alternatives of that status, the headers asked about documented — and
+  lists every problem at once. `validate` checks the body in full with a
+  JSON Schema validator of your choice.
 
 ### Changed
 

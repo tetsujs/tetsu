@@ -78,19 +78,31 @@ the hash, to be prefixed with `sha384-`.
 | `errors` | the framework's envelope | an error format of your own — see [below](#an-error-format-of-your-own) |
 | `tags` | — | what each tag is, in the order the sidebar lists them — see [below](#tags) |
 
-## What goes into the document
+## How a route becomes an operation
 
-| From the route | Becomes |
-| --- | --- |
-| `path` | the path: `/users/:id` → `/users/{id}` |
-| `schema.params`, `query`, `headers`, `cookies` | parameters, required as the schema says |
-| `schema.body` and `bodyType` | the request body and its media types |
-| `schema.response` | responses — one, or one per status of a map; `null` is a status without a body |
-| `docs` | `summary`, `description`, `tags`, `deprecated` |
-| the controller's name and the field | `operationId`: `setAvatar` in `controller("Users", …)` → `usersSetAvatar` |
+Every part of an operation comes from somewhere the application already
+wrote, by a rule:
+
+| In the document | Comes from | Rule |
+| --- | --- | --- |
+| the path | the route's `path`, under its groups' prefixes | `/users/:id` → `/users/{id}` |
+| `operationId` | `docs.operationId`, or the controller's name and the field | `setAvatar` in `controller("Users", …)` → `usersSetAvatar` — see [Operation ids](#operation-ids) |
+| `summary`, `description`, `tags`, `deprecated` | the route's `docs` | as written |
+| parameters | `schema.params`, `query`, `headers`, `cookies` | required as the schema says |
+| the request body | `schema.body` and `bodyType` | media types from `bodyType`; required unless `text` or `stream` |
+| `security` | `secured()` hooks, of every level the route runs under | every hook required together; `anyOf` inside one hook is the alternatives |
+| the statuses | the route's `schema.response`, the hooks' `documented()` and `secured()`, the framework | one schema is `200`, a map its statuses, `null` a status without a body; with no `2xx` declared, `200`; the framework's `422`, `400`, `413`, `500` where they can happen — see [Responses the framework adds](#responses-the-framework-adds) |
+| a status's body | everything answering with that status | one flat `anyOf`, the route's own first, the same body once |
+| an error envelope | any of them | one definition per status and code in `components`, named after the code; the route's own kept |
+| `discriminator` | the envelopes of a status | on `error`, or the format's field, when every alternative is an envelope |
+| a status's description | the schemas' `description`, the hooks', the framework's | one is the description, several a list led by code, none the reason phrase |
+| a status's headers | the hooks' `documented()` headers | possible, not required |
+| the document's `tags` | the `tags` option | in its order, then the tags routes use and it leaves out |
 
 `docs: { hidden: true }` leaves a route out of the document; it is served
-as before.
+as before. A route with no `schema.response` is documented as `200` — its
+handler may still answer `204` by returning nothing, which only a declared
+`204: null` says.
 
 ## Tags
 
@@ -349,6 +361,50 @@ await Bun.write("openapi.json", JSON.stringify(document, null, 2));
 ```
 
 `docsPage()` renders the page on its own, for serving it elsewhere.
+
+## Testing against the document
+
+`@tetsujs/openapi/testing` checks a response a test provoked against the
+operation the document describes:
+
+```ts
+import { assertDescribed } from "@tetsujs/openapi/testing";
+
+const { document } = openapi(app, { info });
+
+test("a wrong code is what the document says", async () => {
+  const res = await request("/session", { method: "POST", body });
+
+  await assertDescribed(document, "POST /session", res);
+});
+```
+
+It throws unless the status is declared and the body fits one of the
+alternatives its status describes, listing every problem at once:
+
+```
+POST /session answered 403, which the document does not describe:
+- error "CAPTCHA_FAILED", which its 403 does not list: ACCOUNT_DISABLED, CSRF_HEADER_REQUIRED
+```
+
+The operation is named as the test called it, a method and the path it
+requested, matched against the document's templates. Without a validator
+only the top level of the body is compared — required fields, and fields
+that are a `const`, which is where an envelope keeps its code. `validate`
+checks the whole body with the JSON Schema validator of your choice, given
+a schema that stands on its own; `headers` names headers the status must
+declare when the response carries them:
+
+```ts
+await assertDescribed(document, "POST /session", res, {
+  validate: (schema, body) => ajv.validate(schema, body) || ajv.errorsText(),
+  headers: ["retry-after"],
+});
+```
+
+The core does not check a thrown error against the route's response map:
+a guard's refusal would be reported on every route it runs on. A test asks
+about the one response it provoked.
 
 ## Warnings
 

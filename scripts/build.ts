@@ -32,11 +32,20 @@ import { Glob } from "bun";
 const root = join(import.meta.dir, "..");
 const packages = join(root, "packages");
 
-/** Entry points per package, relative to the package directory. */
-function entries(name: string): string[] {
-  return name === "core"
-    ? ["src/index.ts", "test-utils/index.ts"]
-    : ["src/index.ts"];
+/**
+ * A package's entry points, relative to its directory: the sources of what
+ * its `exports` name — `./dist/src/index.js` is built from `src/index.ts`.
+ * The manifest says what a package publishes, and the build follows it
+ * rather than keeping a list of its own.
+ */
+async function entries(directory: string): Promise<string[]> {
+  const manifest = await Bun.file(join(directory, "package.json")).json();
+
+  return Object.values(
+    manifest.exports as Record<string, { readonly default: string }>,
+  ).map((target) =>
+    target.default.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+  );
 }
 
 /**
@@ -88,7 +97,9 @@ for (const name of await readdir(packages)) {
   await clearJavaScript(dist);
 
   const result = await Bun.build({
-    entrypoints: entries(name).map((entry) => join(directory, entry)),
+    entrypoints: (await entries(directory)).map((entry) =>
+      join(directory, entry),
+    ),
     root: directory,
     outdir: dist,
     target: "bun",
