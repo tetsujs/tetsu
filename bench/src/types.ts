@@ -56,12 +56,14 @@ const ladder = [2, 200, 800] as const;
  * count in the commit message.
  *
  * `grouped` was first measured at 288 115 (2026-09-27): about 1 090
- * instantiations a group, nearly all of them the group itself — its two
- * hooks add some 50. Its budget is set the same quarter above.
+ * instantiations a group, nearly all of them the intersection `group()`
+ * made of its children with the configuration's — see `GroupOptions` in
+ * `packages/core/src/group.ts`. Apart, it is 187 361, about 130 a group,
+ * and the budget is set the same quarter above that.
  */
 const budgets: Record<Mounting, number> = {
   flat: 218_000,
-  grouped: 360_000,
+  grouped: 234_000,
 };
 
 interface Cost {

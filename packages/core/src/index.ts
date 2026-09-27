@@ -38,7 +38,12 @@ export type {
 } from "./cookie.ts";
 export type { ErrorBody, ValidationIssue } from "./error.ts";
 export { errorBody, HttpError, httpError, ValidationError } from "./error.ts";
-export type { GroupConfig, GroupHooks, GroupNode } from "./group.ts";
+export type {
+  GroupConfig,
+  GroupHooks,
+  GroupNode,
+  GroupOptions,
+} from "./group.ts";
 export { group, isGroup } from "./group.ts";
 export type { AnyHook, Hook, SlotBases, SlotName } from "./hook.ts";
 export { hook } from "./hook.ts";

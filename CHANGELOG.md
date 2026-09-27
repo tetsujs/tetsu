@@ -15,6 +15,12 @@ API.
 
 ### Changed
 
+- `@tetsujs/core`: a `group()` costs the type checker about 130
+  instantiations where it cost about 1 090 — an application of 100 groups
+  and 200 routes 187 k where it was 288 k, and 81 MB where it was 114. The
+  children met the configuration's own `children` as an intersection of
+  two array types, and every method of an array was built once per group.
+  Its options besides the children are `GroupOptions`.
 - `@tetsujs/core`: the package no longer ships the test helpers of this
   repository that `@tetsujs/core/testing` does not export — type
   assertions, a mock schema, a socket client. They were never importable.

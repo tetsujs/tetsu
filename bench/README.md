@@ -206,13 +206,15 @@ what the first contributed. Each has its budget.
 | flat | 2 | 7 631 | 19 823 | 53 MB | 0.02 s |
 | flat | 200 | 24 969 | 174 171 | 74 MB | 0.09 s |
 | flat | 800 | 77 469 | 641 871 | 137 MB | 0.33 s |
-| grouped | 2 | 9 919 | 25 362 | 54 MB | 0.02 s |
-| grouped | 200 | 66 164 | 288 115 | 114 MB | 0.15 s |
-| grouped | 800 | 236 562 | 1 084 315 | 296 MB | 0.63 s |
+| grouped | 2 | 8 259 | 22 024 | 53 MB | 0.02 s |
+| grouped | 200 | 28 567 | 187 361 | 81 MB | 0.10 s |
+| grouped | 800 | 90 065 | 688 361 | 164 MB | 0.39 s |
 
-TypeScript 7.0.2, 2026-09-27. A group costs about 1 090 instantiations,
-nearly all of them the group itself: without its hooks it is 282 895 at
-200 routes, so its two hooks add some 50 a group. The same routes in controller classes cost
+TypeScript 7.0.2, 2026-09-27. A group costs about 130 instantiations. It
+cost about 1 090 when the variant was first measured — 288 115 at 200
+routes, 1 084 315 and 296 MB at 800: `group()` typed its children as the
+intersection of two array types, and the checker built every method of an
+array for each group. The same routes in controller classes cost
 198 615 instantiations at 200 routes and 740 115 at 800: every class is a
 type of its own for the checker, an object a factory returns is not. Types and instantiations are the same on every
 machine for a given compiler, which is why they are the gate; memory and
