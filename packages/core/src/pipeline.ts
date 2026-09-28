@@ -70,7 +70,7 @@ import type { AnyHook, SlotName } from "./hook.ts";
 import { isThenable } from "./internal.ts";
 import type { Reporter } from "./report.ts";
 import { ResponseContractError, reporterKey } from "./report.ts";
-import { checkResponse, responseSchemaFor, validate } from "./validate.ts";
+import { checkAnswer, responseContractFor, validate } from "./validate.ts";
 import {
   applyOutgoingHeaders,
   parseBody,
@@ -453,13 +453,13 @@ function answer(
   }
 
   if (options.validateResponses) {
-    const responseSchema = responseSchemaFor(
+    const contract = responseContractFor(
       entry.def.schema?.response,
       statusFor(result, ctx.out),
     );
 
-    if (responseSchema) {
-      const checked = checkResponse(responseSchema, result);
+    if (contract) {
+      const checked = checkAnswer(contract, result, ctx, options.cookieSealer);
 
       return isThenable(checked)
         ? checked.then((value) => serialize(value, ctx.out))

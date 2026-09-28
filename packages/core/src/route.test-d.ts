@@ -806,3 +806,132 @@ route({
   hooks: indexedHooks,
   handler: () => null,
 });
+
+const Location = mockSchema<{ location: string }>();
+const SessionCookie = mockSchema<{ session: string }>();
+
+/** An entry with headers still types the handler by its body. */
+route({
+  method: "POST",
+  path: "/entry-created",
+  schema: {
+    response: {
+      201: { body: CreatedSession, headers: Location },
+      409: AuthError,
+    },
+  },
+  handler: (ctx) => {
+    ctx.out.status = 201;
+    ctx.out.headers.set("location", "/sessions/7");
+
+    return { id: 7 };
+  },
+});
+
+route({
+  method: "POST",
+  path: "/entry-wrong-body",
+  schema: { response: { 201: { body: CreatedSession, headers: Location } } },
+  // @ts-expect-error the entry's body is { id: number }
+  handler: () => ({ token: "t" }),
+});
+
+/** An entry without a body, or with a null one, answers with nothing. */
+route({
+  method: "POST",
+  path: "/entry-redirect",
+  schema: { response: { 303: { headers: Location } } },
+  handler: (ctx) => {
+    ctx.out.status = 303;
+    ctx.out.headers.set("location", "/sessions");
+  },
+});
+
+route({
+  method: "POST",
+  path: "/entry-null-body",
+  schema: { response: { 204: { body: null, cookies: SessionCookie } } },
+  handler: () => undefined,
+});
+
+route({
+  method: "POST",
+  path: "/entry-body-required",
+  schema: {
+    response: { 201: { body: CreatedSession, cookies: SessionCookie } },
+  },
+  // @ts-expect-error a status with a body must be answered with one
+  handler: () => undefined,
+});
+
+route({
+  method: "POST",
+  path: "/entry-undeclared-status",
+  schema: { response: { 303: { headers: Location } } },
+  handler: (ctx) => {
+    // @ts-expect-error 302 is not a status the map declares
+    ctx.out.status = 302;
+  },
+});
+
+type EntryResult = HandlerResult<{
+  response: {
+    201: { body: typeof CreatedSession; headers: typeof Location };
+    303: { headers: typeof Location };
+  };
+}>;
+
+export type responseEntryCases = [
+  Expect<
+    Equal<
+      DeclaredStatus<{
+        response: {
+          201: { body: typeof CreatedSession };
+          303: { headers: typeof Location };
+        };
+      }>,
+      201 | 303
+    >
+  >,
+  Expect<
+    Equal<Exclude<EntryResult, Response | undefined | void>, { id: number }>
+  >,
+];
+
+/** A body that may be absent or null is still the body it may be. */
+declare const maybeBody: {
+  readonly body?: typeof CreatedSession;
+  readonly headers: typeof Location;
+};
+declare const nullableBody: {
+  readonly body: typeof CreatedSession | null;
+};
+
+export type maybeBodyCases = [
+  Expect<
+    Equal<
+      Exclude<
+        HandlerResult<{ response: { 201: typeof maybeBody } }>,
+        Response | undefined | void
+      >,
+      { id: number }
+    >
+  >,
+  Expect<
+    Equal<
+      undefined extends HandlerResult<{ response: { 201: typeof maybeBody } }>
+        ? true
+        : false,
+      true
+    >
+  >,
+  Expect<
+    Equal<
+      Exclude<
+        HandlerResult<{ response: { 201: typeof nullableBody } }>,
+        Response | undefined | void
+      >,
+      { id: number }
+    >
+  >,
+];

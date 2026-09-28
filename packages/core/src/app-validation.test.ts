@@ -14,6 +14,7 @@ import { serve } from "../test-utils/server.ts";
 import { createApp } from "./app.ts";
 import { HttpError, ValidationError } from "./error.ts";
 import { hook } from "./hook.ts";
+import type { FailureReport } from "./report.ts";
 import { route } from "./route.ts";
 import type { StandardSchemaV1 } from "./schema.ts";
 
@@ -999,5 +1000,276 @@ describe("request body size limit", () => {
       message: "Body exceeds the configured limit",
       error: "BODY_TOO_LARGE",
     });
+  });
+});
+
+describe("response headers and cookies", () => {
+  const seen: Record<string, unknown>[] = [];
+
+  /**
+   * Requires the named keys to be strings, records what it was given, and
+   * passes the rest through, as an object schema does by default.
+   */
+  const requiring = (...names: string[]): StandardSchemaV1 => ({
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => {
+        seen.push({ ...(value as Record<string, unknown>) });
+
+        const missing = names.filter(
+          (name) =>
+            typeof (value as Record<string, unknown>)[name] !== "string",
+        );
+
+        return missing.length === 0
+          ? { value }
+          : {
+              issues: missing.map((name) => ({
+                message: `${name} is required`,
+                path: [name],
+              })),
+            };
+      },
+    },
+  });
+
+  const later = (schema: StandardSchemaV1): StandardSchemaV1 => ({
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: async (value) => schema["~standard"].validate(value),
+    },
+  });
+
+  const Order: StandardSchemaV1<unknown, { id: number }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => ({ value: value as { id: number } }),
+    },
+  };
+
+  const reports: FailureReport<object>[] = [];
+
+  const stamp = hook.beforeParse((ctx) => {
+    ctx.out.headers.set("x-request-id", "req-1");
+  });
+
+  const app = (validateResponses: boolean) =>
+    createApp({
+      cookies: { secret: "top-secret", sign: ["session"] },
+      hooks: { beforeParse: [stamp] },
+      reportError: (report) => reports.push(report),
+      validateResponses,
+      routes: {
+        created: route({
+          method: "POST",
+          path: "/orders",
+          schema: {
+            response: { 201: { body: Order, headers: requiring("location") } },
+          },
+          handler: (ctx) => {
+            ctx.out.status = 201;
+            ctx.out.headers.set("location", "/orders/1");
+            ctx.out.cookies.set("cart", "");
+
+            return { id: 1 };
+          },
+        }),
+        forgot: route({
+          method: "POST",
+          path: "/forgot",
+          schema: {
+            response: { 201: { body: Order, headers: requiring("location") } },
+          },
+          handler: (ctx) => {
+            ctx.out.status = 201;
+
+            return { id: 1 };
+          },
+        }),
+        later: route({
+          method: "POST",
+          path: "/later",
+          schema: {
+            response: {
+              201: { body: Order, headers: later(requiring("location")) },
+            },
+          },
+          handler: (ctx) => {
+            ctx.out.status = 201;
+
+            return { id: 1 };
+          },
+        }),
+        redirect: route({
+          method: "POST",
+          path: "/redirect",
+          schema: { response: { 303: { headers: requiring("location") } } },
+          handler: (ctx) => {
+            ctx.out.status = 303;
+            ctx.out.headers.set("location", "/orders");
+          },
+        }),
+        signIn: route({
+          method: "POST",
+          path: "/sign-in",
+          schema: {
+            response: { 204: { cookies: requiring("session", "theme") } },
+          },
+          handler: (ctx) => {
+            ctx.out.cookies.set("session", "user-1");
+            ctx.out.cookies.set("theme", "dark mode");
+          },
+        }),
+        signOut: route({
+          method: "POST",
+          path: "/sign-out",
+          schema: { response: { 204: { cookies: requiring("session") } } },
+          handler: (ctx) => {
+            ctx.out.cookies.delete("session");
+          },
+        }),
+        native: route({
+          method: "POST",
+          path: "/native",
+          schema: { response: { 204: { cookies: requiring("session") } } },
+          handler: (ctx) => {
+            ctx.req.cookies?.set("session", "through-bun");
+          },
+        }),
+        expired: route({
+          method: "POST",
+          path: "/expired",
+          schema: { response: { 204: { cookies: requiring("session") } } },
+          handler: (ctx) => {
+            ctx.out.cookies.set("session", "gone", { maxAge: 0 });
+          },
+        }),
+        noSession: route({
+          method: "POST",
+          path: "/no-session",
+          schema: { response: { 204: { cookies: requiring("session") } } },
+          handler: () => undefined,
+        }),
+        built: route({
+          method: "POST",
+          path: "/built",
+          schema: {
+            response: { 201: { body: Order, headers: requiring("location") } },
+          },
+          handler: () => Response.json({ id: 1 }, { status: 201 }),
+        }),
+      },
+    });
+
+  const request = serve(app(true));
+  const unchecked = serve(app(false));
+
+  const post = async (path: string, via = request) => {
+    seen.length = 0;
+    reports.length = 0;
+
+    return via(path, { method: "POST", redirect: "manual" });
+  };
+
+  test("a declared header the response carries passes, with the body", async () => {
+    const res = await post("/orders");
+
+    expect(res.status).toBe(201);
+    expect(res.headers.get("location")).toBe("/orders/1");
+    expect(await res.json()).toEqual({ id: 1 });
+  });
+
+  test("the schema sees every header on ctx.out, a hook's included, and no set-cookie", async () => {
+    await post("/orders");
+
+    expect(seen).toEqual([{ "x-request-id": "req-1", location: "/orders/1" }]);
+  });
+
+  test.each([
+    ["checked at once", "/forgot"],
+    ["checked asynchronously", "/later"],
+  ])("a missing header is a broken contract, %s", async (_, path) => {
+    const res = await post(path);
+
+    expect(res.status).toBe(500);
+    expect(reports.map((report) => report.source)).toEqual(["response"]);
+    expect((reports[0]?.error as Error | undefined)?.message).toBe(
+      "Handler's response headers do not match their schema",
+    );
+  });
+
+  test("an entry without a body is a status that carries none", async () => {
+    const res = await post("/redirect");
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/orders");
+    expect(await res.text()).toBe("");
+  });
+
+  test("the cookies schema sees each value as the handler wrote it", async () => {
+    const res = await post("/sign-in");
+
+    expect(res.status).toBe(204);
+    expect(seen).toEqual([{ session: "user-1", theme: "dark mode" }]);
+  });
+
+  test("a deleted cookie is set to nothing", async () => {
+    await post("/sign-out");
+
+    expect(seen).toEqual([{ session: "" }]);
+  });
+
+  test("a cookie set through Bun's own req.cookies counts", async () => {
+    const res = await post("/native");
+
+    expect(res.status).toBe(204);
+    expect(seen).toEqual([{ session: "through-bun" }]);
+  });
+
+  test("a cookie set to expire at once is set to nothing", async () => {
+    await post("/expired");
+
+    expect(seen).toEqual([{ session: "" }]);
+  });
+
+  test("an entry with a part that is none of body, headers and cookies is refused", () => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/typo",
+        schema: {
+          response: {
+            200: { body: Order, header: requiring("etag") } as never,
+          },
+        },
+        handler: () => ({ id: 1 }) as never,
+      }),
+    ).toThrow('The 200 entry of a response map has "header"');
+  });
+
+  test("a missing cookie is a broken contract", async () => {
+    const res = await post("/no-session");
+
+    expect(res.status).toBe(500);
+    expect((reports[0]?.error as Error | undefined)?.message).toBe(
+      "Handler's response cookies do not match their schema",
+    );
+  });
+
+  test("a Response the handler builds is not checked", async () => {
+    const res = await post("/built");
+
+    expect(res.status).toBe(201);
+    expect(seen).toEqual([]);
+  });
+
+  test("validateResponses: false checks neither", async () => {
+    const res = await post("/forgot", unchecked);
+
+    expect(res.status).toBe(201);
+    expect(seen).toEqual([]);
   });
 });

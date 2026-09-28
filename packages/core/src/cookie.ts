@@ -257,3 +257,52 @@ function nameOf(setCookie: string): string {
 
   return cut === -1 ? setCookie : setCookie.slice(0, cut);
 }
+
+/**
+ * The cookies a response sets, by name, as the application wrote them —
+ * what a response entry's `cookies` schema checks.
+ *
+ * Read from the `set-cookie` headers that will go out, so a cookie
+ * appended by hand counts as one set through `ctx.out.cookies` does, and
+ * from the changes to `req.cookies`, which Bun sends itself. A value is
+ * decoded as the application reads one, and opened when this name is
+ * signed; a deleted cookie — `Max-Age=0`, an `Expires` in the past — is
+ * `""`. A header Bun cannot parse is skipped, as a browser skips it.
+ */
+export function outgoingCookies(
+  headers: Headers | undefined,
+  native: Bun.CookieMap | undefined,
+  sealer: CookieSealer | undefined,
+): Record<string, string> {
+  const cookies: Record<string, string> = Object.create(null);
+
+  const lines = [
+    ...(headers?.getSetCookie() ?? []),
+    ...(native?.toSetCookieHeaders() ?? []),
+  ];
+
+  for (const line of lines) {
+    let parsed: Bun.Cookie;
+
+    try {
+      parsed = Bun.Cookie.parse(line);
+    } catch {
+      continue;
+    }
+
+    const deleted =
+      parsed.maxAge === undefined ? parsed.isExpired() : parsed.maxAge <= 0;
+
+    const value = deleted
+      ? ""
+      : (new Bun.CookieMap(`${parsed.name}=${parsed.value}`).get(parsed.name) ??
+        parsed.value);
+
+    cookies[parsed.name] =
+      value !== "" && sealer?.covers(parsed.name)
+        ? (sealer.open(value) ?? value)
+        : value;
+  }
+
+  return cookies;
+}
