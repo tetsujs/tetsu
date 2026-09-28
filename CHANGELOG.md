@@ -14,6 +14,10 @@ API.
   then again, and to report an `HttpError` thrown on purpose.
   `"errorResponse"` is now the failure the error path had no attempt left
   to answer — an `HttpError` whose body throws when serialized.
+- `@tetsujs/core`: `hook.onError` takes a function that returns a
+  `Response` or nothing. One returning an object — `{ status: 409 }`, the
+  way another framework maps an error — used to compile, and the runtime,
+  which takes only a `Response` from this slot, answered with a `500`.
 - `@tetsujs/core`: an empty or missing `cookies.secret` is refused at
   startup. The application used to start and sign with a key anyone can
   compute — an empty one, or none at all when the variable was unset — so

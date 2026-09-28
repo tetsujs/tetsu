@@ -168,3 +168,34 @@ export type cases = [
   Expect<Equal<keyof ExtOf<typeof instanceHook>, "id" | "label">>,
   Expect<Equal<keyof ExtOf<typeof pureSmuggler>, never>>,
 ];
+
+/** An `onError` hook answers with a response, or passes the error on. */
+export const mapsToResponse = hook.onError((ctx) =>
+  ctx.error instanceof RangeError
+    ? Response.json({ error: "OUT_OF_RANGE" }, { status: 409 })
+    : undefined,
+);
+
+export const mapsLater = hook.onError(async () =>
+  Response.json({ error: "LATER" }, { status: 409 }),
+);
+
+export const passesOn = hook.onError(() => {});
+
+export const requiresToMap = hook.onError(
+  (ctx: Requires<{ error: unknown; requestId: string }>) =>
+    ctx.requestId === "" ? undefined : new Response(null, { status: 500 }),
+);
+
+// @ts-expect-error an object from onError is not a body: the runtime takes only a Response
+export const answersWithObject = hook.onError(() => ({ status: 409 }));
+
+// @ts-expect-error nor is an object it resolves to
+export const resolvesToObject = hook.onError(async () => ({ status: 409 }));
+
+const staged = new Map<string, number>();
+
+/** The other slots still take a hook whose value is ignored. */
+export const decorates = hook.beforeResponse(() => staged.set("seen", 1));
+
+export const observes = hook.afterResponse(() => staged.set("seen", 2));
