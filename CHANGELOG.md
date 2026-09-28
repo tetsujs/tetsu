@@ -16,6 +16,10 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: a `HEAD` request states the `content-length` a `GET`
+  would send. The `GET` response was rebuilt without its body, and the
+  length Bun computes as it sends came out `0` on every route; now Bun
+  answers the `HEAD` from the response itself.
 - The README and `hook.afterResponse` said observers run after the
   response is sent. They start as it goes to Bun: their synchronous part
   is part of the response's latency, and what they need of the request or

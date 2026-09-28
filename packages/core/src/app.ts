@@ -9,7 +9,7 @@
  * path a URL belongs to, decodes it and extracts `params`. The function then
  * dispatches on the method against a table precomputed for that exact path,
  * which needs no matching at all: the declared method runs its pipeline,
- * `HEAD` reuses the `GET` pipeline with the body stripped, `OPTIONS` answers
+ * `HEAD` runs the `GET` pipeline and leaves the body to Bun, `OPTIONS` answers
  * from the path's `Allow` set, and anything else is a `405` with the same
  * set. `fetch` is reached only when no path matched, so it is the `404`.
  *
@@ -46,7 +46,7 @@ import type { GroupHooks } from "./group.ts";
 import { slotHooks } from "./group.ts";
 import { appBrand, onMount } from "./mount.ts";
 import type { Executable, PipelineOptions } from "./pipeline.ts";
-import { answerFailure, release, runPipeline } from "./pipeline.ts";
+import { answerFailure, runPipeline } from "./pipeline.ts";
 import type { ReportError } from "./report.ts";
 import { reporter } from "./report.ts";
 import type { Method } from "./route.ts";
@@ -591,28 +591,6 @@ function buildPathHandler(
     ctx.out.headers.set("allow", allow);
   });
 
-  const head = async (
-    req: RoutedRequest,
-    server: Server<unknown>,
-    get: RouteTableEntry,
-  ): Promise<Response | undefined> => {
-    const res = await runPipeline(get, req, server, req.params, options);
-
-    if (res === undefined) {
-      return undefined;
-    }
-
-    const bodiless = new Response(null, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers,
-    });
-
-    release(res, bodiless);
-
-    return bodiless;
-  };
-
   return (req, server) => {
     const method = req.method.toUpperCase();
     const entry = methods.get(method);
@@ -621,8 +599,15 @@ function buildPathHandler(
       return runPipeline(entry, req, server, req.params, options);
     }
 
+    /**
+     * The `GET` response goes out as it is, and Bun answers a `HEAD` with
+     * it the way HTTP asks: the headers, the length the body has, no body
+     * — a stream it cancels. Rebuilt without the body here, the response
+     * lost its length: Bun computes `content-length` as it sends, and
+     * stated `0` for the empty one.
+     */
     if (method === "HEAD" && getEntry) {
-      return head(req, server, getEntry);
+      return runPipeline(getEntry, req, server, req.params, options);
     }
 
     if (method === "OPTIONS") {

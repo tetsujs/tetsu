@@ -536,10 +536,6 @@ function observe(entry: Executable, ctx: PipelineCtx, res: Response): Response {
 /**
  * Releases the response a replacement displaces.
  *
- * Exported for the one discard that happens outside this module: a `HEAD`
- * request answers by rebuilding the `GET` response without its body, which
- * is this same operation and leaks the same way.
- *
  * A response the pipeline built and then decided not to send belongs to
  * nobody else: the handler has returned, a hook chose to drop it, and the
  * runtime never sees it. Whatever its body holds — a subscription, a file
@@ -563,7 +559,7 @@ function observe(entry: Executable, ctx: PipelineCtx, res: Response): Response {
  * hook read it, or holds a reader on it — which is precisely the case
  * where there is nothing here to release.
  */
-export function release(discarded: Response | undefined, next: Response): void {
+function release(discarded: Response | undefined, next: Response): void {
   if (discarded === undefined || discarded === next) {
     return;
   }
