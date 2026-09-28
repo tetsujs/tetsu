@@ -227,8 +227,37 @@ export const withOrder = hook.beforeHandle(
 ```
 
 `beforeResponse` hooks see the response and may replace it; `afterResponse`
-hooks run after it has been sent, on every outcome, which makes them the
-place for logs and metrics. `onError` hooks turn an error into a response.
+hooks observe it on every outcome, which makes them the place for logs and
+metrics. `onError` hooks turn an error into a response.
+
+An `afterResponse` hook starts as the response goes to Bun, with the whole
+request in reach — its headers, the client's address. Its synchronous part
+is part of the response's latency; the promise it returns is not waited
+for. Two things follow. The body is not an observer's to read, and
+`ctx.res` offers no way to it: to audit a body, clone the response in
+`beforeResponse`, where it is still yours. And what an observer needs of
+the request or the response it reads before its first `await` — by then
+the response may be sent, and a URL, a header or the address nobody read
+is gone, without an error:
+
+```ts
+const shipped = hook.afterResponse(async (ctx) => {
+  const line = {
+    status: ctx.res.status,
+    agent: ctx.req.headers.get("user-agent"),
+    ip: ctx.server.requestIP(ctx.req)?.address,
+  };
+
+  await shipper.send(line);
+});
+
+const audited = hook.beforeResponse((ctx) => {
+  void ctx.res.clone().text().then((body) => audit.write(ctx.req.url, body));
+});
+```
+
+A clone of a streamed body keeps every chunk until it is read, so a
+stream is audited where it is produced.
 
 Hooks are mounted by slot, the same way on a route, a group and the
 application: `hooks: { beforeParse: [auth], afterResponse: [log] }`. The key
@@ -575,8 +604,8 @@ compares an address against `127.0.0.1`, listen on IPv4:
 
 The framework has no logger of its own, and writes no lines of its own
 except the failures it cannot return to a client: an error no `onError`
-hook answered, a handler breaking its response contract, a hook failing
-after the response went, a WebSocket handler, a stream. By default they go
+hook answered, a handler breaking its response contract, an `afterResponse`
+hook, a WebSocket handler, a stream. By default they go
 to `console.error`. Pass `reportError`, and they go to you instead:
 
 ```ts

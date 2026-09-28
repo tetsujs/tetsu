@@ -16,6 +16,7 @@ import { createApp } from "./app.ts";
 import type { Requires } from "./context.ts";
 import { HttpError } from "./error.ts";
 import { group } from "./group.ts";
+import type { SentResponse } from "./hook.ts";
 import { hook } from "./hook.ts";
 import { route } from "./route.ts";
 import type { StandardSchemaV1 } from "./schema.ts";
@@ -47,7 +48,7 @@ describe("response-slot hooks on paths where extensions never ran", () => {
   const audited: (string | undefined)[] = [];
 
   const audit = hook.afterResponse(
-    (ctx: Requires<{ res: Response; user?: { id: string } }>) => {
+    (ctx: Requires<{ res: SentResponse; user?: { id: string } }>) => {
       audited.push(ctx.user?.id);
     },
   );
@@ -148,6 +149,51 @@ describe("afterResponse is non-blocking", () => {
     await syncRequest("/sync");
 
     expect(seen).toEqual([200]);
+  });
+});
+
+describe("what an observer sees before its first await", () => {
+  const seen: Record<string, unknown>[] = [];
+
+  /**
+   * Nothing before the observer reads the request's headers or the
+   * response's: Bun fills both lazily, and once the response is sent what
+   * nobody read is gone — so this holds only while observers start before
+   * the response is Bun's.
+   */
+  const look = hook.afterResponse((ctx) => {
+    seen.push({
+      url: new URL(ctx.req.url).pathname,
+      probe: ctx.req.headers.get("x-probe"),
+      out: ctx.res.headers.get("x-out"),
+      address: ctx.server.requestIP(ctx.req)?.address,
+    });
+  });
+
+  const request = serve(
+    createApp({
+      routes: {
+        get: route({
+          method: "GET",
+          path: "/looked-at",
+          hooks: { afterResponse: [look] },
+          handler: () => new Response("ok", { headers: { "x-out": "set" } }),
+        }),
+      },
+    }),
+    { hostname: "127.0.0.1" },
+  );
+
+  test("is the whole request and the response's headers", async () => {
+    seen.length = 0;
+
+    await (
+      await request("/looked-at", { headers: { "x-probe": "yes" } })
+    ).text();
+
+    expect(seen).toEqual([
+      { url: "/looked-at", probe: "yes", out: "set", address: "127.0.0.1" },
+    ]);
   });
 });
 

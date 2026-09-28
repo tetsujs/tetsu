@@ -32,7 +32,7 @@
  * @module
  */
 
-import type { BaseCtx } from "@tetsujs/core";
+import type { BaseCtx, SentResponse } from "@tetsujs/core";
 import { hook } from "@tetsujs/core";
 
 /** How a record is written. */
@@ -72,10 +72,9 @@ export type ArrivalLogOptions = LogOptions<ArrivalRecord>;
  * Writes a line for every request as it arrives, before anything can
  * refuse it or hang on it.
  *
- * A `beforeParse` hook, so the line is written on the request's own path
- * rather than after the response: a writer that blocks delays the
- * request, and a logger that buffers — pino, for one — is the kind to
- * hand it.
+ * A `beforeParse` hook, so the line is written on the request's own path,
+ * before anything answers it: a writer that blocks delays the request,
+ * and a logger that buffers — pino, for one — is the kind to hand it.
  *
  * Where it sits in `beforeParse` decides what it sees. After
  * `requestId()`, the record carries the id. After `cors()`, a preflight
@@ -131,9 +130,9 @@ export interface AccessRecord {
    * rounded to the microsecond.
    *
    * From `ctx.startedAt`, which the core reads before any hook, to
-   * `afterResponse`: the response is handed to the runtime before
-   * `afterResponse` runs, so writing it to the socket is not in here, and
-   * neither is anything that happened before the pipeline started.
+   * `afterResponse`, which starts as the response goes to Bun: writing it
+   * to the socket is not in here, and neither is anything that happened
+   * before the pipeline started.
    */
   readonly durationMs: number;
 
@@ -162,9 +161,11 @@ export interface AccessRecord {
 /**
  * Observes every finished request, successes and failures alike.
  *
- * `afterResponse` runs outside the client's latency, so a slow writer
- * delays nothing — and it runs on every outcome, which is what makes the
- * log complete rather than only the happy path.
+ * `afterResponse` runs on every outcome, which is what makes the log
+ * complete rather than only the happy path. It runs as the response goes
+ * to Bun, so the write is part of the request's latency, as the arrival
+ * line's is: a logger that buffers — pino, for one — is the kind to hand
+ * it.
  *
  * The line carries both the path asked for and the route that answered,
  * because a `404` has only the first and a dashboard can only group by the
@@ -181,7 +182,7 @@ export function accessLog(options: AccessLogOptions = {}) {
 
   return hook.afterResponse((ctx) => {
     const carrying = ctx as BaseCtx & {
-      readonly res: Response;
+      readonly res: SentResponse;
       readonly error?: unknown;
     };
     const id = requestIdOf(ctx);

@@ -45,7 +45,13 @@ export type {
   GroupOptions,
 } from "./group.ts";
 export { group, isGroup } from "./group.ts";
-export type { AnyHook, Hook, SlotBases, SlotName } from "./hook.ts";
+export type {
+  AnyHook,
+  Hook,
+  SentResponse,
+  SlotBases,
+  SlotName,
+} from "./hook.ts";
 export { hook } from "./hook.ts";
 export type { Mountable } from "./mount.ts";
 export { onMount } from "./mount.ts";

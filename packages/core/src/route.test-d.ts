@@ -16,6 +16,7 @@ import type {
   SchemaConfig,
 } from "./context.ts";
 import { HttpError } from "./error.ts";
+import type { SentResponse } from "./hook.ts";
 import { hook } from "./hook.ts";
 import type { HandlerResult, ResultError, ValidateResult } from "./route.ts";
 import { route } from "./route.ts";
@@ -173,13 +174,13 @@ export type routeDefCases = [
 ];
 
 const optionalAudit = hook.afterResponse(
-  (ctx: Requires<{ res: Response; user?: User }>) => {
+  (ctx: Requires<{ res: SentResponse; user?: User }>) => {
     void ctx.user?.id;
   },
 );
 
 const demandingAudit = hook.afterResponse(
-  (ctx: Requires<{ res: Response; user: User }>) => {
+  (ctx: Requires<{ res: SentResponse; user: User }>) => {
     void ctx.user.id;
   },
 );
@@ -189,6 +190,19 @@ route({
   path: "/audited",
   hooks: { beforeParse: [auth], afterResponse: [optionalAudit] },
   handler: (ctx) => ({ by: ctx.user.id }),
+});
+
+/** An observer asking for the whole response asks for a body it cannot have. */
+const bodyAudit = hook.afterResponse((ctx: Requires<{ res: Response }>) => {
+  void ctx.res.text();
+});
+
+route({
+  method: "GET",
+  path: "/body-audited",
+  // @ts-expect-error the slot gives an observer a SentResponse, not a Response
+  hooks: { afterResponse: [bodyAudit] },
+  handler: () => ({ ok: true }),
 });
 
 route({

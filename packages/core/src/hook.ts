@@ -5,7 +5,7 @@
  *
  * ```
  * beforeParse → parse → beforeValidation → validate → beforeHandle
- *   → handler → beforeResponse → (send) → afterResponse | onError
+ *   → handler → beforeResponse → afterResponse → (send) | onError
  * ```
  *
  * There is no onion and no `next()`: every hook has an explicit position in
@@ -173,6 +173,23 @@ interface HookFactory<
 type RawParams = Record<string, string>;
 
 /**
+ * The response as an `afterResponse` observer sees it: what it says, not
+ * what it carries.
+ *
+ * Observers start while the response is on its way to Bun, so its body is
+ * not theirs to read: a JSON body read there becomes a `500` from Bun
+ * itself, a streamed one reaches the client empty. The body and every way
+ * to it — `text()`, `json()`, `body`, `clone()` — are left out, and reading
+ * one is a compile error. To look at a body, clone the response in a
+ * `beforeResponse` hook. A pick rather than an omission, so a way to the
+ * body that `Response` gains later is left out too.
+ */
+export type SentResponse = Pick<
+  Response,
+  "status" | "statusText" | "headers" | "ok" | "redirected" | "type" | "url"
+>;
+
+/**
  * The context each slot guarantees on its own, before any schema or hook
  * contributes to it — the parameter type of an unannotated hook, and the
  * most a group-level hook may require.
@@ -185,7 +202,7 @@ export interface SlotBases {
   };
   readonly beforeHandle: BaseCtx;
   readonly beforeResponse: BaseCtx & { readonly res: Response };
-  readonly afterResponse: BaseCtx & { readonly res: Response };
+  readonly afterResponse: BaseCtx & { readonly res: SentResponse };
   readonly onError: BaseCtx & { readonly error: unknown };
 }
 
@@ -231,11 +248,20 @@ interface HookFactories {
   >;
 
   /**
-   * Runs after the response is handed to the runtime; executes always,
-   * including after errors.
+   * Runs as the response goes out, on every outcome — errors included.
    *
-   * Observation only — metrics, access logs, audit. The return value cannot
-   * affect the response.
+   * Observation only — metrics, access logs, audit; the return value cannot
+   * affect the response. An observer starts once the response is ready and
+   * before Bun sends it, with the whole request in reach, so:
+   *
+   * - its synchronous part is part of the response's latency — keep it
+   *   short; the response does not wait for the promise it returns;
+   * - the body is not its to read: `ctx.res` is a `SentResponse`, with no
+   *   way to it — clone the response in `beforeResponse` to look at one;
+   * - what it needs of `ctx.req` and `ctx.res` it reads before its first
+   *   `await`. By then the response may be sent, and Bun fills both
+   *   lazily: a URL or a header nobody read is gone without an error, and
+   *   so is the client's address.
    */
   readonly afterResponse: HookFactory<
     "afterResponse",

@@ -21,7 +21,14 @@ import type {
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
-import type { AnyHook, Hook, SlotBases, SlotName, SlotOf } from "./hook.ts";
+import type {
+  AnyHook,
+  Hook,
+  SentResponse,
+  SlotBases,
+  SlotName,
+  SlotOf,
+} from "./hook.ts";
 import type { Prettify } from "./internal.ts";
 import type { ExtractParams } from "./path.ts";
 import type { AnySchema, InferOutput } from "./schema.ts";
@@ -564,6 +571,10 @@ type ResponseParams<
  * hover — a hook declares the context it wants and this is only what that
  * declaration is checked against — and flattening it was a tenth of what
  * a route with a response hook cost the compiler (`bench/src/types.ts`).
+ *
+ * `Res` is the response the slot sees: a `Response` in `beforeResponse`,
+ * which may replace it, and a `SentResponse` in `afterResponse`, which
+ * must not read its body.
  */
 export type ResponseCtx<
   Path extends string,
@@ -571,11 +582,12 @@ export type ResponseCtx<
   H,
   B = undefined,
   Raw = false,
+  Res = Response,
 > = Merge<
   Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
     readonly params: ResponseParams<Path, S>;
-    readonly res: Response;
+    readonly res: Res;
   }
 >;
 
@@ -654,7 +666,7 @@ export type ValidateHooks<
   readonly afterResponse?: ValidateStaticStack<
     StackOf<H, "afterResponse">,
     "afterResponse",
-    ResponseCtx<Path, S, H, B, Raw>
+    ResponseCtx<Path, S, H, B, Raw, SentResponse>
   >;
   readonly onError?: ValidateStaticStack<
     StackOf<H, "onError">,

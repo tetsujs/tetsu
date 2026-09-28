@@ -92,8 +92,8 @@ export interface SseOptions {
   /**
    * Called once when the stream is over, with what it did.
    *
-   * The gap this closes: `afterResponse` runs when the response is handed
-   * to the runtime, which for a stream is the moment it *starts*. An
+   * The gap this closes: `afterResponse` runs as the response goes to Bun,
+   * which for a stream is the moment it *starts*. An
    * access log therefore records a forty-minute feed as a `200` that took
    * microseconds, and a torn connection as a success. Delivery to the
    * client is not observable in the fetch model and stays that way — but

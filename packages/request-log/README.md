@@ -23,7 +23,7 @@ createApp({
 
 `accessLog()` is one `afterResponse` hook, and it is the log most
 applications want: every request — a `404` and a failure included —
-produces one record once its response has gone:
+produces one record as its response goes out:
 
 ```ts
 {
@@ -80,10 +80,10 @@ where it can be grouped by.
 - **`durationMs` is measured from `ctx.startedAt`,** which the core reads
   before any hook runs. It measures the pipeline; writing the response to
   the socket is not included.
-- **The arrival line is written on the request's own path.** A writer that
-  blocks delays the request; a logger that buffers, like pino, is the kind
-  to hand it. The access line is written after the response, outside the
-  client's latency.
+- **Both lines are written on the request's own path** — the arrival line
+  before the handler, the access line as the response goes out. A writer
+  that blocks delays the response; a logger that buffers, like pino, is
+  the kind to hand them.
 - **A failure's full error** — message, stack — is not in either record:
   pass `reportError` to `createApp`, and join the report to the records by
   `ctx?.requestId`.
