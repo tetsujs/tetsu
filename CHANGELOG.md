@@ -16,6 +16,11 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: frames of a socket reach `message` in the order they
+  arrived when `schema.message` checks asynchronously, and none after the
+  socket closed. Each frame waited on its own check, so one checked faster
+  overtook one checked slower, and a frame refused at once closed the
+  socket under the one before it, which then arrived after `close`.
 - `@tetsujs/core`: a `HEAD` request states the `content-length` a `GET`
   would send. The `GET` response was rebuilt without its body, and the
   length Bun computes as it sends came out `0` on every route; now Bun

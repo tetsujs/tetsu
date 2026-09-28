@@ -525,3 +525,176 @@ describe("what a hook can decorate a handshake with", () => {
     expect(headers["x-marker"]).toBeUndefined();
   });
 });
+
+describe("frames through an asynchronous schema", () => {
+  /** Takes as long to check a frame as the frame asks. */
+  const Delayed: StandardSchemaV1<unknown, { n: number; delay: number }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: async (value) => {
+        const frame = value as { n?: unknown; delay?: unknown };
+
+        if (typeof frame.n !== "number" || typeof frame.delay !== "number") {
+          return { issues: [{ message: "n and delay are required" }] };
+        }
+
+        await Bun.sleep(frame.delay);
+
+        return { value: { n: frame.n, delay: frame.delay } };
+      },
+    },
+  };
+
+  const events: string[] = [];
+
+  let checking = 0;
+  let mostAtOnce = 0;
+
+  /** Counts the checks in flight, to see whether they overlap. */
+  const Counted: StandardSchemaV1<unknown, { n: number }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: async (value) => {
+        checking += 1;
+        mostAtOnce = Math.max(mostAtOnce, checking);
+
+        await Bun.sleep(30);
+
+        checking -= 1;
+
+        return { value: { n: (value as { n: number }).n } };
+      },
+    },
+  };
+
+  const request = serve(
+    createApp({
+      routes: {
+        ordered: ws({
+          path: "/ordered",
+          schema: { message: Delayed },
+          message: (socket, frame) => socket.send(`got:${frame.n}`),
+        }),
+        lenient: ws({
+          path: "/lenient",
+          schema: { message: Delayed },
+          message: (socket, frame) => socket.send(`got:${frame.n}`),
+          invalid: (socket) => socket.send("invalid"),
+        }),
+        counted: ws({
+          path: "/counted",
+          schema: { message: Counted },
+          message: (socket, frame) => socket.send(`got:${frame.n}`),
+        }),
+        watched: ws({
+          path: "/watched",
+          schema: { message: Delayed },
+          message: (_, frame) => events.push(`message:${frame.n}`),
+          close: () => events.push("close"),
+        }),
+        watchedLeniently: ws({
+          path: "/watched-leniently",
+          schema: { message: Delayed },
+          message: (_, frame) => events.push(`message:${frame.n}`),
+          invalid: () => events.push("invalid"),
+          close: () => events.push("close"),
+        }),
+      },
+    }),
+  );
+
+  const frame = (n: number, delay: number) => JSON.stringify({ n, delay });
+
+  test("reach the handler in the order they arrived", async () => {
+    const socket = await connect(request, "/ordered");
+
+    socket.send(frame(1, 100));
+    socket.send(frame(2, 0));
+
+    expect([await socket.next(), await socket.next()]).toEqual([
+      "got:1",
+      "got:2",
+    ]);
+
+    socket.close();
+  });
+
+  test("are checked side by side, and still reach it in order", async () => {
+    mostAtOnce = 0;
+
+    const socket = await connect(request, "/counted");
+
+    for (const n of [1, 2, 3]) {
+      socket.send(JSON.stringify({ n }));
+    }
+
+    expect([
+      await socket.next(),
+      await socket.next(),
+      await socket.next(),
+    ]).toEqual(["got:1", "got:2", "got:3"]);
+    expect(mostAtOnce).toBe(3);
+
+    socket.close();
+  });
+
+  test("a refused frame waits for the frames before it", async () => {
+    const socket = await connect(request, "/lenient");
+
+    socket.send(frame(1, 60));
+    socket.send("not json");
+    socket.send(frame(2, 0));
+
+    expect([
+      await socket.next(),
+      await socket.next(),
+      await socket.next(),
+    ]).toEqual(["got:1", "invalid", "got:2"]);
+
+    socket.close();
+  });
+
+  test("a frame refused by closing does not overtake one still checked", async () => {
+    events.length = 0;
+
+    const socket = await connect(request, "/watched");
+
+    socket.send(frame(1, 60));
+    socket.send("not json");
+
+    expect((await socket.closed()).code).toBe(1007);
+
+    await Bun.sleep(100);
+
+    expect(events).toEqual(["message:1", "close"]);
+  });
+
+  test("nor is a frame refused once its socket closed while it waited", async () => {
+    events.length = 0;
+
+    const socket = await connect(request, "/watched-leniently");
+
+    socket.send(frame(1, 60));
+    socket.send("not json");
+    socket.close();
+
+    await Bun.sleep(100);
+
+    expect(events).toEqual(["close"]);
+  });
+
+  test("nothing reaches the handler of a socket that closed while it was checked", async () => {
+    events.length = 0;
+
+    const socket = await connect(request, "/watched");
+
+    socket.send(frame(1, 60));
+    socket.close();
+
+    await Bun.sleep(100);
+
+    expect(events).toEqual(["close"]);
+  });
+});
