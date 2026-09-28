@@ -15,6 +15,11 @@ API.
   character reads as absent, as any bad signature does. It used to fail
   the request with a `500` when the signature was as long as a real one
   in characters but not in bytes.
+- `@tetsujs/core`: a cookie name the request carries twice reads as its
+  first value in `ctx.cookies`, as `req.cookies.get` reads it — the
+  host's own cookie, which a browser sends before one a sibling subdomain
+  set for the whole domain. It used to read as the last. Of a signed
+  name, the first value whose seal holds.
 
 ## 0.5.3 — 2026-09-27
 

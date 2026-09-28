@@ -150,6 +150,16 @@ class CookieController {
     },
   });
 
+  echo = route({
+    method: "GET",
+    path: "/echo",
+    schema: { cookies: AsIs },
+    handler: (ctx) => ({
+      cookies: ctx.cookies,
+      platform: ctx.req.cookies?.get("session"),
+    }),
+  });
+
   fails = route({
     method: "POST",
     path: "/fails",
@@ -420,5 +430,37 @@ describe("signing", () => {
 
     expect(back.status).toBe(422);
   });
+
+  test("of a name sent twice, the first value whose seal holds is the one", async () => {
+    const seal = (value: string) =>
+      `${value}.${new Bun.CryptoHasher("sha256", "top-secret").update(value).digest("base64url")}`;
+
+    const both = await sealed("/echo", {
+      headers: {
+        cookie: `session=${seal("host")}; session=${seal("tossed")}`,
+      },
+    });
+
+    const forgedFirst = await sealed("/echo", {
+      headers: { cookie: `session=tossed.forged; session=${seal("host")}` },
+    });
+
+    expect(await both.json()).toMatchObject({ cookies: { session: "host" } });
+    expect(await forgedFirst.json()).toMatchObject({
+      cookies: { session: "host" },
+    });
+  });
 });
 
+describe("a name sent twice", () => {
+  test("reads as its first value, as the platform reads it", async () => {
+    const back = await request("/echo", {
+      headers: { cookie: "session=host; session=tossed-from-sibling" },
+    });
+
+    expect(await back.json()).toEqual({
+      cookies: { session: "host" },
+      platform: "host",
+    });
+  });
+});

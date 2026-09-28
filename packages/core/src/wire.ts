@@ -343,6 +343,11 @@ export function materializeQuery(
  * Prototype-free for the reason `materializeQuery` is: the names come from
  * the client, and a `__proto__=` cookie must become an own property rather
  * than reach the prototype.
+ *
+ * A name sent twice reads as its first value, as `req.cookies.get` reads
+ * it: a browser sends the host's own cookie before one a sibling subdomain
+ * set for the whole domain, and the last one would be the sibling's. Of a
+ * signed name, the first value whose seal holds.
  */
 export function materializeCookies(
   req: Request,
@@ -357,6 +362,10 @@ export function materializeCookies(
   }
 
   for (const [name, value] of new Bun.CookieMap(header)) {
+    if (Object.hasOwn(cookies, name)) {
+      continue;
+    }
+
     if (!sealer?.covers(name)) {
       cookies[name] = value;
 
