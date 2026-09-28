@@ -14,6 +14,7 @@ import type {
   AnySchema,
   AppOptions,
   BodyType,
+  ResponseEntry,
   RouteTableEntry,
 } from "@tetsujs/core";
 import { errorBody } from "@tetsujs/core";
@@ -100,9 +101,8 @@ export function declareEnvelopes(
   entry: RouteTableEntry,
   envelopes: Envelopes,
 ): void {
-  for (const [status, schema] of declaredResponses(entry)) {
-    const described =
-      schema === null ? undefined : emitted(schema, "", () => {});
+  for (const [status, { body }] of declaredResponses(entry)) {
+    const described = body === null ? undefined : emitted(body, "", () => {});
 
     const code = envelopes.format.code;
 
@@ -116,10 +116,17 @@ export function declareEnvelopes(
   }
 }
 
+/** One status of a route's response map, whichever form it was written in. */
+interface Declared {
+  readonly body: AnySchema | null;
+  readonly headers?: AnySchema;
+  readonly cookies?: AnySchema;
+}
+
 /** The route's response map as pairs; a single schema is its `200`. */
 function declaredResponses(
   entry: RouteTableEntry,
-): [status: string, schema: AnySchema | null][] {
+): [status: string, declared: Declared][] {
   const response = entry.def.schema?.response;
 
   if (!response) {
@@ -127,10 +134,117 @@ function declaredResponses(
   }
 
   if ("~standard" in response) {
-    return [["200", response as AnySchema]];
+    return [["200", { body: response as AnySchema }]];
   }
 
-  return Object.entries(response) as [string, AnySchema | null][];
+  return Object.entries(response).map(([status, value]) => [
+    status,
+    asDeclared(value as AnySchema | ResponseEntry | null),
+  ]);
+}
+
+function asDeclared(value: AnySchema | ResponseEntry | null): Declared {
+  if (value === null || "~standard" in value) {
+    return { body: value as AnySchema | null };
+  }
+
+  return {
+    body: value.body ?? null,
+    ...(value.headers === undefined ? {} : { headers: value.headers }),
+    ...(value.cookies === undefined ? {} : { cookies: value.cookies }),
+  };
+}
+
+/**
+ * The headers a declared status says it leaves with: one per property of
+ * its `headers` schema, required as the schema says, and its cookies as
+ * the one header that sets them.
+ *
+ * A property's `description` is the header's: it is what a renderer
+ * shows in the header's row.
+ */
+function declaredHeaders(
+  declared: Declared,
+  warn: (message: string) => void,
+): Record<string, HeaderObject> | undefined {
+  const headers: Record<string, HeaderObject> = {};
+
+  const [properties, required] = shapeOf(
+    declared.headers,
+    "a response's headers",
+    warn,
+  );
+
+  for (const [name, property] of Object.entries(properties)) {
+    const { description, ...schema } = property;
+
+    headers[name] = {
+      ...(typeof description === "string" ? { description } : {}),
+      ...(required.has(name) ? { required: true } : {}),
+      schema: schema as JsonSchema,
+    };
+  }
+
+  const cookies = setCookie(declared.cookies, warn);
+
+  if (cookies) {
+    headers["set-cookie"] = cookies;
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+/**
+ * The cookies a status sets, as the header that sets them. OpenAPI has no
+ * object for a cookie a response sets — only a `set-cookie` header — so the
+ * cookies are listed in its description, by name, each with its own
+ * description; the header is required when any of them is.
+ */
+function setCookie(
+  schema: AnySchema | undefined,
+  warn: (message: string) => void,
+): HeaderObject | undefined {
+  const [properties, required] = shapeOf(schema, "a response's cookies", warn);
+
+  const names = Object.keys(properties);
+
+  if (names.length === 0) {
+    return undefined;
+  }
+
+  const lines = names.map((name) => {
+    const description = properties[name]?.["description"];
+
+    return typeof description === "string"
+      ? `- \`${name}\`: ${description}`
+      : `- \`${name}\``;
+  });
+
+  return {
+    description: ["Sets these cookies:", "", ...lines].join("\n"),
+    ...(required.size > 0 ? { required: true } : {}),
+    schema: { type: "string" },
+  };
+}
+
+/** The properties of an object schema, and which of them it requires. */
+function shapeOf(
+  schema: AnySchema | undefined,
+  subject: string,
+  warn: (message: string) => void,
+): [Record<string, Record<string, unknown>>, Set<string>] {
+  const described = schema ? emitted(schema, subject, warn) : undefined;
+
+  const properties = (described?.properties ?? {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+
+  const required = new Set(
+    Array.isArray(described?.required) ? (described.required as string[]) : [],
+  );
+
+  return [properties, required];
 }
 
 /**
@@ -428,9 +542,13 @@ function responses(
     answers.set(status, [...(answers.get(status) ?? []), answer]);
   };
 
-  for (const [status, schema] of declaredResponses(entry)) {
+  const declared = declaredResponses(entry);
+
+  for (const [status, { body, ...rest }] of declared) {
     const described =
-      schema === null ? undefined : emitted(schema, "a response", warn);
+      body === null ? undefined : emitted(body, "a response", warn);
+
+    const headers = declaredHeaders({ body, ...rest }, warn);
 
     add(status, {
       placeholder: describeStatus(status),
@@ -438,10 +556,17 @@ function responses(
       schemas: described
         ? branchesFor(unionOnly(described), Number(status), envelopes, warn)
         : [],
+      ...(headers === undefined ? {} : { headers }),
     });
   }
 
-  if (![...answers.keys()].some((status) => status.startsWith("2"))) {
+  /**
+   * A route that declares nothing answers with something: a `200`, as far
+   * as the document can tell. One that declares only a `303`, or only its
+   * failures, has said what it answers with, and a success it never sends
+   * would be a response a generated client waits for in vain.
+   */
+  if (declared.length === 0) {
     add("200", { placeholder: "Successful response", said: [], schemas: [] });
   }
 
