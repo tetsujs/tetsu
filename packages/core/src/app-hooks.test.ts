@@ -376,13 +376,23 @@ describe("a failure on the error path", () => {
     expect(res.headers.get("x-request-id")).toBe("req-2");
   });
 
-  test("a failure of the error path is logged, not swallowed", async () => {
+  test("an HttpError a hook throws over an error response is its answer, not a failure", async () => {
     calls.length = 0;
     seen.length = 0;
 
     await recoveryRequest("/late-over-error");
 
-    expect(errors.lines.join("\n")).toContain("[tetsu] Error response failed:");
+    expect(errors.lines).toEqual([]);
+  });
+
+  test("a failure of the error path is logged once, not swallowed", async () => {
+    calls.length = 0;
+    seen.length = 0;
+
+    await recoveryRequest("/unmappable");
+
+    expect(errors.lines).toHaveLength(1);
+    expect(errors.lines[0]).toStartWith("[tetsu] Unhandled error: TypeError");
   });
 
   test("an unmappable error reaches onError and the response chain", async () => {

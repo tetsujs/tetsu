@@ -274,14 +274,12 @@ describe("reportError", () => {
     expect(messageOf(reports[0])).toBe("mapper broke");
   });
 
-  test("receives an error path that failed in turn", async () => {
+  test("receives an error path that failed in turn, once", async () => {
     const { res } = await reported("/error-path-fails");
 
     expect(res.status).toBe(500);
-
-    const failed = reports.find((report) => report.source === "errorResponse");
-
-    expect(messageOf(failed)).toBe("decorator broke");
+    expect(reports.map((report) => report.source)).toEqual(["unhandled"]);
+    expect(messageOf(reports[0])).toBe("decorator broke");
   });
 
   test("receives what a package reports through reportFailure", async () => {
@@ -383,5 +381,170 @@ describe("without a receiver", () => {
     reportFailure(testCtx({}), "stream", new Error("unit-tested"));
 
     expect(errors.lines).toEqual(["[tetsu] stream failed: Error: unit-tested"]);
+  });
+});
+
+describe("a hook failing on the way out", () => {
+  const broke = () => new Error("decorator broke");
+
+  const failing = hook.beforeResponse(() => {
+    throw broke();
+  });
+
+  const failingLater = hook.beforeResponse(async () => {
+    await Bun.sleep(0);
+
+    throw broke();
+  });
+
+  const unavailable = hook.beforeResponse(() => {
+    throw new HttpError(503);
+  });
+
+  /** An error whose body cannot become JSON: mapping it throws. */
+  const unserializable = (tag: string) =>
+    new HttpError(400, {
+      toJSON() {
+        throw new Error(`serialize ${tag}`);
+      },
+    });
+
+  /** An error whose body, serialized, throws another one like it. */
+  const unmappable = (): HttpError =>
+    new HttpError(422, {
+      toJSON() {
+        throw unmappable();
+      },
+    });
+
+  const routes = {
+    unserializable: route({
+      method: "GET",
+      path: "/unserializable",
+      hooks: {
+        beforeResponse: [
+          hook.beforeResponse(() => {
+            throw unserializable("hook");
+          }),
+        ],
+      },
+      handler: () => {
+        throw unserializable("handler");
+      },
+    }),
+    unmappable: route({
+      method: "GET",
+      path: "/unmappable",
+      handler: () => {
+        throw unmappable();
+      },
+    }),
+    ok: route({
+      method: "GET",
+      path: "/ok",
+      hooks: { beforeResponse: [failing] },
+      handler: () => ({ ok: true }),
+    }),
+    refused: route({
+      method: "GET",
+      path: "/refused",
+      hooks: { beforeResponse: [failing] },
+      handler: () => {
+        throw new HttpError(400);
+      },
+    }),
+    refusedLater: route({
+      method: "GET",
+      path: "/refused-later",
+      hooks: { beforeResponse: [failingLater] },
+      handler: () => {
+        throw new HttpError(400);
+      },
+    }),
+    unavailable: route({
+      method: "GET",
+      path: "/unavailable",
+      hooks: { beforeResponse: [unavailable] },
+      handler: () => {
+        throw new HttpError(400);
+      },
+    }),
+  };
+
+  const reports: FailureReport<object>[] = [];
+
+  const request = serve(
+    createApp({ reportError: (report) => reports.push(report), routes }),
+  );
+
+  const answered = serve(
+    createApp({
+      hooks: {
+        onError: [
+          hook.onError(() => Response.json({ mapped: true }, { status: 500 })),
+        ],
+      },
+      reportError: (report) => reports.push(report),
+      routes,
+    }),
+  );
+
+  test.each([
+    ["a response", "/ok"],
+    ["an error response", "/refused"],
+    ["an error response, asynchronously", "/refused-later"],
+  ])("is reported once, over %s", async (_, path) => {
+    reports.length = 0;
+
+    const res = await request(path);
+
+    expect(res.status).toBe(500);
+    expect(reports.map((report) => report.source)).toEqual(["unhandled"]);
+    expect(messageOf(reports[0])).toBe("decorator broke");
+  });
+
+  test.each([
+    ["a response", "/ok"],
+    ["an error response", "/refused"],
+    ["an error response, asynchronously", "/refused-later"],
+  ])("is not reported when onError answers it, over %s", async (_, path) => {
+    reports.length = 0;
+
+    const res = await answered(path);
+
+    expect(await res.json()).toEqual({ mapped: true });
+    expect(reports).toEqual([]);
+  });
+
+  test("that uses up the error path is reported, as the one it could not answer", async () => {
+    reports.length = 0;
+
+    const res = await request("/unserializable");
+
+    expect(res.status).toBe(500);
+    expect(reports.map((report) => [report.source, messageOf(report)])).toEqual(
+      [
+        ["unhandled", "serialize handler"],
+        ["errorResponse", "serialize hook"],
+      ],
+    );
+  });
+
+  test("an error that keeps failing to map is reported once, not lost", async () => {
+    reports.length = 0;
+
+    const res = await request("/unmappable");
+
+    expect(res.status).toBe(500);
+    expect(reports.map((report) => report.source)).toEqual(["errorResponse"]);
+  });
+
+  test("is not reported when it is an HttpError of its own", async () => {
+    reports.length = 0;
+
+    const res = await request("/unavailable");
+
+    expect(res.status).toBe(503);
+    expect(reports).toEqual([]);
   });
 });

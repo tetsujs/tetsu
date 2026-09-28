@@ -145,12 +145,27 @@ type CleanExt<R> = [Exclude<Awaited<R>, NonExt>] extends [never]
 // biome-ignore lint/suspicious/noConfusingVoidType: hooks that only observe legitimately return nothing
 type HookReturn = object | Response | void | undefined;
 
-interface HookFactory<Slot extends SlotName, SlotBase extends BaseCtx> {
-  <R extends HookReturn | Promise<HookReturn> = void>(
+/**
+ * What an `onError` hook may return: a response, or nothing to pass the
+ * error on. An object is refused rather than ignored — the runtime takes
+ * only a `Response` from this slot, and `{ status: 409 }` would become a
+ * `500` without a word.
+ */
+// biome-ignore lint/suspicious/noConfusingVoidType: a hook that passes the error on returns nothing
+type ErrorHookReturn = Response | void | undefined;
+
+interface HookFactory<
+  Slot extends SlotName,
+  SlotBase extends BaseCtx,
+  Return = HookReturn,
+> {
+  // biome-ignore lint/suspicious/noConfusingVoidType: the default of a hook that returns nothing
+  <R extends Return | Promise<Return> | void = void>(
     fn: (ctx: SlotBase) => R,
   ): Hook<Slot, SlotBase, CleanExt<R>>;
 
-  <C extends BaseCtx, R extends HookReturn | Promise<HookReturn> = void>(
+  // biome-ignore lint/suspicious/noConfusingVoidType: the default of a hook that returns nothing
+  <C extends BaseCtx, R extends Return | Promise<Return> | void = void>(
     fn: (ctx: C) => R,
   ): Hook<Slot, C, CleanExt<R>>;
 }
@@ -232,17 +247,24 @@ interface HookFactories {
    *
    * May map the error to a `Response`; otherwise the error continues to the
    * next `onError` scope (route → group → app) and finally to the default
-   * error mapper.
+   * error mapper. It returns a `Response` or nothing — an object is a
+   * compile error, not a body.
    */
-  readonly onError: HookFactory<"onError", SlotBases["onError"]>;
+  readonly onError: HookFactory<
+    "onError",
+    SlotBases["onError"],
+    ErrorHookReturn
+  >;
 }
 
-function factory<Slot extends SlotName, SlotBase extends BaseCtx>(
-  slot: Slot,
-): HookFactory<Slot, SlotBase> {
+function factory<
+  Slot extends SlotName,
+  SlotBase extends BaseCtx,
+  Return = HookReturn,
+>(slot: Slot): HookFactory<Slot, SlotBase, Return> {
   const create = (fn: HookFn) => ({ slot, fn });
 
-  return create as unknown as HookFactory<Slot, SlotBase>;
+  return create as unknown as HookFactory<Slot, SlotBase, Return>;
 }
 
 /**
@@ -297,5 +319,5 @@ export const hook: HookFactories = {
   afterResponse: factory<"afterResponse", SlotBases["afterResponse"]>(
     "afterResponse",
   ),
-  onError: factory<"onError", SlotBases["onError"]>("onError"),
+  onError: factory<"onError", SlotBases["onError"], ErrorHookReturn>("onError"),
 };
