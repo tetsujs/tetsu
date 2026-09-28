@@ -59,6 +59,9 @@ export interface AssertDescribedOptions {
    * Headers the status must declare when the response carries them —
    * `retry-after`. Only those named: a response carries headers no
    * document describes, `content-type` and `x-request-id` among them.
+   *
+   * The other way needs no list: a header the status declares required —
+   * a `location`, a `set-cookie` — is one the response must carry.
    */
   readonly headers?: readonly string[];
 }
@@ -421,7 +424,7 @@ function headerProblems(
     name.toLowerCase(),
   );
 
-  return names
+  const undeclared = names
     .filter(
       (name) =>
         response.headers.has(name) && !declared.includes(name.toLowerCase()),
@@ -429,6 +432,12 @@ function headerProblems(
     .map(
       (name) => `the header "${name}", which its ${status} does not declare`,
     );
+
+  const missing = Object.entries(described.headers ?? {})
+    .filter(([name, header]) => header.required && !response.headers.has(name))
+    .map(([name]) => `no header "${name}", which its ${status} requires`);
+
+  return [...undeclared, ...missing];
 }
 
 /**
