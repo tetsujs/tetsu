@@ -12,6 +12,7 @@
  */
 
 import type { ValidatePrefix } from "./path.ts";
+import { refuseParameterLookalikes } from "./path.ts";
 import type {
   GroupHooksInput,
   HooksConfig,
@@ -156,6 +157,8 @@ export function group<
       `Group prefix must not contain "*" — a wildcard inside a joined path never matches in Bun's router; got "${prefix}"`,
     );
   }
+
+  refuseParameterLookalikes(prefix);
 
   return {
     [groupBrand]: true,

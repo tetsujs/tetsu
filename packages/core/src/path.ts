@@ -1,5 +1,6 @@
 /**
- * Type-level analysis of route path strings.
+ * Route path strings: their analysis at the type level, and the runtime
+ * rule `route()` and `group()` share for a path the compiler never saw.
  *
  * @module
  */
@@ -180,3 +181,23 @@ export type ValidatePrefix<P extends string> = P extends "/"
       : ValidatePath<P> extends PathError<infer Msg>
         ? PathError<Msg>
         : P;
+
+/**
+ * The runtime half of the rule `ValidatePath` and `ValidatePrefix` share:
+ * syntax that reads as a parameter and is not one is refused, for a path
+ * or a prefix the compiler never saw as a literal. `:id?` is not optional
+ * in Bun's router, and `{id}` is matched as the braces it is written with.
+ */
+export function refuseParameterLookalikes(path: string): void {
+  if (path.includes("?")) {
+    throw new Error(
+      `Bun's router has no optional parameters, got "${path}" — ":id?" matches only a present value and names the parameter "id?"`,
+    );
+  }
+
+  if (path.includes("{") || path.includes("}")) {
+    throw new Error(
+      `A parameter is ":id", not "{id}", got "${path}" — Bun's router matches braces as the characters they are, so the route answers only a request for that literal path`,
+    );
+  }
+}

@@ -15,6 +15,7 @@
 
 import type { BodyType, ResponseMap, SchemaConfig } from "./context.ts";
 import type { ValidatePath } from "./path.ts";
+import { refuseParameterLookalikes } from "./path.ts";
 import type { AnySchema, InferOutput } from "./schema.ts";
 import type {
   HandlerCtx,
@@ -481,17 +482,7 @@ function assertValidPath(path: string): void {
     throw new Error(`Route path must not end with "/", got "${path}"`);
   }
 
-  if (path.includes("?")) {
-    throw new Error(
-      `Bun's router has no optional parameters, got "${path}" — ":id?" matches only a present value and names the parameter "id?"`,
-    );
-  }
-
-  if (path.includes("{") || path.includes("}")) {
-    throw new Error(
-      `A parameter is ":id", not "{id}", got "${path}" — Bun's router matches braces as the characters they are, so the route answers only a request for that literal path`,
-    );
-  }
+  refuseParameterLookalikes(path);
 
   const segments = path.split("/");
 

@@ -57,6 +57,14 @@ describe("group()", () => {
   test("rejects a wildcard in the prefix", () => {
     expect(() => mount("/api/*")).toThrow('must not contain "*"');
   });
+
+  test("rejects braces, as a route path does", () => {
+    expect(() => mount("/api{version}")).toThrow('not "{id}"');
+  });
+
+  test("rejects a question mark, as a route path does", () => {
+    expect(() => mount("/v?")).toThrow("no optional parameters");
+  });
 });
 
 describe("isGroup", () => {
