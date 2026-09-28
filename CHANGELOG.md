@@ -23,6 +23,9 @@ API.
 - `@tetsujs/core`: a schema that refuses a request part with an empty list
   of issues — which Standard Schema allows — fails the request with a
   `422`. The raw value used to reach the handler as if it were valid.
+- `@tetsujs/core`: a `json` or `text` body that starts with a byte order
+  mark reads without it however it was sent. Sent in chunks, the mark
+  used to stay, and a JSON body failed with a `400`.
 
 ## 0.5.3 — 2026-09-27
 

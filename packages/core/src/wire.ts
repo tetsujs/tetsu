@@ -227,6 +227,10 @@ function materializeForm(
  * trusted when present. A chunked request declares nothing, so there the
  * limit is enforced while buffering the stream: the request is dropped at
  * the first chunk that crosses it.
+ *
+ * Both ways decode the bytes the same: `TextDecoder` drops a leading byte
+ * order mark as `req.text()` does, where `Buffer#toString` would keep it
+ * and a JSON body would fail to parse for how it was framed.
  */
 async function readTextWithinLimit(
   req: Request,
@@ -240,8 +244,8 @@ async function readTextWithinLimit(
     return "";
   }
 
-  return Buffer.concat(await bufferWithinLimit(req.body, limit)).toString(
-    "utf8",
+  return new TextDecoder().decode(
+    Buffer.concat(await bufferWithinLimit(req.body, limit)),
   );
 }
 
