@@ -655,13 +655,23 @@ function settle(ctx: PipelineCtx, res: Response): Response {
  * and `ctx.out` still lands on whatever goes out — the same promises the
  * success path makes.
  *
- * The loop terminates on its own: a failing `finalize` has consumed at
- * least one hook, and a failing `mapError` leaves a plain error, which its
- * last branch always maps. The bound is a backstop, not the mechanism.
+ * The loop is bounded: a failing `finalize` has consumed at least one hook,
+ * and a failing `mapError` usually leaves a plain error, which its last
+ * branch always maps. Not always — an `HttpError` whose body throws when
+ * serialized fails the mapping every time it is the error — so the bound
+ * is what ends the loop there, and the failure that used it up goes to
+ * {@link hardFailure}.
  *
  * An attempt that waits continues the loop from its own number once it
  * settles, so the bound is the same however the attempts were spread
  * across ticks.
+ *
+ * It reports only the failure no attempt was left for. Any other failure
+ * along the way is the next attempt's error, and is answered or reported
+ * where every error is — by `onError`, or by the default mapping once,
+ * when nothing answered it — as the same failure on the success path
+ * would be. Reporting each one here too sent one failure to the receiver
+ * twice, and an `HttpError` a hook threw on purpose as a failure.
  */
 function recover(
   entry: Executable,
@@ -680,8 +690,6 @@ function recover(
     try {
       res = attemptRecovery(entry, ctx, pending, progress);
     } catch (failure) {
-      ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
-
       pending = failure;
 
       continue;
@@ -690,17 +698,15 @@ function recover(
     if (isThenable(res)) {
       const next = attempt + 1;
 
-      return Promise.resolve(res).then(undefined, (failure: unknown) => {
-        ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
-
-        return recover(entry, ctx, failure, progress, next);
-      });
+      return Promise.resolve(res).then(undefined, (failure: unknown) =>
+        recover(entry, ctx, failure, progress, next),
+      );
     }
 
     return res;
   }
 
-  return hardFailure(ctx);
+  return hardFailure(ctx, pending);
 }
 
 /**
@@ -746,24 +752,24 @@ function deliver(
  * response decorated by nothing else is exactly where a CORS header
  * decides whether the client sees the status at all.
  *
- * No request is known to reach it, and that is the intended state rather
- * than an untested gap: `recover` bounds itself above what its own
- * reasoning says it needs, and every way of failing that has been tried —
- * a mapper on a circular body, an `onError` hook that throws, one that
- * returns a value instead of a response, a `beforeResponse` hook throwing
- * on the error path — is answered a step earlier. It is kept because the
- * alternative to a backstop that never fires is a loop that can end with
- * nothing to return, and because the reasoning it stands on is about code
- * that will keep changing.
+ * `failure` is what used up the last attempt, reported here because no
+ * attempt is left to report it: an `HttpError` whose body throws when
+ * serialized, thrown where the attempts were already spent — or one whose
+ * serialization throws another like it, which no bound would outlast.
+ * Most ways of failing are answered a step earlier: a mapper on a
+ * circular body, an `onError` hook that throws, a `beforeResponse` hook
+ * throwing on the error path.
  */
-function hardFailure(ctx: PipelineCtx): Response {
+function hardFailure(ctx: PipelineCtx, failure: unknown): Response {
+  ctx[reporterKey]({ source: "errorResponse", error: failure, ctx });
+
   const res = Response.json(errorBody(500), { status: 500 });
 
   try {
     return applyOutgoingHeaders(res, ctx.out);
-  } catch (failure) {
+  } catch (headersFailure) {
     ctx[reporterKey](
-      { source: "errorResponse", error: failure, ctx },
+      { source: "errorResponse", error: headersFailure, ctx },
       "Failed to apply response headers",
     );
 

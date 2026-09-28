@@ -7,6 +7,13 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: a `beforeResponse` hook failing over an error response
+  is reported once, as `"unhandled"`, and not at all when `onError`
+  answers it or it threw an `HttpError` — as the same hook failing over a
+  response is. The error path used to report it as `"errorResponse"` and
+  then again, and to report an `HttpError` thrown on purpose.
+  `"errorResponse"` is now the failure the error path had no attempt left
+  to answer — an `HttpError` whose body throws when serialized.
 - `@tetsujs/core`: an empty or missing `cookies.secret` is refused at
   startup. The application used to start and sign with a key anyone can
   compute — an empty one, or none at all when the variable was unset — so

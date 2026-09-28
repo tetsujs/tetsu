@@ -44,7 +44,7 @@ import { isThenable } from "./internal.ts";
  * | `unhandled` | an error no `onError` hook answered, and not an `HttpError`: the request got a `500` |
  * | `response` | a handler broke its response contract — a status its map does not declare, a body its schema rejects |
  * | `onError` | an `onError` hook threw; the next one, or the default mapping, answered instead |
- * | `errorResponse` | the error path failed in turn, and the request got a bare `500` |
+ * | `errorResponse` | the error path kept failing until nothing could answer, and the request got a bare `500` |
  * | `afterResponse` | an `afterResponse` observer threw; the response had already gone |
  * | `websocket` | a WebSocket handler threw, or a message schema failed rather than rejecting |
  * | `stream` | a streamed body's source threw, or its `onEnd` did (`@tetsujs/sse`) |
