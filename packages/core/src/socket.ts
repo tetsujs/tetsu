@@ -85,12 +85,26 @@ export function socketHandler(report: Reporter): WebSocketHandler<SocketState> {
 }
 
 /**
+ * The last frame of a socket still waiting for its turn: the next frame is
+ * acted on after it.
+ *
+ * Every frame's check starts the moment it arrives, so a socket's frames
+ * are checked side by side, but what each came to — a delivery, a
+ * refusal, a failed check — happens in the order they arrived. Without
+ * the line a frame checked faster overtook one checked slower: the handler
+ * got them out of order, or got a frame after `close`, with nothing it
+ * could do about either. Bun calls `message` in order; a schema must not
+ * undo that. A socket that is gone takes its entry with it.
+ */
+const pending = new WeakMap<AnySocket, Promise<void>>();
+
+/**
  * Delivers one frame, validating it when the endpoint declared a message
  * schema.
  *
- * A declaration of that schema is a declaration that the protocol is
- * JSON, so a binary frame is as much a violation as unparsable text: both
- * take the refusal path rather than reaching a handler typed for neither.
+ * A frame waits only for its own check or for an earlier frame still
+ * waiting; with a synchronous schema — the common case — neither happens,
+ * and the frame is acted on at once.
  */
 function deliver(
   report: Reporter,
@@ -105,12 +119,75 @@ function deliver(
     return;
   }
 
-  if (typeof message !== "string") {
-    refuse(report, socket, [
-      { message: "a binary frame is not valid for this endpoint", path: [] },
-    ]);
+  const outcome = inspect(schema, message);
+  const before = pending.get(socket);
+
+  if (before === undefined && !isThenable(outcome)) {
+    act(report, socket, outcome);
 
     return;
+  }
+
+  const turn: Promise<Outcome> =
+    before === undefined
+      ? Promise.resolve(outcome)
+      : before.then(() => outcome);
+
+  /**
+   * One `then` with both handlers, and the entry cleared inside them: a
+   * `catch` and a `finally` on top cost a socket with an asynchronous
+   * schema two more promises a frame, about 70 ns. The `try` stands in for
+   * the `catch`: a rejection left on the tail would reach no one, and Bun
+   * ends the process on an unhandled one.
+   */
+  const tail: Promise<void> = turn.then(
+    (ready) => {
+      forget(socket, tail);
+
+      try {
+        act(report, socket, ready);
+      } catch (error) {
+        failed(report, socket, error);
+      }
+    },
+    (error: unknown) => {
+      forget(socket, tail);
+      failed(report, socket, error);
+    },
+  );
+
+  pending.set(socket, tail);
+}
+
+/** Clears the socket's entry, unless a later frame has taken it since. */
+function forget(socket: AnySocket, tail: Promise<void>): void {
+  if (pending.get(socket) === tail) {
+    pending.delete(socket);
+  }
+}
+
+/** What a frame came to: what its check said, or that the check failed. */
+type Outcome = Checked | { readonly failure: unknown };
+
+/**
+ * Parses and checks one frame, now; a promise when the check is
+ * asynchronous, which resolves rather than rejects — a failed check is an
+ * outcome to act on in its turn like the others.
+ *
+ * A declaration of that schema is a declaration that the protocol is
+ * JSON, so a binary frame is as much a violation as unparsable text: both
+ * take the refusal path rather than reaching a handler typed for neither.
+ */
+function inspect(
+  schema: AnySchema,
+  message: string | Buffer,
+): Outcome | Promise<Outcome> {
+  if (typeof message !== "string") {
+    return {
+      issues: [
+        { message: "a binary frame is not valid for this endpoint", path: [] },
+      ],
+    };
   }
 
   let parsed: unknown;
@@ -118,33 +195,52 @@ function deliver(
   try {
     parsed = JSON.parse(message);
   } catch {
-    refuse(report, socket, [
-      { message: "message is not valid JSON", path: [] },
-    ]);
-
-    return;
+    return { issues: [{ message: "message is not valid JSON", path: [] }] };
   }
-
-  let checked: Checked | Promise<Checked>;
 
   try {
-    checked = check(schema, parsed);
-  } catch (error) {
-    failed(report, socket, error);
+    const checked = check(schema, parsed);
 
-    return;
+    return isThenable(checked)
+      ? checked.then(undefined, (failure: unknown) => ({ failure }))
+      : checked;
+  } catch (failure) {
+    return { failure };
   }
-
-  if (isThenable(checked)) {
-    void checked
-      .then((result) => settle(report, socket, result))
-      .catch((error: unknown) => failed(report, socket, error));
-
-    return;
-  }
-
-  settle(report, socket, checked);
 }
+
+/**
+ * Acts on what a frame came to: delivers it, refuses it, or ends the
+ * socket for a check that failed.
+ *
+ * A socket no longer open — closed by what an earlier frame came to, by a
+ * handler, or by the client while this frame waited — gets nothing more:
+ * its `close` has run, and a handler that tidied up there must not see a
+ * frame after it. A check that failed then is not reported either: the
+ * socket it would end is already gone.
+ */
+function act(report: Reporter, socket: AnySocket, outcome: Outcome): void {
+  if (socket.readyState !== socketOpen) {
+    return;
+  }
+
+  if ("failure" in outcome) {
+    failed(report, socket, outcome.failure);
+
+    return;
+  }
+
+  if ("issues" in outcome) {
+    refuse(report, socket, outcome.issues);
+
+    return;
+  }
+
+  run(report, socket, "message", (on) => on.message?.(socket, outcome.value));
+}
+
+/** `WebSocket.OPEN`: the one state in which a frame is still acted on. */
+const socketOpen = 1;
 
 /** A frame that passed the schema, or the reasons it did not. */
 type Checked =
@@ -201,16 +297,6 @@ function failed(report: Reporter, socket: AnySocket, error: unknown): void {
   report({ source: "websocket", error }, "websocket message schema failed");
 
   socket.close(1011, "internal error");
-}
-
-function settle(report: Reporter, socket: AnySocket, result: Checked): void {
-  if ("issues" in result) {
-    refuse(report, socket, result.issues);
-
-    return;
-  }
-
-  run(report, socket, "message", (on) => on.message?.(socket, result.value));
 }
 
 /**

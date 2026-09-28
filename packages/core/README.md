@@ -541,6 +541,11 @@ room = ws({
 });
 ```
 
+A frame that is not valid JSON, or not valid against `schema.message`, closes
+the socket with `1007`, or goes to `invalid` when the endpoint has one.
+Frames reach `message` in the order they arrived, even when the schema
+checks asynchronously, and none after the socket has closed.
+
 ### Streaming
 
 A handler that streams returns a `Response` carrying the stream. For

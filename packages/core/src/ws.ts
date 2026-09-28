@@ -81,6 +81,11 @@ export interface WsSchemaConfig {
    * JSON nor valid against the schema never reaches the handler. Binary
    * frames are a protocol violation under such a declaration — a JSON
    * protocol has no place for them — and are refused the same way.
+   *
+   * Frames reach `message` in the order they arrived, as they do without a
+   * schema, even when it checks asynchronously: a socket's frames are
+   * checked side by side, and each is acted on once the ones before it
+   * were. None reaches `message` once the socket has closed.
    */
   readonly message?: AnySchema;
 }
