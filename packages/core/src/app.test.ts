@@ -401,6 +401,15 @@ describe("protocol", () => {
     expect(await res.text()).toBe("");
   });
 
+  test("HEAD states the length GET would send, not the empty body it sends", async () => {
+    const full = await get("/items/5");
+    const head = await get("/items/5", { method: "HEAD" });
+
+    expect(head.headers.get("content-length")).toBe(
+      String((await full.arrayBuffer()).byteLength),
+    );
+  });
+
   test("OPTIONS answers with the path's Allow set", async () => {
     const res = await get("/items/5", { method: "OPTIONS" });
 

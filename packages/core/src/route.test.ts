@@ -41,6 +41,26 @@ describe("route()", () => {
   });
 });
 
+describe("route() method validation", () => {
+  const declare = (method: string) =>
+    route({
+      method: method as "GET",
+      path: "/items",
+      handler: () => undefined,
+    });
+
+  test.each(["get", "FOO", "HEAD", "OPTIONS"])(
+    "refuses %s, which the path's dispatch would never run",
+    (method) => {
+      expect(() => declare(method)).toThrow(`got "${method}"`);
+    },
+  );
+
+  test.each(["GET", "POST", "PUT", "PATCH", "DELETE"])("takes %s", (method) => {
+    expect(declare(method).method as string).toBe(method);
+  });
+});
+
 describe("route() path validation", () => {
   const define = (path: string) =>
     route({ method: "GET", path: path as "/", handler: () => undefined });

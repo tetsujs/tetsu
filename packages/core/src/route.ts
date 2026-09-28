@@ -15,6 +15,7 @@
 
 import type { BodyType, ResponseMap, SchemaConfig } from "./context.ts";
 import type { ValidatePath } from "./path.ts";
+import { refuseParameterLookalikes } from "./path.ts";
 import type { AnySchema, InferOutput } from "./schema.ts";
 import type {
   HandlerCtx,
@@ -25,9 +26,17 @@ import type {
 } from "./stack.ts";
 
 /**
+ * The methods a route can declare: the list `route()` checks a method
+ * against at runtime, and the one `Method` is read from, so the two cannot
+ * drift apart. `HEAD` and `OPTIONS` are not on it — every path answers
+ * them itself, from its `GET` and its `Allow` set.
+ */
+const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+
+/**
  * HTTP methods a route can handle.
  */
-export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type Method = (typeof methods)[number];
 
 /**
  * OpenAPI-oriented route metadata; feeds documentation generation and has
@@ -433,6 +442,7 @@ export function route<
     readonly bodyType?: ValidateBodyType<S, B, Raw>;
   },
 ): RouteDef<Path, S, H, B, M, R, Raw> {
+  assertMethod(config.method);
   assertValidPath(config.path);
   assertRawBody(config.rawBody, config.bodyType);
 
@@ -445,6 +455,21 @@ export function route<
     R,
     Raw
   >;
+}
+
+/**
+ * The runtime twin of `Method`, for a method the compiler did not check —
+ * from JavaScript, or from configuration. A lower-case `"get"` would never
+ * run, since the path's dispatch compares upper case, and its `405` would
+ * advertise it in `Allow`; a `HEAD` or `OPTIONS` route would take over
+ * what the path answers itself.
+ */
+function assertMethod(method: unknown): void {
+  if (!(methods as readonly unknown[]).includes(method)) {
+    throw new Error(
+      `A route's method is one of ${methods.join(", ")}, got "${String(method)}" — HEAD and OPTIONS are answered by every path itself`,
+    );
+  }
 }
 
 /**
@@ -481,17 +506,7 @@ function assertValidPath(path: string): void {
     throw new Error(`Route path must not end with "/", got "${path}"`);
   }
 
-  if (path.includes("?")) {
-    throw new Error(
-      `Bun's router has no optional parameters, got "${path}" — ":id?" matches only a present value and names the parameter "id?"`,
-    );
-  }
-
-  if (path.includes("{") || path.includes("}")) {
-    throw new Error(
-      `A parameter is ":id", not "{id}", got "${path}" — Bun's router matches braces as the characters they are, so the route answers only a request for that literal path`,
-    );
-  }
+  refuseParameterLookalikes(path);
 
   const segments = path.split("/");
 

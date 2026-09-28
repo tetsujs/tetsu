@@ -16,6 +16,22 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: a `HEAD` request states the `content-length` a `GET`
+  would send. The `GET` response was rebuilt without its body, and the
+  length Bun computes as it sends came out `0` on every route; now Bun
+  answers the `HEAD` from the response itself.
+- `@tetsujs/core`: a route at `/` under a group is `"GET /api/users"` in
+  `AppRoutes`, the path it is served at. The type joined a trailing slash
+  Bun never matches. A route under a symbol key, which the types listed
+  and the table never served, is refused at startup.
+- `@tetsujs/core`: `group()` refuses `?`, `{` and `}` in a prefix at
+  startup, as `route()` does in a path; the compiler refused them only in
+  a literal, and a prefix from configuration served every route under it
+  as a `404`.
+- `@tetsujs/core`: `route()` refuses a method it cannot serve at startup —
+  a lower-case `"get"`, which never ran and was advertised in the `405`'s
+  `Allow`, or a `HEAD` or `OPTIONS`, which took over what every path
+  answers itself.
 - The README and `hook.afterResponse` said observers run after the
   response is sent. They start as it goes to Bun: their synchronous part
   is part of the response's latency, and what they need of the request or

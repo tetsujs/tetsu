@@ -363,6 +363,30 @@ ctx.out.status = 201;
 ctx.out.headers.set("location", `/orders/${order.id}`);
 ```
 
+A redirect is a response like any other: the platform's `Response.redirect`,
+from a handler or from a hook that turns a request away. Cookies set on
+`ctx.out` go with it:
+
+```ts
+handler: (ctx) => {
+  ctx.out.cookies.set("session", token, { httpOnly: true });
+
+  return Response.redirect("/orders", 303);
+},
+```
+
+A `Response` the handler builds is sent as it is, unchecked and absent from
+the document. A redirect the response map declares is checked and
+documented like any status — set it on `ctx.out`:
+
+```ts
+schema: { response: { 303: null } },
+handler: (ctx) => {
+  ctx.out.status = 303;
+  ctx.out.headers.set("location", `/orders/${order.id}`);
+},
+```
+
 Every error the framework produces has one shape, and so do the ones you
 throw:
 

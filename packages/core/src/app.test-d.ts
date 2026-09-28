@@ -100,3 +100,28 @@ export type singleCases = [
     Equal<keyof AppRoutes<typeof single>, "GET /api/users" | "POST /api/users">
   >,
 ];
+
+/**
+ * A route at `/` under a group is the group's own path, as the table
+ * registers it: `"GET /api/users"`, not a trailing slash Bun never matches.
+ */
+const rooted = createApp({
+  routes: group("/api/users", {
+    children: [
+      {
+        list: route({ method: "GET", path: "/", handler: () => [] }),
+        one: route({ method: "GET", path: "/:id", handler: () => ({}) }),
+      },
+      route({ method: "POST", path: "/", handler: () => ({}) }),
+    ],
+  }),
+});
+
+export type rootedCases = [
+  Expect<
+    Equal<
+      keyof AppRoutes<typeof rooted>,
+      "GET /api/users" | "GET /api/users/:id" | "POST /api/users"
+    >
+  >,
+];

@@ -148,6 +148,11 @@ export type RouteMap = Record<string, RouteSignature>;
  * union. Socket endpoints are absent by construction: a `ws()` declaration
  * is not a `RouteDef`, and nothing calls a handshake like a route.
  *
+ * The keys are the ones the runtime reads with `Object.entries`, except
+ * one it cannot tell apart: a `private` field of a class controller is
+ * served, and absent here — `keyof` does not see it. A route under a symbol
+ * key would be here and not served, so the walk refuses it.
+ *
  * Internal to the core: `createApp()` applies it, and its result is what
  * `App` carries.
  */
@@ -167,7 +172,7 @@ type Signatures<
           infer _R,
           infer _Raw
         >
-      ? Entry<M, `${Prefix}${P}`, S, B>
+      ? Entry<M, Join<Prefix, P>, S, B>
       : Node extends object
         ? {
             [K in keyof Node]: Node[K] extends RouteDef<
@@ -179,10 +184,20 @@ type Signatures<
               infer _R,
               infer _Raw
             >
-              ? Entry<M, `${Prefix}${P}`, S, B>
+              ? Entry<M, Join<Prefix, P>, S, B>
               : never;
           }[keyof Node]
         : never;
+
+/**
+ * A route's path under a prefix, joined as `joinPath` joins it: a route at
+ * `/` is the prefix itself, not the prefix with a trailing slash.
+ */
+type Join<Prefix extends string, P extends string> = Prefix extends ""
+  ? P
+  : P extends "/"
+    ? Prefix
+    : `${Prefix}${P}`;
 
 type Entry<
   M extends Method,
@@ -401,7 +416,7 @@ export function buildRouteTable(input: {
 
     const controller = nameOf(node);
 
-    assertNoRouteAccessors(node, controller);
+    assertEveryRouteServed(node, controller);
 
     if (fields.length === 0) {
       if (!isMountable(node)) {
@@ -479,10 +494,25 @@ function owner(
     : `the "${name}" route of an unnamed controller`;
 }
 
-function assertNoRouteAccessors(
+/**
+ * Refuses a route the types would list and the walk would never serve:
+ * one under a symbol key, which `Object.entries` skips, and one behind a
+ * getter on the class prototype, which is not the controller's own.
+ */
+function assertEveryRouteServed(
   node: object,
   controller: string | undefined,
 ): void {
+  for (const key of Object.getOwnPropertySymbols(node)) {
+    const value: unknown = (node as Record<symbol, unknown>)[key];
+
+    if (isRoute(value) || isWs(value)) {
+      throw new Error(
+        `Controller "${controller ?? "(unnamed)"}" declares a route under the symbol ${String(key)}, and a route needs a name: routes are read from the controller's string keys, so this one is typed into the application but never served`,
+      );
+    }
+  }
+
   for (
     let level = Object.getPrototypeOf(node) as object | null;
     level !== null && level !== Object.prototype;
