@@ -400,4 +400,17 @@ describe("signing", () => {
       "session=user-42",
     );
   });
+
+  test.each([
+    ["an empty secret", ""],
+    ["a missing one", undefined as unknown as string],
+  ])("%s is refused at startup", (_, secret) => {
+    expect(() =>
+      createApp({
+        cookies: { secret, sign: ["session"] },
+        routes: new CookieController(),
+      }),
+    ).toThrow(TypeError);
+  });
 });
+

@@ -371,6 +371,10 @@ treated as absent:
 createApp({ cookies: { secret: env.COOKIE_SECRET, sign: ["session"] }, routes });
 ```
 
+The secret is 32 random bytes or more — `openssl rand -base64 32`. An empty
+or missing one is refused at startup, since anyone could compute its
+signature.
+
 ### Groups and hook packages
 
 A group adds a path prefix and hooks to everything under it. A hook package

@@ -3,6 +3,15 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Fixed
+
+- `@tetsujs/core`: an empty or missing `cookies.secret` is refused at
+  startup. The application used to start and sign with a key anyone can
+  compute — an empty one, or none at all when the variable was unset — so
+  a forged cookie read as signed.
+
 ## 0.5.3 — 2026-09-27
 
 A test client that keeps its headers and cookies from one request to the
