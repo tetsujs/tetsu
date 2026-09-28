@@ -20,6 +20,10 @@ API.
   would send. The `GET` response was rebuilt without its body, and the
   length Bun computes as it sends came out `0` on every route; now Bun
   answers the `HEAD` from the response itself.
+- `@tetsujs/core`: a route at `/` under a group is `"GET /api/users"` in
+  `AppRoutes`, the path it is served at. The type joined a trailing slash
+  Bun never matches. A route under a symbol key, which the types listed
+  and the table never served, is refused at startup.
 - The README and `hook.afterResponse` said observers run after the
   response is sent. They start as it goes to Bun: their synchronous part
   is part of the response's latency, and what they need of the request or

@@ -295,6 +295,19 @@ describe("buildRouteTable", () => {
     );
   });
 
+  test("refuses a route under a symbol key, which is typed but never served", () => {
+    const hidden = Symbol("hidden");
+
+    const controller = {
+      plain: route({ method: "GET", path: "/plain", handler: () => "ok" }),
+      [hidden]: route({ method: "GET", path: "/hidden", handler: () => "no" }),
+    };
+
+    expect(() => buildRouteTable({ routes: controller })).toThrow(
+      "declares a route under the symbol Symbol(hidden)",
+    );
+  });
+
   test("the same for a socket endpoint", () => {
     class GhostSocketController {
       get chat() {
