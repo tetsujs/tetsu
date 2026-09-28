@@ -49,6 +49,7 @@ export type ContentMap = Record<
 /** A header a response carries. */
 export interface HeaderObject {
   readonly description?: string;
+  readonly required?: boolean;
   readonly schema: JsonSchema;
 }
 

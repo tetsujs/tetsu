@@ -438,8 +438,49 @@ export interface DeclaredOutgoing<Status extends number> extends Outgoing {
  * ```ts
  * schema: { response: { 204: null } }
  * ```
+ *
+ * @example A status with headers and cookies of its own
+ * ```ts
+ * schema: {
+ *   response: {
+ *     201: { body: Order, headers: Created },
+ *     303: { headers: SeeOther },
+ *   },
+ * }
+ * ```
  */
-export type ResponseMap = Record<number, AnySchema | null>;
+export type ResponseMap = Record<number, AnySchema | null | ResponseEntry>;
+
+/**
+ * One status of a {@link ResponseMap} that says more than its body: the
+ * headers and the cookies it leaves with. Written in place of the body's
+ * schema, which becomes `body`; without `body` the status carries none,
+ * as with `null`.
+ *
+ * The response is the request's mirror, and so are its parts: `headers`
+ * and `cookies` are checked as the request's are, and documented from the
+ * same schemas. `headers` sees the headers on `ctx.out` once the handler
+ * has returned, names in lower case and without `set-cookie` — those set by
+ * a hook before the handler included, so a schema that refuses keys it
+ * does not name refuses theirs too. `cookies` sees the cookies the
+ * response sets — through `ctx.out` or `ctx.req.cookies` — by name, each
+ * value as the handler wrote it: opened when signed, `""` when deleted.
+ * An entry has these three keys and no others: a misspelled one is
+ * refused at startup rather than never checked.
+ *
+ * Checked with the body, when responses are validated, and a response
+ * that breaks them is answered with a `500`, like a body that fails its
+ * schema. What `ctx.out` holds goes with that `500` as with every error
+ * response — its headers and cookies included — so the schema says what a
+ * status leaves with, and is not a filter over it. A `Response` the
+ * handler builds is not checked, and neither is a thrown `HttpError` —
+ * for those, an entry is documentation.
+ */
+export interface ResponseEntry {
+  readonly body?: AnySchema | null;
+  readonly headers?: AnySchema;
+  readonly cookies?: AnySchema;
+}
 
 /**
  * The bytes of the body, for a route that declared `rawBody: true` — and

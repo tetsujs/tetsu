@@ -26,6 +26,7 @@ export type {
   Outgoing,
   ParsedBody,
   Requires,
+  ResponseEntry,
   RouteInfo,
   SchemaConfig,
   ValidatedCtx,

@@ -11,7 +11,14 @@
  * @module
  */
 
-import type { ResponseMap, SchemaConfig } from "./context.ts";
+import type {
+  OutgoingSettings,
+  ResponseEntry,
+  ResponseMap,
+  SchemaConfig,
+} from "./context.ts";
+import type { CookieSealer } from "./cookie.ts";
+import { outgoingCookies } from "./cookie.ts";
 import type { ValidationIssue } from "./error.ts";
 import { ValidationError } from "./error.ts";
 import { isThenable } from "./internal.ts";
@@ -125,7 +132,10 @@ function input(
 }
 
 /**
- * Picks the response schema that applies to an outgoing status.
+ * Picks the response contract that applies to an outgoing status, as it
+ * was written: a schema for the body, or an entry with the headers and
+ * cookies too. Nothing is built per request — a route whose map names only
+ * bodies pays for none of what an entry adds.
  *
  * A single schema applies to every status — that contract says nothing
  * about codes. A map applies the entry the status names, and nothing when
@@ -134,10 +144,10 @@ function input(
  * refused like a body that fails its schema — the map is the list of what
  * the route answers with, and what a client generated from it will expect.
  */
-export function responseSchemaFor(
+export function responseContractFor(
   declared: AnySchema | ResponseMap | undefined,
   status: number,
-): AnySchema | undefined {
+): AnySchema | ResponseEntry | undefined {
   if (declared === undefined) {
     return undefined;
   }
@@ -157,6 +167,94 @@ export function responseSchemaFor(
   }
 
   return map[status] ?? undefined;
+}
+
+/**
+ * Checks a handler's result against the contract of its status: the
+ * headers and cookies on `ctx.out`, then the body. The checked body is what
+ * gets serialized.
+ */
+export function checkAnswer(
+  contract: AnySchema | ResponseEntry,
+  result: unknown,
+  ctx: PipelineCtx,
+  sealer: CookieSealer | undefined,
+): unknown | PromiseLike<unknown> {
+  if ("~standard" in contract) {
+    return checkResponse(contract as AnySchema, result);
+  }
+
+  const entry = contract as ResponseEntry;
+
+  const body = (): unknown | PromiseLike<unknown> =>
+    entry.body ? checkResponse(entry.body, result) : result;
+
+  const headers = entry.headers
+    ? checkOutgoing(entry.headers, outgoingHeaders(ctx.out), "headers")
+    : undefined;
+
+  const cookies = (): void | PromiseLike<void> =>
+    entry.cookies
+      ? checkOutgoing(
+          entry.cookies,
+          outgoingCookies(
+            ctx.out.createdHeaders,
+            (ctx.req as Request & { readonly cookies?: Bun.CookieMap }).cookies,
+            sealer,
+          ),
+          "cookies",
+        )
+      : undefined;
+
+  if (isThenable(headers)) {
+    return headers.then(cookies).then(body);
+  }
+
+  const checked = cookies();
+
+  return isThenable(checked) ? checked.then(body) : body();
+}
+
+/**
+ * The headers `ctx.out` carries, as a schema checks them: names in lower
+ * case, as `Headers` gives them, and `set-cookie` left to the cookies.
+ * Prototype-free, as every record of names from outside the core is.
+ */
+function outgoingHeaders(out: OutgoingSettings): Record<string, string> {
+  const headers: Record<string, string> = Object.create(null);
+
+  for (const [name, value] of out.createdHeaders ?? []) {
+    if (name !== "set-cookie") {
+      headers[name] = value;
+    }
+  }
+
+  return headers;
+}
+
+/** Checks one outgoing part; a refusal is the response's, not the client's. */
+function checkOutgoing(
+  schema: AnySchema,
+  value: unknown,
+  part: "headers" | "cookies",
+): void | PromiseLike<void> {
+  const outcome = schema["~standard"].validate(value);
+
+  return isThenable(outcome)
+    ? outcome.then((result) => refuseOutgoing(result, part))
+    : refuseOutgoing(outcome, part);
+}
+
+function refuseOutgoing(
+  result: StandardResult<unknown>,
+  part: "headers" | "cookies",
+): void {
+  if (result.issues) {
+    throw new ResponseContractError(
+      `Handler's response ${part} do not match their schema`,
+      result.issues,
+    );
+  }
 }
 
 /**

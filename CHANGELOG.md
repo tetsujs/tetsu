@@ -14,8 +14,24 @@ API.
   a streamed one reached the client empty. Reading it is now a compile
   error.
 
+### Added
+
+- `@tetsujs/core`: a status of a response map can declare the headers and
+  cookies it leaves with — `201: { body: Order, headers: Created }`,
+  `204: { cookies: SignedIn }` — the way a request declares its parts.
+  They are checked with the body when responses are validated, a response
+  that breaks them refused with a `500`, and `@tetsujs/openapi` documents
+  them: each header its schema names, required as it says, and the cookies
+  as the `set-cookie` header that sets them.
+- `@tetsujs/openapi/testing`: `assertDescribed` reports a header the
+  status requires and the response does not carry.
+
 ### Fixed
 
+- `@tetsujs/openapi`: a route whose map declares no `2xx` — only a
+  redirect, say — is documented with the statuses it declares. A `200`
+  nobody declared was added, and a client generated from the document
+  waited for it.
 - `@tetsujs/core`: frames of a socket reach `message` in the order they
   arrived when `schema.message` checks asynchronously, and none after the
   socket closed. Each frame waited on its own check, so one checked faster
@@ -44,7 +60,6 @@ API.
   header or the client's address nobody read may be gone, without an
   error. The documentation says so, with a recipe for each, and so do
   `@tetsujs/request-log` and `@tetsujs/sse`.
-
 - `@tetsujs/core`: a `beforeResponse` hook failing over an error response
   is reported once, as `"unhandled"`, and not at all when `onError`
   answers it or it threw an `HttpError` — as the same hook failing over a

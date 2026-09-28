@@ -92,6 +92,34 @@ const app = createApp({
       schema: { response: { 204: null } },
       handler: () => undefined,
     }),
+    create: route({
+      method: "POST",
+      path: "/users",
+      schema: {
+        response: {
+          201: {
+            body: User,
+            headers: described({
+              type: "object",
+              required: ["location"],
+              properties: { location: { type: "string" } },
+            }),
+          },
+        },
+      },
+      handler: (ctx) => {
+        const user = { id: "7", name: "Ada" };
+
+        if (ctx.req.headers.get("x-mode") === "forget") {
+          return Response.json(user, { status: 201 });
+        }
+
+        ctx.out.status = 201;
+        ctx.out.headers.set("location", "/users/7");
+
+        return user;
+      },
+    }),
   },
 });
 
@@ -209,6 +237,25 @@ describe("a response the document does not describe", () => {
           headers: ["retry-after"],
         }),
       ),
+    ).toBeUndefined();
+  });
+
+  test("a header its status requires and the response lacks", async () => {
+    const res = await request("/users", {
+      method: "POST",
+      headers: { "x-mode": "forget" },
+    });
+
+    expect(
+      await failure(assertDescribed(document, "POST /users", res)),
+    ).toContain('no header "location", which its 201 requires');
+  });
+
+  test("a required header the response carries passes", async () => {
+    const res = await request("/users", { method: "POST" });
+
+    expect(
+      await failure(assertDescribed(document, "POST /users", res)),
     ).toBeUndefined();
   });
 

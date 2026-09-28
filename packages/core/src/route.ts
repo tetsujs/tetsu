@@ -13,7 +13,12 @@
  * @module
  */
 
-import type { BodyType, ResponseMap, SchemaConfig } from "./context.ts";
+import type {
+  BodyType,
+  ResponseEntry,
+  ResponseMap,
+  SchemaConfig,
+} from "./context.ts";
 import type { ValidatePath } from "./path.ts";
 import { refuseParameterLookalikes } from "./path.ts";
 import type { AnySchema, InferOutput } from "./schema.ts";
@@ -108,11 +113,39 @@ export type HandlerResult<S extends SchemaConfig> =
     ? InferOutput<R> | Response
     : S["response"] extends infer M extends ResponseMap
       ?
-          | InferOutput<Extract<M[keyof M], AnySchema>>
+          | InferOutput<BodyOf<M[keyof M]>>
           | Response
           // biome-ignore lint/suspicious/noConfusingVoidType: an async handler that ends without a return produces void, which is precisely what a body-less status accepts
-          | (null extends M[keyof M] ? undefined | void : never)
+          | (true extends Bodiless<M[keyof M]> ? undefined | void : never)
       : unknown;
+
+/**
+ * The body schema of a response map entry, whichever form it takes — a
+ * `body` that may be absent or `null` included, which may still be a
+ * schema the body is checked against.
+ */
+type BodyOf<E> = E extends AnySchema
+  ? E
+  : E extends { readonly body?: infer B }
+    ? Extract<B, AnySchema>
+    : never;
+
+/**
+ * Whether a response map entry may declare a status without a body: a
+ * `null`, an entry without `body`, or one whose `body` may be absent or
+ * `null`.
+ */
+type Bodiless<E> = E extends null
+  ? true
+  : E extends AnySchema
+    ? false
+    : E extends ResponseEntry
+      ? undefined extends E["body"]
+        ? true
+        : null extends E["body"]
+          ? true
+          : false
+      : false;
 
 declare const bodyTypeErrorBrand: unique symbol;
 
@@ -445,6 +478,7 @@ export function route<
   assertMethod(config.method);
   assertValidPath(config.path);
   assertRawBody(config.rawBody, config.bodyType);
+  assertResponseEntries(config.schema?.response);
 
   return { ...config, [routeBrand]: true } as RouteDef<
     Path,
@@ -469,6 +503,37 @@ function assertMethod(method: unknown): void {
     throw new Error(
       `A route's method is one of ${methods.join(", ")}, got "${String(method)}" — HEAD and OPTIONS are answered by every path itself`,
     );
+  }
+}
+
+/**
+ * Refuses a response map entry with a key other than its three parts. The
+ * compiler lets `{ body, header }` through — an object literal inferred
+ * into a generic is not checked for keys it does not know — and a
+ * misspelled part would be neither checked nor documented, with nothing
+ * to say so.
+ */
+function assertResponseEntries(response: unknown): void {
+  if (typeof response !== "object" || response === null) {
+    return;
+  }
+
+  if ("~standard" in response) {
+    return;
+  }
+
+  for (const [status, entry] of Object.entries(response)) {
+    if (typeof entry !== "object" || entry === null || "~standard" in entry) {
+      continue;
+    }
+
+    for (const key of Object.keys(entry)) {
+      if (key !== "body" && key !== "headers" && key !== "cookies") {
+        throw new Error(
+          `The ${status} entry of a response map has "${key}", which is none of body, headers and cookies — a misspelled part is neither checked nor documented`,
+        );
+      }
+    }
   }
 }
 
