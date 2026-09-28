@@ -20,6 +20,9 @@ API.
   host's own cookie, which a browser sends before one a sibling subdomain
   set for the whole domain. It used to read as the last. Of a signed
   name, the first value whose seal holds.
+- `@tetsujs/core`: a schema that refuses a request part with an empty list
+  of issues — which Standard Schema allows — fails the request with a
+  `422`. The raw value used to reach the handler as if it were valid.
 
 ## 0.5.3 — 2026-09-27
 

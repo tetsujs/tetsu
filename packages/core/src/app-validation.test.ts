@@ -157,6 +157,68 @@ describe("validation coverage", () => {
   });
 });
 
+describe("a refusal without issues", () => {
+  const refuse = (value: unknown) =>
+    (value as { role?: unknown }).role === "user"
+      ? { value: value as { role: string } }
+      : { issues: [] };
+
+  const Refusing: StandardSchemaV1<unknown, { role: string }> = {
+    "~standard": { version: 1, vendor: "test", validate: refuse },
+  };
+
+  const RefusingLater: StandardSchemaV1<unknown, { role: string }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: async (value) => refuse(value),
+    },
+  };
+
+  const request = serve(
+    createApp({
+      routes: {
+        sync: route({
+          method: "POST",
+          path: "/sync",
+          schema: { body: Refusing },
+          handler: (ctx) => ctx.body,
+        }),
+        async: route({
+          method: "POST",
+          path: "/async",
+          schema: { body: RefusingLater },
+          handler: (ctx) => ctx.body,
+        }),
+        query: route({
+          method: "GET",
+          path: "/query",
+          schema: { query: Refusing },
+          handler: (ctx) => ctx.query,
+        }),
+      },
+    }),
+  );
+
+  test.each([
+    ["a body", "/sync", "body"],
+    ["a body checked asynchronously", "/async", "body"],
+    ["a query", "/query?role=admin", "query"],
+  ])("is still a refusal, for %s", async (_, path, part) => {
+    const res = await request(
+      path,
+      part === "body"
+        ? { method: "POST", body: JSON.stringify({ role: "admin" }) }
+        : {},
+    );
+
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({
+      issues: [{ message: "Invalid value", path: [part] }],
+    });
+  });
+});
+
 describe("schema precedence over hook contributions", () => {
   const Quantity: StandardSchemaV1<unknown, { qty: number }> = {
     "~standard": {
