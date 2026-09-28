@@ -156,7 +156,9 @@ export function cookieSealer(
  *
  * Lengths are checked first because `timingSafeEqual` throws on a mismatch
  * rather than returning `false`, and a signature's length is fixed by the
- * digest anyway — there is nothing in it to learn.
+ * digest anyway — there is nothing in it to learn. They are the lengths in
+ * bytes, which is what it compares: a forged signature with one non-ASCII
+ * character is as long as a real one in characters and a byte longer.
  *
  * `timingSafeEqual` is handed in by {@link cookieSealer}, which loads
  * `node:crypto` only when the application signs cookies: imported at the
@@ -173,11 +175,14 @@ function same(
   b: string,
   timingSafeEqual: (a: Uint8Array, b: Uint8Array) => boolean,
 ): boolean {
-  if (a.length !== b.length) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+
+  if (left.byteLength !== right.byteLength) {
     return false;
   }
 
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  return timingSafeEqual(left, right);
 }
 
 /**

@@ -412,5 +412,13 @@ describe("signing", () => {
       }),
     ).toThrow(TypeError);
   });
+
+  test("a signature as long as a real one in characters, not in bytes, reads as absent", async () => {
+    const back = await sealed("/me", {
+      headers: { cookie: `session=user-1.${"A".repeat(42)}%C3%A9` },
+    });
+
+    expect(back.status).toBe(422);
+  });
 });
 

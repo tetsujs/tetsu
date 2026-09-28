@@ -11,6 +11,10 @@ API.
   startup. The application used to start and sign with a key anyone can
   compute — an empty one, or none at all when the variable was unset — so
   a forged cookie read as signed.
+- `@tetsujs/core`: a signed cookie whose forged signature has a non-ASCII
+  character reads as absent, as any bad signature does. It used to fail
+  the request with a `500` when the signature was as long as a real one
+  in characters but not in bytes.
 
 ## 0.5.3 — 2026-09-27
 
