@@ -227,6 +227,10 @@ function materializeForm(
  * trusted when present. A chunked request declares nothing, so there the
  * limit is enforced while buffering the stream: the request is dropped at
  * the first chunk that crosses it.
+ *
+ * Both ways decode the bytes the same: `TextDecoder` drops a leading byte
+ * order mark as `req.text()` does, where `Buffer#toString` would keep it
+ * and a JSON body would fail to parse for how it was framed.
  */
 async function readTextWithinLimit(
   req: Request,
@@ -240,8 +244,8 @@ async function readTextWithinLimit(
     return "";
   }
 
-  return Buffer.concat(await bufferWithinLimit(req.body, limit)).toString(
-    "utf8",
+  return new TextDecoder().decode(
+    Buffer.concat(await bufferWithinLimit(req.body, limit)),
   );
 }
 
@@ -343,6 +347,11 @@ export function materializeQuery(
  * Prototype-free for the reason `materializeQuery` is: the names come from
  * the client, and a `__proto__=` cookie must become an own property rather
  * than reach the prototype.
+ *
+ * A name sent twice reads as its first value, as `req.cookies.get` reads
+ * it: a browser sends the host's own cookie before one a sibling subdomain
+ * set for the whole domain, and the last one would be the sibling's. Of a
+ * signed name, the first value whose seal holds.
  */
 export function materializeCookies(
   req: Request,
@@ -357,6 +366,10 @@ export function materializeCookies(
   }
 
   for (const [name, value] of new Bun.CookieMap(header)) {
+    if (Object.hasOwn(cookies, name)) {
+      continue;
+    }
+
     if (!sealer?.covers(name)) {
       cookies[name] = value;
 

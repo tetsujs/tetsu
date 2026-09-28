@@ -202,7 +202,13 @@ function checkPart(
     : partValue(outcome, value, part, issues);
 }
 
-/** The validated value of a part, or the raw one with its issues recorded. */
+/**
+ * The validated value of a part, or the raw one with its issues recorded.
+ *
+ * A refusal with no issues — the specification allows an empty list — is
+ * recorded as one issue on the part, so it is still a refusal: the request
+ * fails on whether any were recorded.
+ */
 function partValue(
   result: StandardResult<unknown>,
   value: unknown,
@@ -210,6 +216,10 @@ function partValue(
   issues: ValidationIssue[],
 ): unknown {
   if (result.issues) {
+    if (result.issues.length === 0) {
+      issues.push({ message: "Invalid value", path: [part] });
+    }
+
     for (const issue of result.issues) {
       issues.push({
         message: issue.message,

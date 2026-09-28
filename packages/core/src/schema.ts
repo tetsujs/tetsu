@@ -182,7 +182,10 @@ export interface StandardSuccess<Output> {
   readonly issues?: undefined;
 }
 
-/** A failed validation result carrying one or more issues. */
+/**
+ * A failed validation result. The specification allows an empty list of
+ * issues, and the result is a failure all the same.
+ */
 export interface StandardFailure {
   readonly issues: readonly StandardIssue[];
 }

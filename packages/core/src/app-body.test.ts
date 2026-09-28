@@ -270,6 +270,38 @@ describe("a json body", () => {
   });
 });
 
+describe("a body that starts with a byte order mark", () => {
+  const marked = (text: string) =>
+    new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(text)]);
+
+  /** The same bytes without a length, so they go chunked. */
+  const streamed = (text: string) =>
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(marked(text));
+        controller.close();
+      },
+    });
+
+  test.each([
+    ["a declared length", marked],
+    ["chunks", streamed],
+  ])("reads without the mark, sent with %s", async (_, framed) => {
+    const json = await request("/json", {
+      method: "POST",
+      body: framed('{"a":1}'),
+    });
+
+    const text = await request("/text", {
+      method: "POST",
+      body: framed("hi there"),
+    });
+
+    expect(await json.json()).toEqual({ got: { a: 1 } });
+    expect(await text.json()).toEqual({ length: 8, upper: "HI THERE" });
+  });
+});
+
 describe("reading the body at all", () => {
   test("a declared bodyType reads it without any schema", async () => {
     const res = await request("/text", { method: "POST", body: "read me" });

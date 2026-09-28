@@ -55,11 +55,14 @@ export interface ResponseCookies {
 /** How cookies are sealed, if they are. */
 export interface CookieOptions {
   /**
-   * The key the signature is derived from.
+   * The key the signature is derived from — 32 random bytes or more.
    *
    * Only ever used through HMAC-SHA256; it is not an encryption key, and a
    * signed cookie's value is still readable by the client. Signing answers
    * "did this value come from us", not "can this be seen".
+   *
+   * An empty or missing secret is refused at startup: with it, anyone can
+   * compute the signature, and a forged cookie would read as ours.
    */
   readonly secret: string;
 
@@ -89,12 +92,21 @@ export interface CookieSealer {
 /**
  * Builds the sealer an application runs with, or nothing when no secret
  * was configured.
+ *
+ * The secret is checked here, where the key is made, so no way of
+ * building an application gets past it. An empty string is a key
+ * everyone knows, and a missing one — an unset variable under `!` —
+ * makes Bun hash without a key at all.
  */
 export function cookieSealer(
   options: CookieOptions | undefined,
 ): CookieSealer | undefined {
   if (!options) {
     return undefined;
+  }
+
+  if (typeof options.secret !== "string" || options.secret === "") {
+    throw new TypeError("cookies.secret must be a non-empty string");
   }
 
   const { timingSafeEqual } =
@@ -144,7 +156,9 @@ export function cookieSealer(
  *
  * Lengths are checked first because `timingSafeEqual` throws on a mismatch
  * rather than returning `false`, and a signature's length is fixed by the
- * digest anyway — there is nothing in it to learn.
+ * digest anyway — there is nothing in it to learn. They are the lengths in
+ * bytes, which is what it compares: a forged signature with one non-ASCII
+ * character is as long as a real one in characters and a byte longer.
  *
  * `timingSafeEqual` is handed in by {@link cookieSealer}, which loads
  * `node:crypto` only when the application signs cookies: imported at the
@@ -161,11 +175,14 @@ function same(
   b: string,
   timingSafeEqual: (a: Uint8Array, b: Uint8Array) => boolean,
 ): boolean {
-  if (a.length !== b.length) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+
+  if (left.byteLength !== right.byteLength) {
     return false;
   }
 
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  return timingSafeEqual(left, right);
 }
 
 /**

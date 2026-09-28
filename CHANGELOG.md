@@ -3,6 +3,30 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Fixed
+
+- `@tetsujs/core`: an empty or missing `cookies.secret` is refused at
+  startup. The application used to start and sign with a key anyone can
+  compute — an empty one, or none at all when the variable was unset — so
+  a forged cookie read as signed.
+- `@tetsujs/core`: a signed cookie whose forged signature has a non-ASCII
+  character reads as absent, as any bad signature does. It used to fail
+  the request with a `500` when the signature was as long as a real one
+  in characters but not in bytes.
+- `@tetsujs/core`: a cookie name the request carries twice reads as its
+  first value in `ctx.cookies`, as `req.cookies.get` reads it — the
+  host's own cookie, which a browser sends before one a sibling subdomain
+  set for the whole domain. It used to read as the last. Of a signed
+  name, the first value whose seal holds.
+- `@tetsujs/core`: a schema that refuses a request part with an empty list
+  of issues — which Standard Schema allows — fails the request with a
+  `422`. The raw value used to reach the handler as if it were valid.
+- `@tetsujs/core`: a `json` or `text` body that starts with a byte order
+  mark reads without it however it was sent. Sent in chunks, the mark
+  used to stay, and a JSON body failed with a `400`.
+
 ## 0.5.3 — 2026-09-27
 
 A test client that keeps its headers and cookies from one request to the
