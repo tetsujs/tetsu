@@ -7,6 +7,7 @@
 import { createApp } from "./app.ts";
 import type { Requires } from "./context.ts";
 import { group } from "./group.ts";
+import type { SentResponse } from "./hook.ts";
 import { hook } from "./hook.ts";
 import type { HooksConfig } from "./stack.ts";
 
@@ -233,13 +234,13 @@ const validationNeedsTrace = hook.beforeValidation(
 const traces = hook.beforeValidation(() => ({ trace: "t" }));
 
 const observesRequestId = hook.afterResponse(
-  (ctx: Requires<{ res: Response; requestId?: string }>) => {
+  (ctx: Requires<{ res: SentResponse; requestId?: string }>) => {
     void ctx.requestId;
   },
 );
 
 const observesRequestIdSurely = hook.afterResponse(
-  (ctx: Requires<{ res: Response; requestId: string }>) => {
+  (ctx: Requires<{ res: SentResponse; requestId: string }>) => {
     void ctx.requestId;
   },
 );

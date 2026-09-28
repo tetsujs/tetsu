@@ -185,9 +185,9 @@ export interface AppConfig<
 
   /**
    * Receives every failure no response can carry — an error no `onError`
-   * hook answered, a handler breaking its response contract, a hook
-   * failing after the response went, a WebSocket handler, a stream — in
-   * place of `console.error`.
+   * hook answered, a handler breaking its response contract, an
+   * `afterResponse` hook, a WebSocket handler, a stream — in place of
+   * `console.error`.
    *
    * `ctx` is typed from this application's own hooks, each field optional:
    * the failure may have come before the hook that contributes it ran. It

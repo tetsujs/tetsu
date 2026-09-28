@@ -5,7 +5,24 @@ API.
 
 ## Unreleased
 
+### Breaking changes
+
+- `@tetsujs/core`: in an `afterResponse` hook `ctx.res` is a
+  `SentResponse` — what the response says, its status and headers, without
+  its body or `clone()`. An observer starts before Bun sends the response,
+  and one reading the body broke it: a JSON body became a `500` from Bun,
+  a streamed one reached the client empty. Reading it is now a compile
+  error.
+
 ### Fixed
+
+- The README and `hook.afterResponse` said observers run after the
+  response is sent. They start as it goes to Bun: their synchronous part
+  is part of the response's latency, and what they need of the request or
+  the response they read before their first `await` — after it, a URL, a
+  header or the client's address nobody read may be gone, without an
+  error. The documentation says so, with a recipe for each, and so do
+  `@tetsujs/request-log` and `@tetsujs/sse`.
 
 - `@tetsujs/core`: a `beforeResponse` hook failing over an error response
   is reported once, as `"unhandled"`, and not at all when `onError`
@@ -37,6 +54,14 @@ API.
 - `@tetsujs/core`: a `json` or `text` body that starts with a byte order
   mark reads without it however it was sent. Sent in chunks, the mark
   used to stay, and a JSON body failed with a `400`.
+
+### Moving from 0.5
+
+An observer that hands `ctx.res` to a function taking a `Response`, or asks
+for it with `Requires<{ res: Response }>`, takes a `SentResponse` instead —
+exported by `@tetsujs/core` — or passes on what it reads, such as
+`ctx.res.status`. One that reads the body clones the response in a
+`beforeResponse` hook, where the response is still the application's.
 
 ## 0.5.3 — 2026-09-27
 

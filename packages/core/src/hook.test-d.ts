@@ -199,3 +199,31 @@ const staged = new Map<string, number>();
 export const decorates = hook.beforeResponse(() => staged.set("seen", 1));
 
 export const observes = hook.afterResponse(() => staged.set("seen", 2));
+
+/** An observer reads what the response says, never what it carries. */
+export const readsStatus = hook.afterResponse((ctx) => {
+  const status: number = ctx.res.status;
+  const type: string | null = ctx.res.headers.get("content-type");
+
+  void [status, type, ctx.res.ok];
+});
+
+export const readsBody = hook.afterResponse(async (ctx) => {
+  // @ts-expect-error the body is on its way to Bun: reading it breaks the response
+  await ctx.res.text();
+});
+
+export const readsStream = hook.afterResponse((ctx) => {
+  // @ts-expect-error nor its stream
+  void ctx.res.body;
+});
+
+export const clonesLate = hook.afterResponse((ctx) => {
+  // @ts-expect-error nor a clone, which fails once Bun has the body
+  void ctx.res.clone();
+});
+
+/** A `beforeResponse` hook still holds the whole response, and may clone it. */
+export const clonesEarly = hook.beforeResponse((ctx) => {
+  void ctx.res.clone().text();
+});
