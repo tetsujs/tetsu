@@ -91,12 +91,12 @@ wrote, by a rule:
 | parameters | `schema.params`, `query`, `headers`, `cookies` | required as the schema says |
 | the request body | `schema.body` and `bodyType` | media types from `bodyType`; required unless `text` or `stream` |
 | `security` | `secured()` hooks, of every level the route runs under | every hook required together; `anyOf` inside one hook is the alternatives |
-| the statuses | the route's `schema.response`, the hooks' `documented()` and `secured()`, the framework | one schema is `200`, a map its statuses, `null` a status without a body; with no `2xx` declared, `200`; the framework's `422`, `400`, `413`, `500` where they can happen — see [Responses the framework adds](#responses-the-framework-adds) |
+| the statuses | the route's `schema.response`, the hooks' `documented()` and `secured()`, the framework | one schema is `200`, a map its statuses, `null` or an entry without `body` a status without a body; with no `schema.response` at all, `200`; the framework's `422`, `400`, `413`, `500` where they can happen — see [Responses the framework adds](#responses-the-framework-adds) |
 | a status's body | everything answering with that status | one flat `anyOf`, the route's own first, the same body once |
 | an error envelope | any of them | one definition per status and code in `components`, named after the code; the route's own kept |
 | `discriminator` | the envelopes of a status | on `error`, or the format's field, when every alternative is an envelope |
 | a status's description | the schemas' `description`, the hooks', the framework's | one is the description, several a list led by code, none the reason phrase |
-| a status's headers | the hooks' `documented()` headers | possible, not required |
+| a status's headers | the route's entry — `{ body, headers, cookies }` — and the hooks' `documented()` headers | the route's required as its schema says, a property's `description` the header's; its cookies one `set-cookie` header listing them; a hook's possible, not required; the route's wins a name both give |
 | the document's `tags` | the `tags` option | in its order, then the tags routes use and it leaves out |
 
 `docs: { hidden: true }` leaves a route out of the document; it is served

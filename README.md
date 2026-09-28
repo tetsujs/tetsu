@@ -300,6 +300,25 @@ body is declared `null`:
 schema: { response: { 200: Session, 204: null } },
 ```
 
+A status that leaves with headers or cookies says so in place of its body's
+schema, the way a request declares its parts. They are checked with the
+body, and documented with it:
+
+```ts
+schema: {
+  response: {
+    201: { body: Order, headers: Created }, // Created: { location: string }
+    204: { cookies: SignedIn },             // SignedIn: { session: string }
+  },
+},
+```
+
+`headers` sees the headers on `ctx.out` once the handler returned — those a
+hook set before it too, so it should not refuse keys it does not name.
+`cookies` sees each cookie the response sets as the handler wrote it:
+opened when signed, `""` when deleted. A status without `body` carries
+none.
+
 `validateResponses: false` on `createApp` turns response checks off.
 
 ### Request bodies
@@ -377,10 +396,10 @@ handler: (ctx) => {
 
 A `Response` the handler builds is sent as it is, unchecked and absent from
 the document. A redirect the response map declares is checked and
-documented like any status — set it on `ctx.out`:
+documented like any status, its `location` included — set it on `ctx.out`:
 
 ```ts
-schema: { response: { 303: null } },
+schema: { response: { 303: { headers: SeeOther } } }, // SeeOther: { location: string }
 handler: (ctx) => {
   ctx.out.status = 303;
   ctx.out.headers.set("location", `/orders/${order.id}`);
