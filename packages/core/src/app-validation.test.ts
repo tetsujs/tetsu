@@ -1273,3 +1273,110 @@ describe("response headers and cookies", () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe("a status declared without a body", () => {
+  const reports: FailureReport<object>[] = [];
+
+  const Public: StandardSchemaV1<unknown, { id: string }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => ({ value: { id: (value as { id: string }).id } }),
+    },
+  };
+
+  const Location: StandardSchemaV1 = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => ({ value }),
+    },
+  };
+
+  const user = { id: "u1", passwordHash: "secret" };
+
+  const app = (validateResponses: boolean) =>
+    createApp({
+      reportError: (report) => reports.push(report),
+      validateResponses,
+      routes: {
+        seeOther: route({
+          method: "POST",
+          path: "/see-other",
+          schema: { response: { 200: Public, 303: { headers: Location } } },
+          handler: (ctx) => {
+            ctx.out.status = 303;
+            ctx.out.headers.set("location", "/users/u1");
+
+            return user;
+          },
+        }),
+        accepted: route({
+          method: "POST",
+          path: "/accepted",
+          schema: { response: { 200: Public, 202: null } },
+          handler: (ctx) => {
+            ctx.out.status = 202;
+
+            return user;
+          },
+        }),
+        nothing: route({
+          method: "POST",
+          path: "/nothing",
+          schema: { response: { 200: Public, 202: null } },
+          handler: (ctx) => {
+            ctx.out.status = 202;
+
+            return null as unknown as { id: string };
+          },
+        }),
+        empty: route({
+          method: "POST",
+          path: "/empty",
+          schema: { response: { 200: Public, 202: null } },
+          handler: (ctx) => {
+            ctx.out.status = 202;
+          },
+        }),
+      },
+    });
+
+  const request = serve(app(true));
+  const unchecked = serve(app(false));
+
+  const post = (path: string, via = request) => {
+    reports.length = 0;
+
+    return via(path, { method: "POST", redirect: "manual" });
+  };
+
+  test.each([
+    ["an entry without body", "/see-other", 303],
+    ["a null entry", "/accepted", 202],
+    ["a null entry, given null", "/nothing", 202],
+  ])("refuses a value returned for it, under %s", async (_, path, status) => {
+    const res = await post(path);
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("secret");
+    expect(reports.map((report) => report.source)).toEqual(["response"]);
+    expect((reports[0]?.error as Error | undefined)?.message).toStartWith(
+      `Handler returned a body for ${status}`,
+    );
+  });
+
+  test("answers nothing, when the handler returned nothing", async () => {
+    const res = await post("/empty");
+
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe("");
+    expect(reports).toEqual([]);
+  });
+
+  test("validateResponses: false leaves it unchecked, as every response check", async () => {
+    const res = await post("/accepted", unchecked);
+
+    expect(res.status).toBe(202);
+  });
+});

@@ -99,7 +99,8 @@ export interface RouteDocs {
  * answer, and the status the response leaves with decides which schema
  * checks it. Returning a documented error shape under `200` therefore
  * type-checks and then fails validation at runtime — the status is what
- * pairs a body with its contract, and only the runtime knows it.
+ * pairs a body with its contract, and only the runtime knows it. So does
+ * a value returned under a status declared without a body.
  *
  * The other side of that rule: a status the map does not declare cannot
  * be answered with. Writing it into `ctx.out.status` is a compile error,

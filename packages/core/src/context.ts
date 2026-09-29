@@ -419,10 +419,11 @@ export interface DeclaredOutgoing<Status extends number> extends Outgoing {
  * contract for errors.
  *
  * `null` declares a status that carries no body — a `204`, or a `304`.
- * There is nothing to check and nothing to describe, but the status is
- * still part of what the endpoint answers, so it belongs in the map: the
- * generated document lists it, and the handler is allowed to return
- * nothing.
+ * There is nothing to describe, but the status is still part of what the
+ * endpoint answers, so it belongs in the map: the generated document lists
+ * it, and the handler is allowed to return nothing. It is also the one
+ * thing checked there: a value returned for it is refused with a `500`
+ * rather than sent past every schema.
  *
  * @example
  * ```ts
