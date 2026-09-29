@@ -9,11 +9,13 @@ import type { Equal, Expect } from "../test-utils/types.ts";
 import type {
   BaseCtx,
   EarlyCtx,
+  FormBody,
   Requires,
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
 import { hook } from "./hook.ts";
+import { route } from "./route.ts";
 import type {
   ErrorCtx,
   ExtOfStack,
@@ -538,7 +540,7 @@ export type schemaPrecedenceCases = [
   Expect<Equal<NormalizedHandler["body"], { qty: number }>>,
   Expect<Equal<NormalizedHandler["query"], { page: string }>>,
   Expect<Equal<LateOverrideHandler["body"], { qty: boolean }>>,
-  Expect<Equal<NonNullable<NormalizedResponse["body"]>, { qty: number }>>,
+  Expect<Equal<NormalizedResponse["body"], unknown>>,
   Expect<Equal<NonNullable<NormalizedResponse["query"]>, { page: string }>>,
 ];
 
@@ -590,5 +592,176 @@ export type schemaPrecedenceEveryPartCases = [
   Expect<Equal<EveryPartHandler["body"], { qty: number }>>,
   Expect<Equal<EveryPartHandler["headers"], { tenant: string }>>,
   Expect<Equal<EveryPartHandler["cookies"], { session: string }>>,
-  Expect<Equal<NonNullable<EveryPartResponse["cookies"]>, { session: string }>>,
+  Expect<
+    Equal<
+      NonNullable<EveryPartResponse["cookies"]>,
+      | { session: string }
+      | { session: boolean }
+      | { session: bigint }
+      | Record<string, string>
+    >
+  >,
+];
+
+/**
+ * A body a `beforeParse` hook contributed is gone once the body is parsed,
+ * whatever asked for the parsing — a schema, a `bodyType`, `rawBody` — and
+ * the types say what parsing left there instead.
+ */
+const earlyBody = hook.beforeParse(() => ({ body: 42 }));
+
+const wantsNumberBody = hook.beforeValidation(
+  (ctx: Requires<{ body: number }>) => {
+    void ctx.body;
+  },
+);
+
+route({
+  method: "POST",
+  path: "/text-over-early-body",
+  bodyType: "text",
+  hooks: { beforeParse: [earlyBody] },
+  handler: (ctx) => {
+    const text: string = ctx.body;
+
+    // @ts-expect-error the body is the text parsed from the request, not the hook's number
+    const n: number = ctx.body;
+
+    return { text, n };
+  },
+});
+
+route({
+  method: "POST",
+  path: "/raw-over-early-body",
+  rawBody: true,
+  hooks: { beforeParse: [earlyBody] },
+  handler: (ctx) => {
+    // @ts-expect-error the body is the JSON parsed from the request, not the hook's number
+    const n: number = ctx.body;
+
+    return { n };
+  },
+});
+
+route({
+  method: "POST",
+  path: "/early-body-before-validation",
+  bodyType: "text",
+  // @ts-expect-error by beforeValidation the body is the parsed text
+  hooks: { beforeParse: [earlyBody], beforeValidation: [wantsNumberBody] },
+  handler: () => undefined,
+});
+
+/** Without parsing, the hook's body is what there is. */
+route({
+  method: "POST",
+  path: "/early-body-unparsed",
+  hooks: { beforeParse: [earlyBody] },
+  handler: (ctx) => {
+    const n: number = ctx.body;
+
+    return { n };
+  },
+});
+
+type FormQtyResponse = ResponseCtx<
+  "/orders/:id",
+  QtySchema,
+  { beforeValidation: readonly [typeof normalizesDeclaredParts] },
+  "form"
+>;
+
+type QueryError = ErrorCtx<
+  "/orders",
+  { query: ReturnType<typeof mockSchema<{ page: number }>> },
+  unknown
+>;
+
+/**
+ * A response or error hook runs after a refusal too, when a part holds
+ * what validation was given rather than what it returned: the request's
+ * own shape, or a pre-validation hook's contribution. A JSON body is then
+ * anything at all; a form body is the form, or the hook's value, or the
+ * schema's output.
+ */
+export type responsePartsCases = [
+  Expect<
+    Equal<
+      NonNullable<FormQtyResponse["body"]>,
+      { qty: number } | { qty: string } | FormBody
+    >
+  >,
+  Expect<
+    Equal<
+      NonNullable<QueryError["query"]>,
+      { page: number } | Record<string, string | string[]>
+    >
+  >,
+  Expect<Equal<keyof QueryError & "body", never>>,
+];
+
+type Foo = { readonly foo: number };
+
+const normalizesText = hook.beforeValidation((ctx) => ({
+  body: JSON.parse(ctx.body as string) as Foo,
+}));
+
+const wantsFoo = hook.beforeHandle((ctx: Requires<{ body: Foo }>) => {
+  void ctx.body.foo;
+});
+
+/**
+ * A body `beforeValidation` normalized stays: nothing after it replaces a
+ * body without a schema. Only a `beforeParse` body gives way to parsing.
+ */
+route({
+  method: "POST",
+  path: "/normalized-text",
+  bodyType: "text",
+  hooks: { beforeValidation: [normalizesText], beforeHandle: [wantsFoo] },
+  handler: (ctx) => {
+    const foo: Foo = ctx.body;
+
+    return foo;
+  },
+});
+
+const indexesQuery = hook.beforeHandle(() => ({ query: { index: 1 } }));
+
+type IndexedResponse = ResponseCtx<
+  "/items",
+  { query: ReturnType<typeof mockSchema<{ page: number }>> },
+  { beforeHandle: readonly [typeof indexesQuery] }
+>;
+
+type EarlyBodyError = ErrorCtx<
+  "/upload",
+  SchemaConfig,
+  { beforeParse: readonly [typeof earlyBody] },
+  "text"
+>;
+
+const earlyParams = hook.beforeParse(() => ({ params: { id: 7 } }));
+
+type ReplacedParams = ResponseCtx<
+  "/items/:id",
+  SchemaConfig,
+  { beforeParse: readonly [typeof earlyParams] }
+>;
+
+/**
+ * Every slot before the handler may have left its value in a part: a
+ * `beforeHandle` one after validation, a `beforeParse` body when parsing
+ * failed, a hook's `params` over the path's.
+ */
+export type contributedPartsCases = [
+  Expect<
+    Equal<
+      NonNullable<IndexedResponse["query"]>,
+      { page: number } | Record<string, string | string[]> | { index: number }
+    >
+  >,
+  Expect<Equal<NonNullable<EarlyBodyError["body"]>, string | number>>,
+  Expect<Equal<ReplacedParams["params"], { id: string } | { id: number }>>,
 ];

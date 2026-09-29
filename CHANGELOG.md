@@ -7,6 +7,13 @@ API.
 
 ### Breaking changes
 
+- `@tetsujs/core`: in a route's `beforeResponse`, `afterResponse` and
+  `onError` hooks, a part a schema owns — `body`, `query`, `headers`,
+  `cookies` — is typed as whatever the request got to: the schema's
+  output, what the client sent when validation refused it, or what a hook
+  before the handler put there. A JSON body there is `unknown`. It was
+  typed as validated. `params` and a body parsed without a schema follow
+  the same rule, a hook's value included.
 - `@tetsujs/core`: in an `afterResponse` hook `ctx.res` is a
   `SentResponse` — what the response says, its status and headers, without
   its body or `clone()`. An observer starts before Bun sends the response,
@@ -31,6 +38,11 @@ API.
 - `@tetsujs/core`: `ctx.route` is not optional in the `beforeResponse`,
   `afterResponse` and `onError` hooks of a route, where it is always set;
   a hook asking for it with `Requires<{ route: RouteInfo }>` mounts there.
+- `@tetsujs/core`: a route that parses its body without a schema — a
+  `bodyType` or `rawBody` — types `ctx.body` from `beforeValidation` on as
+  what parsing produced, or what a `beforeValidation` hook made of it. A
+  body a `beforeParse` hook returned stayed in the type, and parsing
+  replaced it at runtime.
 - `@tetsujs/core`: a value the handler returns under a status its map
   declares without a body — `null`, or an entry without `body` — is
   refused with a `500` when responses are validated. It was sent past
@@ -107,6 +119,14 @@ for it with `Requires<{ res: Response }>`, takes a `SentResponse` instead —
 exported by `@tetsujs/core` — or passes on what it reads, such as
 `ctx.res.status`. One that reads the body clones the response in a
 `beforeResponse` hook, where the response is still the application's.
+
+A unit test of a `rawBody` route without a `bodyType` passes a `body` to
+`testCtx()`: the route parses JSON, so its handler has one.
+
+A response or error hook that asks for a validated part —
+`Requires<{ body?: Order }>` — asks for `unknown` instead, or for the union
+it now is, and narrows before it trusts the value: that hook also runs for
+the request the schema refused.
 
 ## 0.5.3 — 2026-09-27
 
