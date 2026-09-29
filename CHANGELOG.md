@@ -28,6 +28,12 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: a value the handler returns under a status its map
+  declares without a body — `null`, or an entry without `body` — is
+  refused with a `500` when responses are validated. It was sent past
+  every schema: in a map with `200: User`, a `user` returned under `303`
+  went out whole, the fields `User` strips included. The compiler catches
+  it only when no status of the map has a body.
 - `@tetsujs/openapi`: a route whose map declares no `2xx` — only a
   redirect, say — is documented with the statuses it declares. A `200`
   nobody declared was added, and a client generated from the document

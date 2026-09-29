@@ -138,16 +138,17 @@ function input(
  * bodies pays for none of what an entry adds.
  *
  * A single schema applies to every status — that contract says nothing
- * about codes. A map applies the entry the status names, and nothing when
- * the entry is `null`: a status declared to carry no body has nothing to
- * check. A status the map does not name at all is a contract violation,
+ * about codes. A map applies the entry the status names; `null` is a
+ * contract too — that the status carries no body — and not the absence of
+ * one, which is `undefined`. A status the map does not name at all is a
+ * contract violation,
  * refused like a body that fails its schema — the map is the list of what
  * the route answers with, and what a client generated from it will expect.
  */
 export function responseContractFor(
   declared: AnySchema | ResponseMap | undefined,
   status: number,
-): AnySchema | ResponseEntry | undefined {
+): AnySchema | ResponseEntry | null | undefined {
   if (declared === undefined) {
     return undefined;
   }
@@ -166,7 +167,7 @@ export function responseContractFor(
     );
   }
 
-  return map[status] ?? undefined;
+  return map[status] as AnySchema | ResponseEntry | null;
 }
 
 /**
@@ -175,11 +176,16 @@ export function responseContractFor(
  * gets serialized.
  */
 export function checkAnswer(
-  contract: AnySchema | ResponseEntry,
+  contract: AnySchema | ResponseEntry | null,
   result: unknown,
+  status: number,
   ctx: PipelineCtx,
   sealer: CookieSealer | undefined,
 ): unknown | PromiseLike<unknown> {
+  if (contract === null) {
+    return bodiless(result, status);
+  }
+
   if ("~standard" in contract) {
     return checkResponse(contract as AnySchema, result);
   }
@@ -187,7 +193,7 @@ export function checkAnswer(
   const entry = contract as ResponseEntry;
 
   const body = (): unknown | PromiseLike<unknown> =>
-    entry.body ? checkResponse(entry.body, result) : result;
+    entry.body ? checkResponse(entry.body, result) : bodiless(result, status);
 
   const headers = entry.headers
     ? checkOutgoing(entry.headers, outgoingHeaders(ctx.out), "headers")
@@ -213,6 +219,26 @@ export function checkAnswer(
   const checked = cookies();
 
   return isThenable(checked) ? checked.then(body) : body();
+}
+
+/**
+ * The body of a status declared without one: nothing.
+ *
+ * A value returned for it is refused rather than sent. The compiler
+ * catches it only where every status of the map is bodiless — the
+ * handler's result is the union of all of them, not tied to the status it
+ * set — and a value sent under such a status skips every schema, the
+ * stripping of fields a `200` would have done included. `null` is a body:
+ * the JSON `null`.
+ */
+function bodiless(result: unknown, status: number): undefined {
+  if (result !== undefined) {
+    throw new ResponseContractError(
+      `Handler returned a body for ${status}, which its response map declares without one`,
+    );
+  }
+
+  return undefined;
 }
 
 /**

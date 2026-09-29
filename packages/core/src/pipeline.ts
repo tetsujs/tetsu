@@ -453,13 +453,17 @@ function answer(
   }
 
   if (options.validateResponses) {
-    const contract = responseContractFor(
-      entry.def.schema?.response,
-      statusFor(result, ctx.out),
-    );
+    const status = statusFor(result, ctx.out);
+    const contract = responseContractFor(entry.def.schema?.response, status);
 
-    if (contract) {
-      const checked = checkAnswer(contract, result, ctx, options.cookieSealer);
+    if (contract !== undefined) {
+      const checked = checkAnswer(
+        contract,
+        result,
+        status,
+        ctx,
+        options.cookieSealer,
+      );
 
       return isThenable(checked)
         ? checked.then((value) => serialize(value, ctx.out))

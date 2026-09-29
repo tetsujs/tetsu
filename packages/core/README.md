@@ -319,7 +319,8 @@ schema: {
 hook set before it too, so it should not refuse keys it does not name.
 `cookies` sees each cookie the response sets as the handler wrote it:
 opened when signed, `""` when deleted. A status without `body` carries
-none.
+none, as `null` does: a value the handler returns for it is refused with a
+`500`, not sent unchecked.
 
 `validateResponses: false` on `createApp` turns response checks off.
 
