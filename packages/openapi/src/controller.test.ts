@@ -245,3 +245,60 @@ describe("mounting", () => {
     expect(html).toContain('spec-url="/internal/spec.json"');
   });
 });
+
+describe("several surfaces", () => {
+  test("are several applications, each documenting only its own routes", async () => {
+    const warnings: string[] = [];
+    const onWarning = (warning: { message: string }) => {
+      warnings.push(warning.message);
+    };
+
+    const orders = {
+      list: route({
+        method: "GET",
+        path: "/orders",
+        docs: { tags: ["orders"] },
+        handler: () => [],
+      }),
+    };
+
+    const accounts = {
+      list: route({
+        method: "GET",
+        path: "/accounts",
+        docs: { tags: ["accounts"] },
+        handler: () => [],
+      }),
+    };
+
+    const api = serve(
+      createApp({
+        routes: [orders, docs({ info, tags: { orders: "Orders" }, onWarning })],
+      }),
+    );
+
+    const admin = serve(
+      createApp({
+        routes: [
+          accounts,
+          docs({
+            info: { title: "Admin API", version: "1.0.0" },
+            tags: { accounts: "Accounts" },
+            onWarning,
+          }),
+        ],
+      }),
+    );
+
+    const publicDoc = (await (
+      await api("/openapi.json")
+    ).json()) as OpenApiDocument;
+    const adminDoc = (await (
+      await admin("/openapi.json")
+    ).json()) as OpenApiDocument;
+
+    expect(Object.keys(publicDoc.paths)).toEqual(["/orders"]);
+    expect(Object.keys(adminDoc.paths)).toEqual(["/accounts"]);
+    expect(warnings).toEqual([]);
+  });
+});
