@@ -47,6 +47,9 @@ describe("recipes", () => {
     const request = serve(validation);
 
     expect((await request("/items/x")).status).toBe(422);
+    expect(await (await request("/items?name=pen")).json()).toEqual([
+      { id: 1, name: "pen", qty: 3 },
+    ]);
     expect(
       (await request("/items", json({ name: "pen", qty: 3 }))).status,
     ).toBe(201);

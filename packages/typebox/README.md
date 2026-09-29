@@ -42,7 +42,7 @@ application picks its version.
 
 | Option | Effect | Use for |
 | --- | --- | --- |
-| `convert` | converts before checking: `"42"` → `42` | `params`, `query`, `headers`, which arrive as strings |
+| `convert` | converts before checking: `"42"` → `42`, a single `"a"` → `["a"]` | `params`, `query`, `headers` and form fields, which arrive as strings |
 | `clean` | drops properties the schema does not declare | `response` DTOs, so nothing undeclared leaks |
 | `defaults` | fills in a declared `default` when a value is missing | queries with optional parameters, configuration |
 | `issues` | `"detailed"` (default) or `"summary"` | `"summary"` gives one issue per failed value — much cheaper on large bodies |
