@@ -263,6 +263,18 @@ API.
   `"*"`, those without CORS headers too. A cache that stored an answer to
   a request with no `Origin` as the same for everyone handed it to the
   allowed site, and the browser refused it.
+- `@tetsujs/core`: a file input nothing was chosen in — sent by a browser
+  as a file with no name and no bytes — is left out of a form body, as a
+  field that is not there. An optional file was refused for the type of a
+  file nobody chose, on every ordinary HTML form.
+- `@tetsujs/typebox`: the documentation of `files()` says it is `undefined`
+  under `Type.Optional` when nothing was chosen, as its type does. It said
+  the value was always an array.
+- `@tetsujs/secure-headers`: the README's exception that allows a frame
+  changes `frame-ancestors` in the policy too, which a browser follows
+  over `x-frame-options`; with `apiPolicy` the page stayed unframeable.
+  The docs page exception compares the path the page is mounted at,
+  prefix and all, and no longer only `/docs`.
 
 ### Moving from 0.5
 

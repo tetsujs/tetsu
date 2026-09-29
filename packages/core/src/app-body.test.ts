@@ -140,6 +140,24 @@ describe("a form body", () => {
     });
   });
 
+  test("leaves out a file input nothing was chosen in", async () => {
+    // What a browser sends for an untouched <input type="file">: the
+    // field, with a file that has no name and no bytes. It means "no
+    // file", and a schema reads it as a missing field.
+    const form = new FormData();
+
+    form.append("title", "hello");
+    form.append("avatar", new File([], ""));
+    form.append("tag", new File([], "empty.txt"));
+
+    const res = await request("/form", { method: "POST", body: form });
+
+    expect(await res.json()).toMatchObject({
+      keys: ["title", "tag"],
+      avatarIsFile: false,
+    });
+  });
+
   test("parses urlencoded through the same declaration", async () => {
     const body = new URLSearchParams([
       ["title", "hello"],

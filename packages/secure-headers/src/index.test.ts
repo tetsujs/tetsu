@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createApp, HttpError, hook, route } from "@tetsujs/core";
+import { createApp, group, HttpError, hook, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import { apiPolicy, secureHeaders } from "./index.ts";
 
@@ -311,5 +311,90 @@ describe("one path that serves a document", () => {
     const res = await mixed("/page");
 
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
+describe("the README's recipes, with the API policy", () => {
+  // The exception for one route, as the README writes it: with a policy
+  // that says `frame-ancestors 'none'`, a browser reads that and ignores
+  // `x-frame-options`, so both have to allow the frame.
+  const allowFraming = hook.beforeResponse((ctx) => {
+    ctx.out.headers.set("x-frame-options", "SAMEORIGIN");
+
+    const policy = ctx.out.headers.get("content-security-policy");
+
+    if (policy) {
+      ctx.out.headers.set(
+        "content-security-policy",
+        policy.replace(/frame-ancestors [^;]*/, "frame-ancestors 'self'"),
+      );
+    }
+  });
+
+  // The docs page, mounted under a group at a path of its own: the
+  // constant is the route's full path, prefix and all.
+  const docsPage = "/api/reference";
+
+  const allowDocs = hook.beforeResponse((ctx) => {
+    if (ctx.route?.path === docsPage) {
+      ctx.out.headers.delete("content-security-policy");
+    }
+  });
+
+  const app = serve(
+    createApp({
+      hooks: {
+        beforeResponse: [
+          secureHeaders({ contentSecurityPolicy: apiPolicy }),
+          allowDocs,
+        ],
+      },
+      routes: [
+        group("/api", {
+          children: [
+            {
+              reference: route({
+                method: "GET",
+                path: "/reference",
+                handler: () =>
+                  new Response("<h1>docs</h1>", {
+                    headers: { "content-type": "text/html" },
+                  }),
+              }),
+              embeddable: route({
+                method: "GET",
+                path: "/widget",
+                hooks: { beforeResponse: [allowFraming] },
+                handler: () => ({ ok: true }),
+              }),
+              data: route({
+                method: "GET",
+                path: "/data",
+                handler: () => ({ ok: true }),
+              }),
+            },
+          ],
+        }),
+      ],
+    }),
+  );
+
+  test("the exception allows the frame in both headers, and keeps the rest", async () => {
+    const res = await app("/api/widget");
+    const policy = res.headers.get("content-security-policy") ?? "";
+
+    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(policy).toContain("frame-ancestors 'self'");
+    expect(policy).not.toContain("frame-ancestors 'none'");
+    expect(policy).toContain("default-src 'none'");
+  });
+
+  test("the docs page under a group is let out of the policy", async () => {
+    expect(
+      (await app("/api/reference")).headers.get("content-security-policy"),
+    ).toBeNull();
+    expect(
+      (await app("/api/data")).headers.get("content-security-policy"),
+    ).toContain("default-src 'none'");
   });
 });

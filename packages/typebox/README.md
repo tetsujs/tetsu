@@ -100,10 +100,14 @@ route({
 | Option | Accepts | Checks |
 | --- | --- | --- |
 | `maxSize` | `5242880`, `"512k"`, `"5m"` | the largest file size |
-| `minSize` | the same | the smallest — `1` rejects the empty part an untouched input sends |
+| `minSize` | the same | the smallest — `1` rejects a file with nothing in it |
 | `type` | `"image"`, `"image/png"`, `["image", "application/pdf"]` | the MIME type; `"image"` matches every image type |
 
-`files()` always gives an array, even for a single file. These checks run
+`files()` gives an array whenever the field is there, even for a single
+file. A file input nothing was chosen in is left out of the body, so
+under `Type.Optional` an untouched one is absent: `file()` is `undefined`
+rather than refused for its type, and `files()` is `undefined` rather than
+`[]` — `ctx.body.gallery ?? []`, as the type already asks. These checks run
 after the body was read; the limit on what is read at all is `maxBodySize`,
 and it counts the multipart framing too, which is larger than it looks.
 

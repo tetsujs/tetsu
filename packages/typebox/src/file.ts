@@ -48,7 +48,11 @@ export interface FileOptions {
   /** Largest accepted size. */
   readonly maxSize?: FileSize;
 
-  /** Smallest accepted size — rejects the empty file a form sends for an untouched input. */
+  /**
+   * Smallest accepted size — `1` rejects a file with nothing in it. The
+   * nameless empty part a form sends for an input nothing was chosen in
+   * never gets here: the core leaves it out, as a field that is not there.
+   */
   readonly minSize?: FileSize;
 
   /**
@@ -100,11 +104,14 @@ export function file(options: FileOptions = {}): TUnsafe<File> {
 }
 
 /**
- * A schema for one or more uploaded files, always arriving as an array.
+ * A schema for one or more uploaded files, arriving as an array whenever
+ * the field is there.
  *
  * A form sends one part per file, so a field that took a single file is a
  * lone `File` and not an array — this normalizes that away, and a handler
- * reading `ctx.body.gallery` always maps over an array.
+ * reading `ctx.body.gallery` always maps over an array. Under
+ * `Type.Optional`, a field nothing was chosen in is absent, and the value
+ * is `undefined`, as its type says: `ctx.body.gallery ?? []`.
  *
  * @example
  * ```ts

@@ -290,3 +290,61 @@ describe("what defaults mean for the description", () => {
     expect(raw.properties.page.required).toEqual(["size"]);
   });
 });
+
+describe("a form with files not chosen", () => {
+  const Profile = tb(
+    Type.Object({
+      name: Type.String(),
+      avatar: Type.Optional(file({ type: "image" })),
+      attachments: Type.Optional(files()),
+    }),
+  );
+
+  const profile = serve(
+    createApp({
+      routes: {
+        save: route({
+          method: "POST",
+          path: "/profile",
+          bodyType: "form",
+          schema: { body: Profile },
+          handler: (ctx) => ({
+            avatar:
+              ctx.body.avatar === undefined ? "none" : ctx.body.avatar.name,
+            attachments:
+              ctx.body.attachments === undefined
+                ? "none"
+                : ctx.body.attachments.map((attachment) => attachment.name),
+          }),
+        }),
+      },
+    }),
+  );
+
+  test("passes, with the optional file and the optional list absent", async () => {
+    const form = new FormData();
+
+    form.append("name", "Ada");
+    form.append("avatar", new File([], ""));
+    form.append("attachments", new File([], ""));
+
+    const res = await profile("/profile", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ avatar: "none", attachments: "none" });
+  });
+
+  test("one attachment is a list of one", async () => {
+    const form = new FormData();
+
+    form.append("name", "Ada");
+    form.append("attachments", new File(["x"], "a.txt"));
+
+    const res = await profile("/profile", { method: "POST", body: form });
+
+    expect(await res.json()).toEqual({
+      avatar: "none",
+      attachments: ["a.txt"],
+    });
+  });
+});
