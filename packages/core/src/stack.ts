@@ -18,6 +18,7 @@ import type {
   EarlyCtx,
   ParsedBody,
   RawBodyOf,
+  RouteInfo,
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
@@ -559,9 +560,10 @@ type ResponseParams<
  * These slots run on every outcome, including short-circuits and errors
  * raised before the handler — so the schema-validated fields and the hook
  * extensions may never have been produced. They are therefore optional
- * here, and a hook that needs one has to narrow. The early context and the
- * response itself are guaranteed; `params` is guaranteed but honest about
- * timing — see `ResponseParams`.
+ * here, and a hook that needs one has to narrow. The early context, the
+ * route and the response itself are guaranteed — a route's own chain runs
+ * only for a request its route matched; `params` is guaranteed but honest
+ * about timing — see `ResponseParams`.
  *
  * Built with `Merge`, not an intersection: intersecting the raw and the
  * validated `params` shapes would collapse conflicting fields to `never`,
@@ -586,6 +588,7 @@ export type ResponseCtx<
 > = Merge<
   Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
+    readonly route: RouteInfo;
     readonly params: ResponseParams<Path, S>;
     readonly res: Res;
   }
@@ -609,6 +612,7 @@ export type ErrorCtx<
 > = Merge<
   Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
+    readonly route: RouteInfo;
     readonly params: ResponseParams<Path, S>;
     readonly error: unknown;
   }

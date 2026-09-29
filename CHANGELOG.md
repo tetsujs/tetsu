@@ -28,6 +28,9 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: `ctx.route` is not optional in the `beforeResponse`,
+  `afterResponse` and `onError` hooks of a route, where it is always set;
+  a hook asking for it with `Requires<{ route: RouteInfo }>` mounts there.
 - `@tetsujs/core`: a value the handler returns under a status its map
   declares without a body — `null`, or an entry without `body` — is
   refused with a `500` when responses are validated. It was sent past

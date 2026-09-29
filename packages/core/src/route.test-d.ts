@@ -13,6 +13,7 @@ import type {
   FormBody,
   FormValue,
   Requires,
+  RouteInfo,
   SchemaConfig,
 } from "./context.ts";
 import { HttpError } from "./error.ts";
@@ -935,3 +936,32 @@ export type maybeBodyCases = [
     >
   >,
 ];
+
+/**
+ * The route is known in every slot of a route's own chain, the response
+ * slots and `onError` included: a hook asking for it mounts on a route.
+ */
+const logsRoute = hook.afterResponse((ctx: Requires<{ route: RouteInfo }>) => {
+  void ctx.route.path;
+});
+
+const mapsByRoute = hook.onError((ctx: Requires<{ route: RouteInfo }>) => {
+  void ctx.route.path;
+});
+
+const decoratesByRoute = hook.beforeResponse(
+  (ctx: Requires<{ route: RouteInfo }>) => {
+    void ctx.route.path;
+  },
+);
+
+route({
+  method: "GET",
+  path: "/routed",
+  hooks: {
+    beforeResponse: [decoratesByRoute],
+    afterResponse: [logsRoute],
+    onError: [mapsByRoute],
+  },
+  handler: () => ({ ok: true }),
+});
