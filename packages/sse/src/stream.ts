@@ -33,7 +33,7 @@ export type StreamReason =
   | "ended"
   /**
    * Nobody is reading any more — the client disconnected, or the pipeline
-   * discarded the response the stream was the body of.
+   * discarded the response the stream was the body of — or `until` fired.
    */
   | "cancelled"
   /** The generator threw. What had already gone out stayed valid. */
@@ -88,8 +88,27 @@ export interface StreamOptions {
   /** A filler written while nothing else is. Off by default. */
   readonly keepAlive?: KeepAlive;
 
-  /** Called once when the stream is over, with what it did. */
+  /**
+   * Called once when the stream is over, with what it did — for a stream
+   * that went out: one made and never sent has nothing to report.
+   */
   readonly onEnd?: (summary: StreamSummary) => void;
+
+  /**
+   * Ends the stream when it fires, as a client leaving would, with
+   * `"cancelled"`.
+   *
+   * What a server that is stopping closes its streams on — `draining`
+   * from `@tetsujs/lifecycle`. `server.stop()` waits for every response in
+   * flight, and a stream is one that never finishes on its own: left open,
+   * it holds the stop for the whole grace period, and the process exits as
+   * a forced stop.
+   *
+   * The stream closes even when its generator waits on something else;
+   * the generator is unwound when it waits on the signal it was handed,
+   * which includes this one.
+   */
+  readonly until?: AbortSignal;
 }
 
 /**
@@ -156,13 +175,19 @@ export function openStream(
 ): Response {
   const encoder = new TextEncoder();
   const ending = new AbortController();
-  const signal = AbortSignal.any([ctx.req.signal, ending.signal]);
+  const signal = AbortSignal.any(
+    options.until
+      ? [ctx.req.signal, ending.signal, options.until]
+      : [ctx.req.signal, ending.signal],
+  );
 
   const chunks = source(signal);
 
   const startedAt = performance.now();
 
   let beating: ReturnType<typeof setInterval> | undefined;
+  let reading = false;
+  let stopFromOutside = (): void => {};
   let written = 0;
   let bytes = 0;
   let over = false;
@@ -182,6 +207,7 @@ export function openStream(
     }
 
     ending.abort();
+    options.until?.removeEventListener("abort", stopFromOutside);
 
     if (over) {
       return;
@@ -218,146 +244,200 @@ export function openStream(
     controller.enqueue(encoded);
   };
 
-  const body = new ReadableStream<Uint8Array>({
-    /**
-     * Starts the keep-alive, which is the only thing that writes on its
-     * own schedule rather than on demand.
-     *
-     * It skips a beat the consumer has no room for, by the same rule the
-     * chunks follow: a stream with a full queue is backed up, not idle,
-     * and the filler exists only to keep an idle connection from being
-     * closed by a proxy. Without the check a stalled stream would collect
-     * one every interval for as long as it stalls, which is small and
-     * unbounded — the shape of the defect this whole pull loop exists to
-     * remove, in miniature.
-     *
-     * No test separates the two: the fillers are a few bytes each and they
-     * queue behind the megabyte the transport is already holding, so
-     * nothing observable through a socket ever reaches them. The check is
-     * kept on the reasoning, not on a measurement, and this is the note
-     * saying so.
-     */
-    start(controller) {
-      if (opening !== undefined) {
-        emit(controller, opening);
-      }
+  /**
+   * Starts the keep-alive, which is the only thing that writes on its
+   * own schedule rather than on demand — once the stream is being read.
+   *
+   * It skips a beat while the last one is still queued — the queue holds
+   * nothing ahead of a read, so anything in it means the consumer has not
+   * taken it yet: a stream with a full queue is backed up, not idle,
+   * and the filler exists only to keep an idle connection from being
+   * closed by a proxy. Without the check a stalled stream would collect
+   * one every interval for as long as it stalls, which is small and
+   * unbounded — the shape of the defect this whole pull loop exists to
+   * remove, in miniature.
+   *
+   * No test separates the two: the fillers are a few bytes each and they
+   * queue behind the megabyte the transport is already holding, so
+   * nothing observable through a socket ever reaches them. The check is
+   * kept on the reasoning, not on a measurement, and this is the note
+   * saying so.
+   */
+  const keepAlive = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): void => {
+    const alive = options.keepAlive;
 
-      const alive = options.keepAlive;
+    if (!alive || alive.everyMs <= 0 || over) {
+      return;
+    }
 
-      if (!alive || alive.everyMs <= 0) {
+    beating = setInterval(() => {
+      if ((controller.desiredSize ?? 0) < 0) {
         return;
       }
 
-      beating = setInterval(() => {
-        if ((controller.desiredSize ?? 0) <= 0) {
+      try {
+        emit(controller, alive.chunk);
+      } catch {
+        done("cancelled");
+      }
+    }, alive.everyMs);
+  };
+
+  /** Ends the stream when `until` fires — or at once, if it has. */
+  const listen = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): void => {
+    const until = options.until;
+
+    if (!until) {
+      return;
+    }
+
+    stopFromOutside = () => {
+      done("cancelled");
+      close(controller);
+      chunks.return().catch((error: unknown) => {
+        reportFailure(ctx, "stream", error);
+      });
+    };
+
+    if (until.aborted) {
+      stopFromOutside();
+    } else {
+      until.addEventListener("abort", stopFromOutside, { once: true });
+    }
+  };
+
+  const body = new ReadableStream<Uint8Array>(
+    {
+      /**
+       * Writes the opening, and nothing else.
+       *
+       * Everything that lives with the stream — the generator, the
+       * keep-alive, the listener on `until` — waits for the first read,
+       * because a stream can be made and never sent: a handler that built
+       * one and then threw leaves it to nobody, and a timer or a listener on
+       * a long-lived signal started here held it for as long as the process
+       * lived. The queue's high-water mark is `0` for the same reason, so no
+       * read is asked for before a consumer asks.
+       */
+      start(controller) {
+        if (opening !== undefined) {
+          emit(controller, opening);
+        }
+      },
+
+      /**
+       * Produces one chunk, and only when the consumer has room for it.
+       *
+       * This is the whole of the backpressure: the platform calls `pull`
+       * while the queue wants more and stops calling it when it does not, so
+       * exactly one `next()` is ever in flight and the generator advances at
+       * the rate the client reads. Driving the generator from a loop instead
+       * asks it for everything at once, because `enqueue` never blocks and
+       * never refuses: a client that stopped reading had a million chunks
+       * built for it and held in memory.
+       *
+       * The cost of the shape is that leaving a loop no longer ends the
+       * generator, because there is no loop; `cancel` calls `return()` in
+       * its place.
+       */
+      async pull(controller) {
+        if (!reading) {
+          reading = true;
+          listen(controller);
+          keepAlive(controller);
+        }
+
+        if (over) {
           return;
         }
 
         try {
-          emit(controller, alive.chunk);
-        } catch {
-          done("cancelled");
-        }
-      }, alive.everyMs);
-    },
+          const next = await chunks.next();
 
-    /**
-     * Produces one chunk, and only when the consumer has room for it.
-     *
-     * This is the whole of the backpressure: the platform calls `pull`
-     * while the queue wants more and stops calling it when it does not, so
-     * exactly one `next()` is ever in flight and the generator advances at
-     * the rate the client reads. Driving the generator from a loop instead
-     * asks it for everything at once, because `enqueue` never blocks and
-     * never refuses: a client that stopped reading had a million chunks
-     * built for it and held in memory.
-     *
-     * The cost of the shape is that leaving a loop no longer ends the
-     * generator, because there is no loop; `cancel` calls `return()` in
-     * its place.
-     */
-    async pull(controller) {
-      try {
-        const next = await chunks.next();
+          if (next.done || signal.aborted) {
+            /**
+             * The signal is checked first on purpose: a generator that takes
+             * it does the polite thing and returns, so `done` would be true
+             * on a stream the client walked away from. What ended it is the
+             * departure, and that is what the summary should say.
+             *
+             * No test separates this from always reporting `ended`, and that
+             * is not a gap in the tests. Every way the signal becomes true
+             * here runs through a `done` call that has already fixed the
+             * reason — `cancel` on the consumer's side, the keep-alive
+             * finding a shut controller — and all of them say `cancelled`
+             * too. The branch decides a race whose other outcome agrees with
+             * it, which is why it is kept and why nothing can observe it.
+             */
+            done(signal.aborted ? "cancelled" : "ended");
+            close(controller);
 
-        if (next.done || signal.aborted) {
+            return;
+          }
+
+          written += 1;
+
+          emit(controller, next.value);
+        } catch (error) {
           /**
-           * The signal is checked first on purpose: a generator that takes
-           * it does the polite thing and returns, so `done` would be true
-           * on a stream the client walked away from. What ended it is the
-           * departure, and that is what the summary should say.
-           *
-           * No test separates this from always reporting `ended`, and that
-           * is not a gap in the tests. Every way the signal becomes true
-           * here runs through a `done` call that has already fixed the
-           * reason — `cancel` on the consumer's side, the keep-alive
-           * finding a shut controller — and all of them say `cancelled`
-           * too. The branch decides a race whose other outcome agrees with
-           * it, which is why it is kept and why nothing can observe it.
+           * A source that takes the signal, as it is asked to, rejects when
+           * the client leaves: `fetch`, `events.on` and a timer from
+           * `node:timers/promises` all throw the signal's `AbortError`. That
+           * is the departure arriving, not the source failing, and reporting
+           * it made every ordinary disconnect an error in the logs.
            */
-          done(signal.aborted ? "cancelled" : "ended");
+          if (signal.aborted && isDeparture(error, signal)) {
+            done("cancelled");
+            close(controller);
+
+            return;
+          }
+
+          reportFailure(ctx, "stream", error);
+
+          // A source parked on the signal runs its `finally` here, inside the
+          // pending `next()`: a cleanup that throws after the client left is
+          // a failure worth reporting, on a stream the client ended.
+          done(signal.aborted ? "cancelled" : "failed");
           close(controller);
-
-          return;
         }
-
-        written += 1;
-
-        emit(controller, next.value);
-      } catch (error) {
-        /**
-         * A source that takes the signal, as it is asked to, rejects when
-         * the client leaves: `fetch`, `events.on` and a timer from
-         * `node:timers/promises` all throw the signal's `AbortError`. That
-         * is the departure arriving, not the source failing, and reporting
-         * it made every ordinary disconnect an error in the logs.
-         */
-        if (signal.aborted && isDeparture(error, signal)) {
-          done("cancelled");
-          close(controller);
-
-          return;
-        }
-
-        reportFailure(ctx, "stream", error);
-
-        // A source parked on the signal runs its `finally` here, inside the
-        // pending `next()`: a cleanup that throws after the client left is
-        // a failure worth reporting, on a stream the client ended.
-        done(signal.aborted ? "cancelled" : "failed");
-        close(controller);
-      }
-    },
-
-    /**
-     * The stream's own end of life, told by whoever consumed it.
-     *
-     * Not a backstop: this is the only thing that ends a stream whose
-     * response never reached the client. The pipeline releases a response
-     * it discards — one a `beforeResponse` hook replaced, one an error
-     * displaced, one a `HEAD` request answered without — by cancelling its
-     * body, and the request's own signal says nothing in those cases,
-     * because the request itself ended normally.
-     *
-     * A client that leaves aborts `ctx.req.signal` first, so that path
-     * does not depend on this line; the request whose response was thrown
-     * away depends on nothing else.
-     */
-    cancel() {
-      done("cancelled");
+      },
 
       /**
-       * `return()` runs the generator's `finally` — the cleanup a source
-       * is asked to write — and a cleanup can fail: a broker that is gone
-       * refuses to close a subscription. Nobody awaits this promise, and a
-       * rejection nobody handles ends the process, every other connection
-       * with it. It is reported instead, as the stream's own failure.
+       * The stream's own end of life, told by whoever consumed it.
+       *
+       * Not a backstop: this is the only thing that ends a stream whose
+       * response never reached the client. The pipeline releases a response
+       * it discards — one a `beforeResponse` hook replaced, one an error
+       * displaced, one a `HEAD` request answered without — by cancelling its
+       * body, and the request's own signal says nothing in those cases,
+       * because the request itself ended normally.
+       *
+       * A client that leaves aborts `ctx.req.signal` first, so that path
+       * does not depend on this line; the request whose response was thrown
+       * away depends on nothing else.
        */
-      chunks.return().catch((error: unknown) => {
-        reportFailure(ctx, "stream", error);
-      });
+      cancel() {
+        done("cancelled");
+
+        /**
+         * `return()` runs the generator's `finally` — the cleanup a source
+         * is asked to write — and a cleanup can fail: a broker that is gone
+         * refuses to close a subscription. Nobody awaits this promise, and a
+         * rejection nobody handles ends the process, every other connection
+         * with it. It is reported instead, as the stream's own failure.
+         */
+        chunks.return().catch((error: unknown) => {
+          reportFailure(ctx, "stream", error);
+        });
+      },
     },
-  });
+    { highWaterMark: 0 },
+  );
 
   return new Response(body, {
     status: options.status ?? 200,

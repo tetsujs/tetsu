@@ -134,6 +134,35 @@ export interface ShutdownHandle {
   readonly stopping: AbortSignal;
 
   /**
+   * Aborts when the server starts to stop: after the pre-stop delay, the
+   * moment `server.stop()` is called — or with `stopping`, when there is
+   * no delay.
+   *
+   * What a response that never ends on its own closes on. `server.stop()`
+   * waits for every request in flight, and an event stream or a long poll
+   * is one that is always in flight: left open, it holds the stop for the
+   * whole of `graceMs`, and the process then exits with `1`, its
+   * connections cut. Closed here, it ends at once, and its client
+   * reconnects to a server the balancer is still sending traffic to.
+   *
+   * Not `stopping`: that one fires while this server is still being sent
+   * traffic, so a client that reconnects at once lands here again, to be
+   * closed again, for as long as the delay runs.
+   *
+   * @example
+   * ```ts
+   * const { draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+   *
+   * route({
+   *   method: "GET",
+   *   path: "/feed",
+   *   handler: (ctx) => sse(ctx, feed, { until: draining }),
+   * });
+   * ```
+   */
+  readonly draining: AbortSignal;
+
+  /**
    * Removes the signal handlers again, for a process that outlives the
    * server — a test suite, mostly.
    */
@@ -148,16 +177,19 @@ export interface ShutdownResult {
    */
   readonly forced: boolean;
 
-  /** Whatever the closers threw, in the order they threw it. */
+  /**
+   * Whatever a server's `stop` and the closers threw, in the order they
+   * threw it.
+   */
   readonly failures: readonly unknown[];
 }
 
 /**
  * Stops a server, or several, and releases what they were using.
  *
- * Never rejects: a closer that throws is collected into the result rather
- * than aborting the rest, because the point of the sequence is that every
- * step runs.
+ * Never rejects: a server whose `stop` throws, and a closer that throws,
+ * are collected into the result rather than aborting the rest, because
+ * the point of the sequence is that every step runs.
  *
  * @example
  * ```ts
@@ -192,6 +224,7 @@ async function drain(
   servers: Servers,
   options: ShutdownOptions,
   stopWaiting?: Promise<void>,
+  onDrain?: () => void,
 ): Promise<ShutdownResult> {
   const all: readonly Stoppable[] = Array.isArray(servers)
     ? servers
@@ -205,32 +238,53 @@ async function drain(
     await within(Bun.sleep(preStopDelayMs), preStopDelayMs, stopWaiting);
   }
 
+  onDrain?.();
+
   const stopped = new Set<Stoppable>();
+  const failures: unknown[] = [];
+
+  /**
+   * A `stop` that throws is a server that did not stop, and a failure to
+   * report — not a reason to leave the rest undone. Escaping, it used to
+   * reject the whole sequence past its closers, from a function that
+   * promises never to.
+   */
+  const attempt = async (stop: () => unknown): Promise<boolean> => {
+    try {
+      await stop();
+
+      return true;
+    } catch (error) {
+      failures.push(error);
+
+      return false;
+    }
+  };
 
   const drained = await within(
     Promise.all(
       all.map(async (server) => {
-        await server.stop();
-
-        stopped.add(server);
+        if (await attempt(() => server.stop())) {
+          stopped.add(server);
+        }
       }),
     ),
     graceMs,
     stopWaiting,
   );
 
-  if (!drained) {
+  const clean = drained && stopped.size === all.length;
+
+  if (!clean) {
     await within(
       Promise.all(
         all
           .filter((server) => !stopped.has(server))
-          .map((server) => server.stop(true)),
+          .map((server) => attempt(() => server.stop(true))),
       ),
       forceMs,
     );
   }
-
-  const failures: unknown[] = [];
 
   for (const close of options.close ?? []) {
     try {
@@ -240,7 +294,9 @@ async function drain(
     }
   }
 
-  return { forced: !drained, failures };
+  // A copy: a `stop` abandoned at the deadline may still reject later, and
+  // what the caller was handed is what had happened by now.
+  return { forced: !clean, failures: [...failures] };
 }
 
 /** How the signal handlers behave. */
@@ -256,11 +312,18 @@ export interface SignalOptions extends ShutdownOptions {
    * The code is `0` when everything drained and closed cleanly, and `1`
    * when connections had to be cut or a closer threw: an orchestrator that
    * reads it learns whether the stop was clean.
+   *
+   * Off, the process is left to the caller once the shutdown is done. A
+   * third signal still ends it: that one is the operator's way out of a
+   * shutdown that hangs — a closer that never returns — and with the
+   * signals taken over by these handlers, nothing short of `SIGKILL` would
+   * be left otherwise.
    */
   readonly exit?: boolean;
 
   /**
-   * Receives each closer that threw, in place of `console.error`.
+   * Receives each failure of the shutdown — a closer that threw, a server
+   * whose `stop` did — in place of `console.error`.
    *
    * The same shape `createApp({ reportError })` takes, so one receiver
    * serves both: a report here is `source: "shutdown"`, with no `ctx`.
@@ -272,7 +335,8 @@ export interface SignalOptions extends ShutdownOptions {
 }
 
 /**
- * A closer that threw while the process was stopping.
+ * A closer, or a server's `stop`, that threw while the process was
+ * stopping.
  *
  * Shaped like the core's `FailureReport`, without depending on it: this
  * package stops any `Bun.serve` server, not only a Tetsu application.
@@ -308,8 +372,9 @@ export interface ShutdownFailure {
  * });
  * ```
  *
- * @returns The `stopping` signal and a `detach` that removes the handlers
- * again, for a process that outlives the server — a test suite, mostly.
+ * @returns The `stopping` and `draining` signals, and a `detach` that
+ * removes the handlers again, for a process that outlives the server — a
+ * test suite, mostly.
  */
 export function onShutdownSignals(
   servers: Servers,
@@ -318,6 +383,7 @@ export function onShutdownSignals(
   const signals = options.signals ?? ["SIGTERM", "SIGINT"];
 
   const stopping = new AbortController();
+  const draining = new AbortController();
 
   let signalled = 0;
   let cutShort = (): void => {};
@@ -346,7 +412,9 @@ export function onShutdownSignals(
      */
     stopping.abort();
 
-    const result = await drain(servers, options, stopWaiting);
+    const result = await drain(servers, options, stopWaiting, () =>
+      draining.abort(),
+    );
     const clean = !result.forced && result.failures.length === 0;
 
     for (const failure of result.failures) {
@@ -364,6 +432,7 @@ export function onShutdownSignals(
 
   return {
     stopping: stopping.signal,
+    draining: draining.signal,
 
     detach: () => {
       for (const signal of signals) {

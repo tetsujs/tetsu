@@ -584,3 +584,197 @@ describe("the stopping signal", () => {
     expect(code).toBe(0);
   });
 });
+
+describe("a server whose stop fails", () => {
+  const failing = (how: "throws" | "rejects" | "forced throws") => {
+    const calls: string[] = [];
+
+    return {
+      calls,
+      stop: (force?: boolean): Promise<void> => {
+        calls.push(force ? "stop(true)" : "stop()");
+
+        if (how === "throws" && !force) {
+          throw new Error("stop refused");
+        }
+
+        if (how === "rejects" && !force) {
+          return Promise.reject(new Error("stop refused"));
+        }
+
+        if (how === "forced throws") {
+          if (force) {
+            throw new Error("forced stop refused");
+          }
+
+          return new Promise<void>(() => {});
+        }
+
+        return Promise.resolve();
+      },
+    };
+  };
+
+  test.each([
+    ["throws", "stop refused"],
+    ["rejects", "stop refused"],
+    ["forced throws", "forced stop refused"],
+  ] as const)(
+    "that %s is a failure, and the closers still run",
+    async (how, message) => {
+      const closed: string[] = [];
+
+      const result = await shutdown(failing(how), {
+        graceMs: 10,
+        forceMs: 10,
+        close: [() => void closed.push("pool")],
+      });
+
+      expect(closed).toEqual(["pool"]);
+      expect(result.forced).toBe(true);
+      expect(
+        result.failures.map((failure) => (failure as Error).message),
+      ).toContain(message);
+    },
+  );
+});
+
+describe("the draining signal", () => {
+  test("is quiet until the server is about to stop", () => {
+    const server = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+
+    const { draining, detach } = onShutdownSignals(server, { exit: false });
+
+    expect(draining.aborted).toBe(false);
+
+    detach();
+    server.stop(true);
+  });
+
+  test("fires after the pre-stop delay, when the server starts to stop", async () => {
+    const child = await spawned(`
+      const server = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+
+      const { stopping, draining } = onShutdownSignals(server, {
+        preStopDelayMs: 300,
+        close: [() => console.log("pool closed")],
+      });
+
+      const started = performance.now();
+      const at = () => Math.round(performance.now() - started);
+
+      stopping.addEventListener("abort", () => console.log("not ready at", at()));
+      draining.addEventListener("abort", () => console.log("draining at", at()));
+
+      console.log("listening");
+
+      setInterval(() => {}, 1000);
+    `);
+
+    child.signal();
+
+    const { code, output } = await child.ended();
+    const drainingAt = Number(/draining at (\d+)/.exec(output)?.[1]);
+
+    expect(output.indexOf("not ready")).toBeLessThan(
+      output.indexOf("draining"),
+    );
+    expect(output.indexOf("draining")).toBeLessThan(
+      output.indexOf("pool closed"),
+    );
+    expect(drainingAt).toBeGreaterThanOrEqual(250);
+    expect(code).toBe(0);
+  });
+
+  test("an event stream closed on it lets the stop be clean and quick", async () => {
+    // The two packages together, as the README puts them: sse() with
+    // until: draining, a client connected, and a grace period long enough
+    // that waiting it out would show.
+    const child = await spawned(`
+      const { createApp, route } = await import("${import.meta.dir}/../../core/src/index.ts");
+      const { sse } = await import("${import.meta.dir}/../../sse/src/index.ts");
+
+      const holder = { draining: undefined };
+
+      const app = createApp({
+        routes: {
+          feed: route({
+            method: "GET",
+            path: "/feed",
+            handler: (ctx) =>
+              sse(ctx, async function* () {
+                yield { data: "first" };
+                // Waits on something else: the stream closes all the same.
+                await new Promise(() => {});
+              }, { until: holder.draining }),
+          }),
+        },
+      });
+
+      const server = Bun.serve({ ...app, port: 0 });
+
+      holder.draining = onShutdownSignals(server, { graceMs: 5_000 }).draining;
+
+      const res = await fetch(new URL("/feed", server.url));
+      const reader = res.body.getReader();
+      await reader.read();
+
+      console.log("listening");
+
+      setInterval(() => {}, 1000);
+    `);
+
+    const started = performance.now();
+
+    child.signal();
+
+    const { code, output } = await child.ended();
+
+    expect({ code, output: output.includes("rror") ? output : "" }).toEqual({
+      code: 0,
+      output: "",
+    });
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  test("lets a stream that closes on it end, so the stop is clean and quick", async () => {
+    const child = await spawned(`
+      const holder = { draining: undefined };
+
+      const server = Bun.serve({
+        port: 0,
+        fetch: () => {
+          const body = new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("open\\n"));
+              holder.draining.addEventListener("abort", () => controller.close());
+            },
+          });
+
+          return new Response(body);
+        },
+      });
+
+      holder.draining = onShutdownSignals(server, { graceMs: 5_000 }).draining;
+
+      const res = await fetch(server.url);
+      await res.body.getReader().read();
+
+      console.log("listening");
+
+      setInterval(() => {}, 1000);
+    `);
+
+    const started = performance.now();
+
+    child.signal();
+
+    const { code, output } = await child.ended();
+
+    expect({ code, output: output.includes("error") ? output : "" }).toEqual({
+      code: 0,
+      output: "",
+    });
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+});

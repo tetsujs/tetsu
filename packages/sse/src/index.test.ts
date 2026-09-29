@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { createApp, hook, route } from "@tetsujs/core";
 import { captureErrors, serve } from "@tetsujs/core/testing";
 import type { SseSummary } from "./index.ts";
-import { frame, lastEventId, sse, stream } from "./index.ts";
+import { frame, lastEventId, sse } from "./index.ts";
 
 const cleaned: string[] = [];
 
@@ -259,30 +259,6 @@ class ParkedController {
         { heartbeatMs: 0 },
       ),
   });
-
-  /**
-   * The same source under `stream()`, which asks for its first chunk as
-   * soon as it starts: `sse()` opens with a comment, and asks only once a
-   * client reads it.
-   */
-  eager = route({
-    method: "GET",
-    path: "/eager",
-    handler: (ctx) =>
-      stream(
-        ctx,
-        // biome-ignore lint/correctness/useYield: it waits instead.
-        async function* (signal) {
-          cleaned.push("parked source started");
-
-          try {
-            await until(signal);
-          } finally {
-            cleaned.push("parked source closed");
-          }
-        },
-      ),
-  });
 }
 
 /**
@@ -319,18 +295,6 @@ const replacedAtOnce = serve(
 );
 
 describe("a response the pipeline throws away", () => {
-  test("ends the stream behind it, so a source that started unwinds", async () => {
-    cleaned.length = 0;
-
-    const res = await replacedLater("/eager");
-
-    expect(await res.text()).toBe("replaced");
-
-    await Bun.sleep(20);
-
-    expect(cleaned).toEqual(["parked source started", "parked source closed"]);
-  });
-
   test("an event stream nobody read never started its source", async () => {
     cleaned.length = 0;
 

@@ -33,7 +33,8 @@ never loses the pool it is using. A closer that throws is reported and the
 rest still run.
 
 A second signal skips the rest of the waiting but still closes everything;
-a third ends the process immediately.
+a third ends the process immediately — with `exit: false` too, since it is
+the way out of a shutdown that hangs.
 
 To run the sequence without signal handling, call `shutdown()`. It never
 rejects:
@@ -93,6 +94,28 @@ const shutdown = onShutdownSignals(server, {
 
 Use both or neither: the delay without a failing readiness check only
 postpones the cut.
+
+### Streams and long polls
+
+`server.stop()` waits for every request in flight, and an event stream or
+a long poll is one that never finishes on its own. Left open, it holds the
+stop for the whole of `graceMs` — on every deploy — and the process then
+exits with `1`, its connections cut. Close them on `draining`, which fires
+when the server starts to stop, after the pre-stop delay:
+
+```ts
+const { stopping, draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+
+route({
+  method: "GET",
+  path: "/feed",
+  handler: (ctx) => sse(ctx, feed, { until: draining }),
+});
+```
+
+Not on `stopping`: during the delay the balancer is still sending traffic
+here, and a client that reconnects at once would land on this server again,
+to be closed again. After it, the client reconnects to one that stays.
 
 ### Health checks
 
@@ -200,13 +223,14 @@ const app = createApp({ reportError, routes });
 | `graceMs` | `10000` | how long in-flight requests get to finish |
 | `forceMs` | `1000` | how long to wait for the forced close |
 | `signals` | `["SIGTERM", "SIGINT"]` | `onShutdownSignals` only: which signals start it |
-| `exit` | `true` | `onShutdownSignals` only: whether to end the process when done |
-| `reportError` | `console.error` | `onShutdownSignals` only: receives each closer that threw, as `{ source: "shutdown", error }` — the same receiver `createApp` takes |
+| `exit` | `true` | `onShutdownSignals` only: whether to end the process when done; a third signal ends it either way |
+| `reportError` | `console.error` | `onShutdownSignals` only: receives each closer, or server `stop`, that threw, as `{ source: "shutdown", error }` — the same receiver `createApp` takes |
 
-`onShutdownSignals` returns `{ stopping, detach }`: the signal that aborts
-when shutdown begins, and a function that removes the signal handlers (for
+`onShutdownSignals` returns `{ stopping, draining, detach }`: the signal
+that aborts when shutdown begins, the one that aborts when the server
+starts to stop, and a function that removes the signal handlers (for
 tests). `shutdown` returns `{ forced, failures }`: whether connections had
-to be cut, and what the closers threw.
+to be cut, and what a server's `stop` and the closers threw.
 
 ## Notes
 
