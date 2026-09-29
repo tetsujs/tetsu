@@ -99,6 +99,7 @@ describe("over the limit", () => {
     limit: 1,
     windowMs: 60_000,
     key: () => "one-client",
+    name: "scripted",
     store: scriptedStore([
       { count: 1, resetAt },
       { count: 2, resetAt },
@@ -131,6 +132,7 @@ describe("over the limit", () => {
       limit: 0,
       windowMs: 60_000,
       key: () => "one-client",
+      name: "scripted",
       store: scriptedStore([{ count: 1, resetAt }]),
     })("/items");
 
@@ -165,6 +167,7 @@ describe("over the limit", () => {
               limit: 0,
               windowMs: 60_000,
               key: () => "one-client",
+              name: "scripted",
               store: scriptedStore([{ count: 1, resetAt }]),
             }),
           ],
@@ -190,6 +193,7 @@ describe("over the limit", () => {
       windowMs: 60_000,
       status: 503,
       key: () => "one-client",
+      name: "scripted",
       store: scriptedStore([{ count: 1, resetAt }]),
     });
 
@@ -217,6 +221,7 @@ describe("what is counted", () => {
     const request = serveWith({
       limit: 1,
       windowMs: 60_000,
+      name: "tenants",
       store,
       key: (ctx) => ctx.req.headers.get("x-tenant") ?? undefined,
     });
@@ -290,6 +295,7 @@ describe("the memory store", () => {
       limit: 1,
       windowMs: 10_000,
       key: () => "async",
+      name: "async",
       store: {
         hit: async () => {
           await Bun.sleep(1);
@@ -328,7 +334,7 @@ describe("documentation", () => {
     expect(schema?.$ref).toBe("#/components/schemas/RateLimited");
     expect(responses["429"]?.headers?.["retry-after"]?.schema).toEqual({
       type: "integer",
-      minimum: 0,
+      minimum: 1,
     });
 
     const schemas = (
@@ -340,7 +346,7 @@ describe("documentation", () => {
       properties: {
         status: { const: 429 },
         error: { const: "RATE_LIMITED" },
-        retryAfter: { type: "integer", minimum: 0 },
+        retryAfter: { type: "integer", minimum: 1 },
       },
     });
   });

@@ -20,6 +20,13 @@ API.
   and one reading the body broke it: a JSON body became a `500` from Bun,
   a streamed one reached the client empty. Reading it is now a compile
   error.
+- `@tetsujs/rate-limit`: a limiter given a `store` needs a `name`, and
+  only such a limiter takes one. The store finds a counter by its key, and
+  the key was the client alone: two limiters on one store counted into one
+  counter, so a login allowed five an hour lived in the window of a global
+  limit allowed a hundred a minute. The key is now the name, then the
+  client. One name on one store with other settings is refused when the
+  second limiter is made.
 
 ### Added
 
@@ -32,6 +39,10 @@ API.
   as the `set-cookie` header that sets them.
 - `@tetsujs/openapi/testing`: `assertDescribed` reports a header the
   status requires and the response does not carry.
+- `@tetsujs/rate-limit`: `perRoute: true` gives each route a budget of its
+  own from one limiter — twenty a minute on every endpoint, mounted once
+  on the application. A route is its template; requests no route answers
+  share one budget.
 
 ### Fixed
 
@@ -154,6 +165,22 @@ API.
 - The guide says that a query or form key sent once arrives as a string,
   and shows the schema taking one value for an array. It did not, and an
   array parameter documented as `?tag=a` was refused with a `422`.
+- `@tetsujs/rate-limit`: a `windowMs` that is not a positive, finite
+  number, and a `limit` that is not a whole number of 0 or more, are
+  refused when the limiter is made. `NaN` — `Number()` of a variable that
+  is not set — and `0` used to start a new window on every request, so the
+  limiter refused nothing while its headers reported a budget.
+- `@tetsujs/rate-limit`: a refusal's `retry-after` is 1 second at least. A
+  store that answered with a window already over made it `0`, and a client
+  that followed it retried at once.
+- `@tetsujs/rate-limit`: the README's recipes limit what they say they
+  do. The first example counted by a session cookie, which a client can
+  leave out — skipping the limit — or change on every request, for a new
+  budget each time; it counts by the client's address now. The allowance
+  for internal callers was a header any client can send; it is an address
+  on a list now. The Redis store set the expiry only on the first hit, and
+  a timeout between its two commands locked the client out for good; it
+  sets it on every hit, if there is none.
 
 ### Moving from 0.5
 
@@ -170,6 +197,11 @@ A response or error hook that asks for a validated part —
 `Requires<{ body?: Order }>` — asks for `unknown` instead, or for the union
 it now is, and narrows before it trusts the value: that hook also runs for
 the request the schema refused.
+
+A `rateLimit()` given a `store` is given a `name` too. A shared store's
+keys change from the client to the name and the client, so its counters
+start from zero after the deploy, and keys the old Redis recipe left
+without an expiry are no longer read — they can be deleted.
 
 ## 0.5.3 — 2026-09-27
 
