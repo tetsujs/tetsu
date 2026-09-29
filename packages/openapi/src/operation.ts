@@ -631,7 +631,13 @@ function failures(
     return ref as unknown as Record<string, unknown>;
   };
 
-  if (schema?.params || schema?.query || schema?.headers || schema?.body) {
+  if (
+    schema?.params ||
+    schema?.query ||
+    schema?.headers ||
+    schema?.cookies ||
+    schema?.body
+  ) {
     found.push([
       options.validationStatus,
       {

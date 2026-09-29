@@ -396,6 +396,13 @@ describe("a schema on any one part documents the validation failure", () => {
       handler: () => ({ ok: true }),
     });
 
+    byCookies = route({
+      method: "POST",
+      path: "/cookies",
+      schema: { cookies: Named },
+      handler: () => ({ ok: true }),
+    });
+
     byNothing = route({
       method: "POST",
       path: "/nothing",
@@ -425,6 +432,10 @@ describe("a schema on any one part documents the validation failure", () => {
 
   test("body alone", () => {
     expect(statuses("/body")).toContain("422");
+  });
+
+  test("cookies alone", () => {
+    expect(statuses("/cookies")).toContain("422");
   });
 
   test("and a route with no schema at all does not claim it", () => {

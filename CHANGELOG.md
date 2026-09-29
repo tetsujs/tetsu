@@ -35,6 +35,9 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi`: a route that validates only its cookies documents the
+  `422` it answers when they fail; a schema on the cookies alone did not
+  count as one on a request part.
 - `@tetsujs/openapi`: the README's recipe for an error format of one's own
   answers an unexpected error in that format too, and reports it with
   `reportFailure`, since `reportError` hears only of what no hook
