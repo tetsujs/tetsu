@@ -79,6 +79,11 @@ const app = createApp({
         if (mode === "other") throw httpError(404, "ACCOUNT_GONE");
         if (mode === "teapot") throw new HttpError(418);
         if (mode === "partial") return Response.json({ id: "1" });
+        if (mode === "empty") {
+          return new Response("", {
+            headers: { "content-type": "application/json" },
+          });
+        }
         if (mode === "cached") {
           ctx.out.headers.set("x-cache", "hit");
         }
@@ -238,6 +243,14 @@ describe("a response the document does not describe", () => {
         }),
       ),
     ).toBeUndefined();
+  });
+
+  test("an empty body where its status describes one", async () => {
+    expect(
+      await failure(
+        assertDescribed(document, "GET /users/42", await as("empty")),
+      ),
+    ).toContain("an empty body, where its 200 describes application/json");
   });
 
   test("a header its status requires and the response lacks", async () => {

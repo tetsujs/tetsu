@@ -35,6 +35,8 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi/testing`: `assertDescribed` reports an empty body where
+  the status describes one. It passed it, whatever the document said.
 - `@tetsujs/openapi`: the README says that a `docs()` documents the whole
   application it is mounted in, and that several surfaces with a document
   each are several applications. It described them as one application with

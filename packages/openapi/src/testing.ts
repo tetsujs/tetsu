@@ -188,7 +188,11 @@ async function bodyProblems(
   const mediaTypes = Object.keys(content);
 
   if (text === "") {
-    return [];
+    return mediaTypes.length === 0
+      ? []
+      : [
+          `an empty body, where its ${status} describes ${mediaTypes.join(", ")}`,
+        ];
   }
 
   if (mediaTypes.length === 0) {
