@@ -27,6 +27,14 @@ API.
   limit allowed a hundred a minute. The key is now the name, then the
   client. One name on one store with other settings is refused when the
   second limiter is made.
+- `@tetsujs/typebox`: a DTO nested in another with an option the outer
+  one does not have — `convert`, `clean`, `defaults` — is refused where the
+  outer one is made. A schema is checked with the options of the `tb()`
+  around it, so a `PublicUser` declared with `clean: true` and listed in a
+  page of users used to lose its `clean` without a word, and the fields it
+  was declared to strip went out in the response. A schema derived from a
+  DTO — `Type.Pick`, `Type.Omit`, `Type.Partial` — is a new schema and
+  carries none of its options.
 
 ### Added
 
@@ -181,6 +189,17 @@ API.
   on a list now. The Redis store set the expiry only on the first hit, and
   a timeout between its two commands locked the client out for good; it
   sets it on every hit, if there is none.
+- `@tetsujs/typebox`: a codec whose `Decode` throws on what the client
+  sent fails the value with a `422` carrying the error's message, and
+  `parse()` throws a `ValidationError`. It used to answer `500`: any client
+  could cause one with a string `BigInt` cannot read.
+- `@tetsujs/typebox`: a property named `errorMessage` stays in the JSON
+  Schema a DTO emits, and so does that key inside a `default`, `examples`,
+  `const`, `enum`, `dependentRequired` or an `x-` extension. The keyword was dropped wherever the name appeared,
+  leaving a document that required a property it did not describe.
+- `@tetsujs/typebox`: a failure under a record key that looks like a
+  number — `"0"` — has the key in its path as a string. It used to be a
+  number, like an array index.
 
 ### Moving from 0.5
 
@@ -197,6 +216,10 @@ A response or error hook that asks for a validated part —
 `Requires<{ body?: Order }>` — asks for `unknown` instead, or for the union
 it now is, and narrows before it trusts the value: that hook also runs for
 the request the schema refused.
+
+A `tb()` DTO nested in another, with an option the outer one lacks, is
+refused at startup: turn the option on for the outer DTO, which then
+applies it to the nested one too.
 
 A `rateLimit()` given a `store` is given a `name` too. A shared store's
 keys change from the client to the name and the client, so its counters

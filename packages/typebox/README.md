@@ -56,6 +56,22 @@ only because it says so.
 A property with a `default` and `defaults: true` is documented as optional
 on input, since the client does not have to send it.
 
+A DTO nested in another is checked with the options of the outer one, not
+its own. A nested DTO declared with an option the outer one does not have
+is refused where the outer one is made — a `clean` that no longer strips
+is a field leaking out of a response:
+
+```ts
+const PublicUser = tb(Type.Object({ id: Type.String() }), { clean: true });
+
+tb(Type.Object({ users: Type.Array(PublicUser) }));                  // throws: clean
+tb(Type.Object({ users: Type.Array(PublicUser) }), { clean: true }); // strips every user
+```
+
+A schema derived from a DTO — `Type.Pick(PublicUser, ["id"])`,
+`Type.Omit`, `Type.Partial` — is a new schema, and carries none of the
+DTO's options: give the `tb()` around it the options it needs.
+
 ## Files
 
 `file()` and `files()` validate uploads in a `bodyType: "form"` body:
@@ -129,6 +145,10 @@ const Stored = tb(Type.Object({ code: Type.String(), expiresAt: Instant }));
 
 parse(Stored, await redis.hgetall(key)); // { code: string; expiresAt: Date }
 ```
+
+A `Decode` that throws fails the value, as the check does: a `422`, with
+the error's message, rather than a `500` any client could cause with a
+string `BigInt` cannot read. Throw a message meant for the client.
 
 ## Validating outside a request
 
