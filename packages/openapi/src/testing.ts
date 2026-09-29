@@ -127,8 +127,10 @@ async function problemsOf(
  * The path template a requested path belongs to: the one whose segments
  * match it, `{param}` matching any one segment. Of several, the one with
  * the most literal segments, as the router prefers `/users/me` to
- * `/users/{id}`; a template ending in a parameter also stands for a
- * wildcard, which matches the rest of the path.
+ * `/users/{id}`. A template ending in `{wildcard}` — the name the
+ * generator gives a trailing `*` — matches the rest of the path; any other
+ * matches as many segments as it has, so a mistyped path is no operation
+ * rather than the one it happens to start like.
  */
 function templateOf(
   document: OpenApiDocument,
@@ -141,7 +143,7 @@ function templateOf(
   for (const template of Object.keys(document.paths)) {
     const parts = template.split("/").filter(Boolean);
     const last = parts.at(-1) ?? "";
-    const rest = isParameter(last) && segments.length > parts.length;
+    const rest = last === "{wildcard}" && segments.length > parts.length;
 
     if (parts.length !== segments.length && !rest) {
       continue;

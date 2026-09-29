@@ -286,6 +286,52 @@ describe("a response the document does not describe", () => {
 });
 
 describe("finding the operation", () => {
+  const deep = createApp({
+    routes: {
+      one: route({
+        method: "GET",
+        path: "/items/:id",
+        schema: { response: { 200: User } },
+        handler: (ctx) => ({ id: ctx.params.id, name: "Ada" }),
+      }),
+      files: route({
+        method: "GET",
+        path: "/files/*",
+        schema: { response: { 200: User } },
+        handler: () => ({ id: "f", name: "a file" }),
+      }),
+    },
+  });
+
+  const { document: deepPaths } = openapi(deep, {
+    info: { title: "Deep", version: "1" },
+  });
+  const callDeep = serve(deep);
+
+  test("a path longer than a template ending in a parameter is no operation of it", async () => {
+    expect(
+      await failure(
+        assertDescribed(
+          deepPaths,
+          "GET /items/1/2/3",
+          await callDeep("/items/1"),
+        ),
+      ),
+    ).toContain("there is no operation for GET /items/1/2/3");
+  });
+
+  test("a wildcard still takes the rest of the path", async () => {
+    expect(
+      await failure(
+        assertDescribed(
+          deepPaths,
+          "GET /files/a/b/c",
+          await callDeep("/files/a/b/c"),
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
   test("a literal segment wins over a parameter, as in the router", async () => {
     const both = createApp({
       // The parameter first, so that the first template to match is the

@@ -35,6 +35,11 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi/testing`: `assertDescribed` finds no operation for a
+  path longer than every template it could be, where it used to check the
+  response against a template ending in a parameter — `/users/1/2/3`
+  against `/users/{id}`. Only `{wildcard}`, a trailing `*`, takes the rest
+  of a path.
 - `@tetsujs/openapi/testing`: `assertDescribed` reports an empty body where
   the status describes one. It passed it, whatever the document said.
 - `@tetsujs/openapi`: the README says that a `docs()` documents the whole
