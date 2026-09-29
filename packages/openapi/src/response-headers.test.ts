@@ -193,3 +193,65 @@ describe("a success nobody declared", () => {
     expect(Object.keys(responsesOf(document, "/bare", "get"))).toContain("200");
   });
 });
+
+/**
+ * A schema whose input and output differ the way a `default` makes them:
+ * the field is optional going in and filled coming out.
+ */
+const defaulted = (name: string): StandardSchemaV1 => {
+  const property = { [name]: { type: "string", default: "none" } };
+
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value: unknown) => ({ value }),
+      jsonSchema: {
+        input: () => ({ type: "object", properties: property }),
+        output: () => ({
+          type: "object",
+          properties: property,
+          required: [name],
+        }),
+      },
+    },
+  } as unknown as StandardSchemaV1;
+};
+
+describe("a header or cookie with a default", () => {
+  const { document: defaults } = openapi(
+    createApp({
+      routes: {
+        traced: route({
+          method: "GET",
+          path: "/traced",
+          schema: {
+            response: {
+              200: {
+                body: Order,
+                headers: defaulted("x-trace"),
+                cookies: defaulted("theme"),
+              },
+            },
+          },
+          handler: () => ({ id: 1 }),
+        }),
+      },
+    }),
+    { info: { title: "Defaults", version: "1" } },
+  );
+
+  const headers = responsesOf(defaults, "/traced", "get")["200"]?.headers as
+    | Record<string, { required?: boolean }>
+    | undefined;
+
+  /**
+   * The schema checks what the handler put on `ctx.out` and the response
+   * carries that, not the schema's output: a default fills nothing in, so
+   * a header the handler may leave out is not required.
+   */
+  test("is not required, since the response carries what the handler set", () => {
+    expect(headers?.["x-trace"]?.required).toBeUndefined();
+    expect(headers?.["set-cookie"]?.required).toBeUndefined();
+  });
+});

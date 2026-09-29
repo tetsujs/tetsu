@@ -227,13 +227,23 @@ function setCookie(
   };
 }
 
-/** The properties of an object schema, and which of them it requires. */
+/**
+ * The properties of an object schema, and which of them it requires.
+ *
+ * Read as the schema's input: a response's headers and cookies are checked
+ * against it and sent as the handler set them, not as the schema returns
+ * them — unlike a body, whose checked value is what gets serialized. A
+ * field with a default is one the handler may leave out, and the response
+ * then leaves without it.
+ */
 function shapeOf(
   schema: AnySchema | undefined,
   subject: string,
   warn: (message: string) => void,
 ): [Record<string, Record<string, unknown>>, Set<string>] {
-  const described = schema ? emitted(schema, subject, warn) : undefined;
+  const described = schema
+    ? emitted(schema, subject, warn, "input")
+    : undefined;
 
   const properties = (described?.properties ?? {}) as Record<
     string,

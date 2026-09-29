@@ -42,6 +42,11 @@ API.
   documents the JSON body it parses, and the `400` and `413` it answers when
   that body is not JSON or too large. Only a body schema or a `bodyType`
   counted as a body.
+- `@tetsujs/openapi`: a response header or cookie whose schema gives it a
+  default is documented as optional. The response carries what the handler
+  set, not what the schema returns, so the default is never sent; the
+  document read the schema's output, where the field is filled, and called
+  it required.
 - `@tetsujs/openapi`: the README's recipe for an error format of one's own
   answers an unexpected error in that format too, and reports it with
   `reportFailure`, since `reportError` hears only of what no hook
