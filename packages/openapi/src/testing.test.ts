@@ -79,6 +79,11 @@ const app = createApp({
         if (mode === "other") throw httpError(404, "ACCOUNT_GONE");
         if (mode === "teapot") throw new HttpError(418);
         if (mode === "partial") return Response.json({ id: "1" });
+        if (mode === "empty") {
+          return new Response("", {
+            headers: { "content-type": "application/json" },
+          });
+        }
         if (mode === "cached") {
           ctx.out.headers.set("x-cache", "hit");
         }
@@ -240,6 +245,14 @@ describe("a response the document does not describe", () => {
     ).toBeUndefined();
   });
 
+  test("an empty body where its status describes one", async () => {
+    expect(
+      await failure(
+        assertDescribed(document, "GET /users/42", await as("empty")),
+      ),
+    ).toContain("an empty body, where its 200 describes application/json");
+  });
+
   test("a header its status requires and the response lacks", async () => {
     const res = await request("/users", {
       method: "POST",
@@ -273,6 +286,52 @@ describe("a response the document does not describe", () => {
 });
 
 describe("finding the operation", () => {
+  const deep = createApp({
+    routes: {
+      one: route({
+        method: "GET",
+        path: "/items/:id",
+        schema: { response: { 200: User } },
+        handler: (ctx) => ({ id: ctx.params.id, name: "Ada" }),
+      }),
+      files: route({
+        method: "GET",
+        path: "/files/*",
+        schema: { response: { 200: User } },
+        handler: () => ({ id: "f", name: "a file" }),
+      }),
+    },
+  });
+
+  const { document: deepPaths } = openapi(deep, {
+    info: { title: "Deep", version: "1" },
+  });
+  const callDeep = serve(deep);
+
+  test("a path longer than a template ending in a parameter is no operation of it", async () => {
+    expect(
+      await failure(
+        assertDescribed(
+          deepPaths,
+          "GET /items/1/2/3",
+          await callDeep("/items/1"),
+        ),
+      ),
+    ).toContain("there is no operation for GET /items/1/2/3");
+  });
+
+  test("a wildcard still takes the rest of the path", async () => {
+    expect(
+      await failure(
+        assertDescribed(
+          deepPaths,
+          "GET /files/a/b/c",
+          await callDeep("/files/a/b/c"),
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
   test("a literal segment wins over a parameter, as in the router", async () => {
     const both = createApp({
       // The parameter first, so that the first template to match is the

@@ -35,6 +35,23 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi`: the Swagger UI page fetches the document from the
+  address it was given when that address has a query of more than one
+  parameter. The address was escaped for HTML inside a script, where `&`
+  stays `&amp;`; Swagger UI now reads it from an attribute, as Scalar and
+  Redoc do.
+- `@tetsujs/openapi/testing`: `assertDescribed` finds no operation for a
+  path longer than every template it could be, where it used to check the
+  response against a template ending in a parameter — `/users/1/2/3`
+  against `/users/{id}`. Only `{wildcard}`, a trailing `*`, takes the rest
+  of a path.
+- `@tetsujs/openapi/testing`: `assertDescribed` reports an empty body where
+  the status describes one. It passed it, whatever the document said.
+- `@tetsujs/openapi`: the README says that a `docs()` documents the whole
+  application it is mounted in, and that several surfaces with a document
+  each are several applications. It described them as one application with
+  several `docs()`, which does not start: two controllers of one
+  application cannot share a name.
 - `@tetsujs/openapi`: a route that validates only its cookies documents the
   `422` it answers when they fail; a schema on the cookies alone did not
   count as one on a request part.

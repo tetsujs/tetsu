@@ -124,9 +124,24 @@ the routes use and `tags` leaves out is listed after them, in the order
 the routes first use it, and reported — it is usually one tag spelled two
 ways, `sign_in` next to `sign-in`. So is a tag described and used by no
 operation. Without `tags` the document lists none, and nothing is
-reported. An application of several surfaces, each with its own `docs()`,
-gives each one only the tags of its own routes: given all of them, every
-`docs()` reports the tags of the others as unused.
+reported.
+
+A `docs()` documents the application it is mounted in, all of it. Several
+surfaces with a document each — a public API and an admin one — are
+several applications, each with its own `docs()` and only the tags of its
+own routes:
+
+```ts
+const api = Bun.serve({
+  ...createApp({ routes: [orders, docs({ info, tags: { orders: "Orders" } })] }),
+  port: 3000,
+});
+
+const admin = Bun.serve({
+  ...createApp({ routes: [users, docs({ info: adminInfo, tags: { users: "Users" } })] }),
+  port: 3001,
+});
+```
 
 ## Operation ids
 

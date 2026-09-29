@@ -988,8 +988,28 @@ describe("the documentation page", () => {
     });
 
     expect(page).toContain("swagger-ui.css");
-    expect(page).toContain('SwaggerUIBundle({ url: "/openapi.json"');
+    expect(page).toContain('<div id="swagger-ui" data-url="/openapi.json">');
+    expect(page).toContain("SwaggerUIBundle({");
     expect(page).toContain("<title>Users API</title>");
+  });
+
+  test("hands swagger-ui the document's address the way the others get it", () => {
+    // In an attribute the browser decodes `&amp;` back to `&`; inside a
+    // script it does not, and the renderer fetched `?a=1&amp;b=2`. So the
+    // address goes into an attribute, and the script reads it from there.
+    const page = docsPage({
+      ui: "swagger-ui",
+      documentUrl: "/openapi.json?a=1&b=2",
+    });
+
+    const start = page.lastIndexOf("<script>");
+    const script = page.slice(start, page.indexOf("</script>", start));
+
+    expect(page).toContain(
+      '<div id="swagger-ui" data-url="/openapi.json?a=1&amp;b=2">',
+    );
+    expect(script).toContain("SwaggerUIBundle({");
+    expect(script).not.toContain("openapi.json");
   });
 
   test("bootstraps redoc from its element", () => {
