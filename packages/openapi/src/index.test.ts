@@ -1002,7 +1002,8 @@ describe("the documentation page", () => {
       documentUrl: "/openapi.json?a=1&b=2",
     });
 
-    const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const start = page.lastIndexOf("<script>");
+    const script = page.slice(start, page.indexOf("</script>", start));
 
     expect(page).toContain(
       '<div id="swagger-ui" data-url="/openapi.json?a=1&amp;b=2">',
