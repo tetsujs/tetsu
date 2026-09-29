@@ -15,8 +15,10 @@
  *
  * The application is generated: per controller — declared with
  * `controller()`, the form the README shows — a `GET` with `params`,
- * `query`, a status map and two hooks — one contributing, one reading
- * through `Requires` — and a `POST` with a `body` and a status of its own;
+ * `query`, a status map and four hooks — one contributing, one reading
+ * through `Requires`, and an observer and an error mapper reading an
+ * optional field of the context the response and error slots see — and a
+ * `POST` with a `body` and a status of its own;
  * all of it mounted by one `createApp`, either straight in or each
  * controller in a group of its own — see {@link Mounting}. It imports the core from `dist`,
  * the way a user's compiler reads it, so the core's own sources are not
@@ -60,10 +62,17 @@ const ladder = [2, 200, 800] as const;
  * made of its children with the configuration's — see `GroupOptions` in
  * `packages/core/src/group.ts`. Apart, it is 187 361, about 130 a group,
  * and the budget is set the same quarter above that.
+ *
+ * The `GET` gained an `afterResponse` and an `onError` hook on 2026-09-29:
+ * the context those slots are checked against had no budget watching it,
+ * and a review found it cost four times as much on TypeScript 5.7 as on 7
+ * with nobody counting. With them: 235 422 flat, 249 212 grouped — about
+ * 250 instantiations a response or error hook — and both budgets set the
+ * same quarter above.
  */
 const budgets: Record<Mounting, number> = {
-  flat: 218_000,
-  grouped: 234_000,
+  flat: 294_000,
+  grouped: 312_000,
 };
 
 interface Cost {
@@ -97,6 +106,8 @@ function application(routes: number, mounting: Mounting): string {
     "const owner = hook.beforeHandle((ctx: Requires<{ user: { id: string }; params: { id: number } }>) => ({ owner: ctx.user.id + ctx.params.id }));",
     'const zone = hook.beforeParse(() => ({ tenant: "t" }));',
     "const scope = hook.beforeParse((ctx: Requires<{ tenant: string }>) => ({ scope: ctx.tenant }));",
+    "const audit = hook.afterResponse((ctx: Requires<{ user?: { id: string } }>) => { void ctx.user; });",
+    "const mapError = hook.onError((ctx: Requires<{ user?: { id: string } }>) => (ctx.user ? undefined : new Response(null, { status: 401 })));",
   ];
 
   for (let index = 0; index < controllers; index += 1) {
@@ -105,7 +116,7 @@ function application(routes: number, mounting: Mounting): string {
     method: "GET",
     path: "/r${index}/:id",
     schema: { params: Params, query: Query, response: { 200: Item, 404: NotFound } },
-    hooks: { beforeParse: [auth], beforeHandle: [owner] },
+    hooks: { beforeParse: [auth], beforeHandle: [owner], afterResponse: [audit], onError: [mapError] },
     handler: (ctx) => ({ id: ctx.params.id, name: ctx.owner, qty: ctx.query.page ?? 1 }),
   }),
 
