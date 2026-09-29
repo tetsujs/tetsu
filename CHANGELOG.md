@@ -200,6 +200,19 @@ API.
 - `@tetsujs/typebox`: a failure under a record key that looks like a
   number — `"0"` — has the key in its path as a string. It used to be a
   number, like an array index.
+- `@tetsujs/sse`: a source that rejects with the signal's `AbortError`
+  when the client leaves — as `fetch`, `events.on` and a timer from
+  `node:timers/promises` do once handed the signal — ends the stream as
+  `"cancelled"`, and nothing is reported. Every ordinary disconnect used to
+  reach `reportError` as a failed stream.
+- `@tetsujs/sse`: a generator whose `finally` throws while the stream is
+  being cancelled is reported with `source: "stream"`. The rejection went
+  unhandled, and Bun ended the process with every other connection in it.
+- `@tetsujs/sse`: `sse()` opens with a `: open` comment, so the status and
+  headers go out at once. Bun sends them with the first chunk of the body,
+  and a feed with nothing to say yet kept a browser's `EventSource` in
+  "connecting" until the first event or keep-alive — up to 15 seconds, or
+  for good with `heartbeatMs: 0`.
 
 ### Moving from 0.5
 

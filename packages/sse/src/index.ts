@@ -30,7 +30,7 @@
 
 import type { BaseCtx } from "@tetsujs/core";
 import type { StreamReason, StreamSummary } from "./stream.ts";
-import { stream } from "./stream.ts";
+import { openStream } from "./stream.ts";
 
 export type {
   KeepAlive,
@@ -128,12 +128,16 @@ export type SseReason = StreamReason;
  * reads at the call site should be the one they wrote.
  */
 export interface SseSummary extends Omit<StreamSummary, "chunks"> {
-  /** Events yielded and written, not counting heartbeats. */
+  /** Events yielded and written, not counting heartbeats or the opening. */
   readonly events: number;
 }
 
 /**
  * Builds a server-sent events response from an async generator.
+ *
+ * The body opens with a comment, `: open`, which every client skips: Bun
+ * sends the status and headers with the first bytes of the body, and a
+ * feed with nothing to say yet would otherwise answer nothing at all.
  *
  * The generator is handed an `AbortSignal` that fires when the stream is
  * over, whichever way it ended — the client disconnected, the consumer
@@ -207,7 +211,7 @@ export function sse(
 
   const { onEnd } = options;
 
-  return stream(
+  return openStream(
     ctx,
     /**
      * The only part of this helper that is about server-sent events: the
@@ -239,6 +243,9 @@ export function sse(
           }
         : {}),
     },
+    // A comment, which every client skips, so the headers go out now
+    // rather than with the first event or heartbeat.
+    ": open\n\n",
   );
 }
 

@@ -43,13 +43,15 @@ export type StreamReason =
 export interface StreamSummary {
   /**
    * Chunks the generator yielded and the stream wrote, not counting
-   * keep-alives. For `sse()` that is one per event.
+   * keep-alives or the opening of `sse()`. For `sse()` that is one per
+   * event.
    */
   readonly chunks: number;
 
   /**
-   * Bytes enqueued, keep-alives included — what the stream put on the wire
-   * rather than what the application meant to say.
+   * Bytes enqueued, keep-alives and the opening of `sse()` included — what
+   * the stream put on the wire rather than what the application meant to
+   * say.
    */
   readonly bytes: number;
 
@@ -127,6 +129,30 @@ export function stream(
   ctx: BaseCtx,
   source: (signal: AbortSignal) => AsyncGenerator<string, void, undefined>,
   options: StreamOptions = {},
+): Response {
+  return openStream(ctx, source, options);
+}
+
+/**
+ * {@link stream}, with a first chunk written as soon as the stream starts.
+ *
+ * Bun sends the status and headers with the first chunk of the body, not
+ * before: a feed with nothing to say yet says nothing at all, and its
+ * client cannot tell a stream that is open from a server that has not
+ * answered. A browser's `EventSource` waits in "connecting", and a client
+ * with a timeout on the headers gives up. The opening is what answers: it
+ * goes out at once, counted in `bytes` like a keep-alive and not in
+ * `chunks`.
+ *
+ * Internal to the package, for `sse()`, whose format has comments to open
+ * with. A format without them has nothing a parser would skip, and
+ * `stream()` writes only what its generator yields.
+ */
+export function openStream(
+  ctx: BaseCtx,
+  source: (signal: AbortSignal) => AsyncGenerator<string, void, undefined>,
+  options: StreamOptions,
+  opening?: string,
 ): Response {
   const encoder = new TextEncoder();
   const ending = new AbortController();
@@ -212,6 +238,10 @@ export function stream(
      * saying so.
      */
     start(controller) {
+      if (opening !== undefined) {
+        emit(controller, opening);
+      }
+
       const alive = options.keepAlive;
 
       if (!alive || alive.everyMs <= 0) {
@@ -275,9 +305,26 @@ export function stream(
 
         emit(controller, next.value);
       } catch (error) {
+        /**
+         * A source that takes the signal, as it is asked to, rejects when
+         * the client leaves: `fetch`, `events.on` and a timer from
+         * `node:timers/promises` all throw the signal's `AbortError`. That
+         * is the departure arriving, not the source failing, and reporting
+         * it made every ordinary disconnect an error in the logs.
+         */
+        if (signal.aborted && isDeparture(error, signal)) {
+          done("cancelled");
+          close(controller);
+
+          return;
+        }
+
         reportFailure(ctx, "stream", error);
 
-        done("failed");
+        // A source parked on the signal runs its `finally` here, inside the
+        // pending `next()`: a cleanup that throws after the client left is
+        // a failure worth reporting, on a stream the client ended.
+        done(signal.aborted ? "cancelled" : "failed");
         close(controller);
       }
     },
@@ -299,7 +346,16 @@ export function stream(
     cancel() {
       done("cancelled");
 
-      void chunks.return();
+      /**
+       * `return()` runs the generator's `finally` — the cleanup a source
+       * is asked to write — and a cleanup can fail: a broker that is gone
+       * refuses to close a subscription. Nobody awaits this promise, and a
+       * rejection nobody handles ends the process, every other connection
+       * with it. It is reported instead, as the stream's own failure.
+       */
+      chunks.return().catch((error: unknown) => {
+        reportFailure(ctx, "stream", error);
+      });
     },
   });
 
@@ -312,6 +368,18 @@ export function stream(
       ...options.headers,
     },
   });
+}
+
+/**
+ * Whether a source's rejection is the departure itself — the signal's
+ * reason, or an `AbortError` an API made of it — rather than something the
+ * source did on its way out.
+ */
+function isDeparture(error: unknown, signal: AbortSignal): boolean {
+  return (
+    error === signal.reason ||
+    (error as { name?: unknown } | null)?.name === "AbortError"
+  );
 }
 
 /**

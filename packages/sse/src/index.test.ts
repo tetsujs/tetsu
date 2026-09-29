@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { createApp, hook, route } from "@tetsujs/core";
 import { captureErrors, serve } from "@tetsujs/core/testing";
 import type { SseSummary } from "./index.ts";
-import { frame, lastEventId, sse } from "./index.ts";
+import { frame, lastEventId, sse, stream } from "./index.ts";
 
 const cleaned: string[] = [];
 
@@ -259,6 +259,30 @@ class ParkedController {
         { heartbeatMs: 0 },
       ),
   });
+
+  /**
+   * The same source under `stream()`, which asks for its first chunk as
+   * soon as it starts: `sse()` opens with a comment, and asks only once a
+   * client reads it.
+   */
+  eager = route({
+    method: "GET",
+    path: "/eager",
+    handler: (ctx) =>
+      stream(
+        ctx,
+        // biome-ignore lint/correctness/useYield: it waits instead.
+        async function* (signal) {
+          cleaned.push("parked source started");
+
+          try {
+            await until(signal);
+          } finally {
+            cleaned.push("parked source closed");
+          }
+        },
+      ),
+  });
 }
 
 /**
@@ -298,13 +322,25 @@ describe("a response the pipeline throws away", () => {
   test("ends the stream behind it, so a source that started unwinds", async () => {
     cleaned.length = 0;
 
-    const res = await replacedLater("/parked");
+    const res = await replacedLater("/eager");
 
     expect(await res.text()).toBe("replaced");
 
     await Bun.sleep(20);
 
     expect(cleaned).toEqual(["parked source started", "parked source closed"]);
+  });
+
+  test("an event stream nobody read never started its source", async () => {
+    cleaned.length = 0;
+
+    const res = await replacedLater("/parked");
+
+    expect(await res.text()).toBe("replaced");
+
+    await Bun.sleep(20);
+
+    expect(cleaned).toEqual([]);
   });
 
   test("leaves no source running, started or not", async () => {
@@ -401,7 +437,7 @@ describe("the response", () => {
     const res = await request("/ticks");
 
     expect(await res.text()).toBe(
-      'data: first\n\nevent: update\nid: 2\ndata: {"value":2}\n\n',
+      ': open\n\ndata: first\n\nevent: update\nid: 2\ndata: {"value":2}\n\n',
     );
   });
 
@@ -410,13 +446,13 @@ describe("the response", () => {
       headers: { "last-event-id": "42" },
     });
 
-    expect(await res.text()).toBe("data: 42\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: 42\n\n");
   });
 
   test("without that header the stream starts over", async () => {
     const res = await request("/resumed");
 
-    expect(await res.text()).toBe("data: from the start\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: from the start\n\n");
   });
 });
 
@@ -557,7 +593,7 @@ describe("a source that goes quiet", () => {
 
     const res = await fetch(new URL("/brief", request.url).href);
 
-    expect(await res.text()).toBe("data: only\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: only\n\n");
 
     expect(handed[0]?.aborted).toBe(true);
   });
@@ -570,7 +606,7 @@ describe("a generator that fails", () => {
     const res = await fetch(new URL("/breaks-late", request.url).href);
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("data: first\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: first\n\n");
     expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("source exploded");
   });
@@ -579,7 +615,7 @@ describe("a generator that fails", () => {
     const res = await fetch(new URL("/breaks-early", request.url).href);
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("");
+    expect(await res.text()).toBe(": open\n\n");
     expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("subscription never opened");
   });
@@ -588,7 +624,7 @@ describe("a generator that fails", () => {
     const res = await fetch(new URL("/unrepresentable", request.url).href);
     const body = await res.text();
 
-    expect(body).toBe("data: first\n\n");
+    expect(body).toBe(": open\n\ndata: first\n\n");
     expect(body).not.toContain("event: admin");
     expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
     expect(errors.lines.join("\n")).toContain("an SSE id cannot contain");
@@ -599,7 +635,7 @@ describe("the heartbeat's own contract", () => {
   test("zero turns it off, as the option says", async () => {
     const res = await request("/quiet");
 
-    expect(await res.text()).toBe("data: a\n\ndata: b\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: a\n\ndata: b\n\n");
   });
 
   test("and the default is slow enough not to show up here", async () => {
@@ -608,7 +644,7 @@ describe("the heartbeat's own contract", () => {
     // millisecond used to pass the suite unnoticed.
     const res = await request("/by-default");
 
-    expect(await res.text()).toBe("data: a\n\ndata: b\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: a\n\ndata: b\n\n");
   });
 });
 
@@ -712,7 +748,9 @@ describe("what a finished stream reports", () => {
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({ reason: "ended", events: 2 });
-    expect(summaries[0]?.bytes).toBe("data: one\n\ndata: two\n\n".length);
+    expect(summaries[0]?.bytes).toBe(
+      ": open\n\ndata: one\n\ndata: two\n\n".length,
+    );
     expect(summaries[0]?.durationMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -800,7 +838,7 @@ describe("what a finished stream reports", () => {
   test("an observer that throws does not break the teardown", async () => {
     const res = await reporting("/noisy");
 
-    expect(await res.text()).toBe("data: one\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: one\n\n");
     expect(errors.lines.join("\n")).toContain("[tetsu] stream failed:");
   });
 });

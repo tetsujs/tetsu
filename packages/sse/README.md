@@ -29,6 +29,11 @@ comment every 15 seconds so proxies do not close an idle connection, and
 pulls events one at a time — a client that stops reading stops the
 generator instead of filling memory.
 
+It opens with a comment, `: open`, which every client skips. Bun sends the
+status and headers with the first bytes of the body, so without it a feed
+with nothing to say yet answered nothing at all: a browser's `EventSource`
+waited in "connecting" until the first event or keep-alive.
+
 An event:
 
 ```ts
@@ -84,7 +89,14 @@ sse(ctx, async function* (signal) {
 A generator that throws ends the stream where it stood, and the error goes
 to the application's `reportError` with `source: "stream"` — printed as
 `[tetsu] stream failed:` when there is none. The response has already
-left, so there is no `onError` to hand it to.
+left, so there is no `onError` to hand it to. So does a `finally` that
+throws while the stream is being closed — a broker that refuses to close a
+subscription.
+
+A source that takes the signal rejects when the client leaves — `fetch`,
+`events.on` and the timers of `node:timers/promises` throw the signal's
+`AbortError`. That is the client leaving, not the source failing: the
+stream ends as `"cancelled"`, and nothing is reported.
 
 ## Knowing what a stream did
 
@@ -122,8 +134,12 @@ handler: (ctx) =>
   ),
 ```
 
-`stream()` sends no keep-alives unless asked, because not every format has
-a line a client will ignore:
+`stream()` sends no keep-alives unless asked, and no opening either,
+because not every format has a line a client will ignore. Bun sends the
+status and headers with the first chunk, so a stream that may take a while
+to produce one keeps its client waiting for the headers too — yield
+something the format allows as soon as there is something to say, or ask
+for a keep-alive:
 
 ```ts
 { keepAlive: { everyMs: 15_000, chunk: "\n" } }
