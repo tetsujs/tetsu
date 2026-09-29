@@ -8,6 +8,8 @@
  * ```sh
  * bun examples/validation.ts
  * curl localhost:3000/items?page=1
+ * curl 'localhost:3000/items?name=pen&name=cup'
+ * curl localhost:3000/items?name=pen   # one name is an array of one
  * curl localhost:3000/items/1
  * curl localhost:3000/items/x          # 422, params.id
  * curl -X POST localhost:3000/items -H 'content-type: application/json' \
@@ -24,9 +26,14 @@ import { z } from "zod";
 
 const ItemId = z.object({ id: z.coerce.number().int().positive() });
 
+// A key sent once arrives as a string, and only a repeated one as an
+// array — so an array wraps a single value itself.
+const one = (value: unknown) => (typeof value === "string" ? [value] : value);
+
 const Page = z.object({
   page: z.coerce.number().int().min(1).default(1),
   size: z.coerce.number().int().min(1).max(100).default(20),
+  name: z.preprocess(one, z.array(z.string())).optional(),
 });
 
 const NewItem = z.object({
@@ -49,9 +56,12 @@ const itemsController = controller("Items", () => {
       path: "/items",
       schema: { query: Page },
       handler: (ctx) => {
-        const { page, size } = ctx.query;
+        const { page, size, name } = ctx.query;
+        const found = name
+          ? items.filter((item) => name.includes(item.name))
+          : items;
 
-        return items.slice((page - 1) * size, page * size);
+        return found.slice((page - 1) * size, page * size);
       },
     }),
 

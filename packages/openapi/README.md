@@ -452,3 +452,11 @@ gap is reported instead of failing the startup:
 This happens with a validator that does not emit JSON Schema, a schema
 whose conversion throws, and two routes that map to the same OpenAPI path
 (`/files/*` and `/files/:wildcard` are both `/files/{wildcard}`).
+
+It also happens with a recursive or named schema. A schema is embedded as
+the validator emits it, and the references inside it — `#` for its own
+root, `#/$defs/…` for a definition next to it — resolve against the
+document's root once embedded, where they lead nowhere. Zod's recursive
+getters and `.meta({ id })`, ArkType's scopes and Valibot's `lazy` emit
+them; TypeBox's `Type.Cyclic` names itself with `$id` and is described as
+it is.

@@ -288,6 +288,20 @@ create = route({
 });
 ```
 
+A query and a form body arrive as strings, so the schema converts them — a
+number with `z.coerce.number()`, as above. An array too: a key sent once is
+a string, and only a repeated key becomes an array, `?tag=a` being `"a"`
+and `?tag=a&tag=b` `["a", "b"]`. A plain `z.array()` refuses a single tag
+with `422`, which a test sending two does not notice, so the schema wraps
+one value in an array itself:
+
+```ts
+const one = (value: unknown) => (typeof value === "string" ? [value] : value);
+const Filter = z.object({ tag: z.preprocess(one, z.array(z.string())) });
+```
+
+`tb()` from `@tetsujs/typebox` does it with `convert: true`.
+
 The parts are `params`, `query`, `headers`, `cookies` and `body`, and
 `response` checks what leaves. The value the response schema returns is
 what gets serialized, so a schema that strips unknown keys keeps fields

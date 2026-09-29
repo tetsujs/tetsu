@@ -146,6 +146,14 @@ API.
 - `@tetsujs/core`: a `json` or `text` body that starts with a byte order
   mark reads without it however it was sent. Sent in chunks, the mark
   used to stay, and a JSON body failed with a `400`.
+- `@tetsujs/openapi`: a reference in a validator's schema that leads
+  nowhere once the schema is embedded is reported as a warning — the `#`
+  of a recursive Zod schema, the `#/$defs/…` of a named one, of an ArkType
+  scope, of Valibot's `lazy`. The document used to be invalid without a
+  word.
+- The guide says that a query or form key sent once arrives as a string,
+  and shows the schema taking one value for an array. It did not, and an
+  array parameter documented as `?tag=a` was refused with a `422`.
 
 ### Moving from 0.5
 

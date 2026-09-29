@@ -28,6 +28,7 @@ import type { ErrorFormat } from "./errors.ts";
 import { resolveFormat } from "./errors.ts";
 import { declareEnvelopes, operationIds, operationOf } from "./operation.ts";
 import { toTemplate } from "./parameters.ts";
+import { unresolvedRefs } from "./refs.ts";
 
 export type {
   DocumentedHeader,
@@ -259,18 +260,57 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   }
 
   const tags = options.tags ? tagsOf(options.tags, used, warnings) : undefined;
-
-  return {
-    document: {
-      openapi: "3.1.0",
-      info: options.info,
-      ...(options.servers ? { servers: options.servers } : {}),
-      ...(tags ? { tags } : {}),
-      paths,
-      ...componentsOf(schemes, components.schemas),
-    },
-    warnings,
+  const document: OpenApiDocument = {
+    openapi: "3.1.0",
+    info: options.info,
+    ...(options.servers ? { servers: options.servers } : {}),
+    ...(tags ? { tags } : {}),
+    paths,
+    ...componentsOf(schemes, components.schemas),
   };
+
+  refsOf(document, occupied, warnings);
+
+  return { document, warnings };
+}
+
+/**
+ * Reports each reference in the document that resolves to nothing: in an
+ * operation, at the route it describes; in a definition of
+ * `components/schemas`, for the document, naming the definition.
+ *
+ * Checked on the finished document, since a reference may point at what
+ * the document defines anywhere — a failure envelope registered by a
+ * later route included.
+ */
+function refsOf(
+  document: OpenApiDocument,
+  routes: ReadonlyMap<string, string>,
+  warnings: GeneratorWarning[],
+): void {
+  const unresolved = (ref: string) =>
+    `refers to "${ref}", which is no schema in the document: references are embedded as they are, and resolve against the document's root`;
+
+  for (const [template, item] of Object.entries(document.paths)) {
+    for (const [method, operation] of Object.entries(item)) {
+      const route = routes.get(`${method} ${template}`) ?? "";
+
+      for (const ref of unresolvedRefs(operation, document)) {
+        warnings.push({ route, message: `a schema ${unresolved(ref)}` });
+      }
+    }
+  }
+
+  const schemas = document.components?.schemas ?? {};
+
+  for (const [name, schema] of Object.entries(schemas)) {
+    for (const ref of unresolvedRefs(schema, document)) {
+      warnings.push({
+        route: "",
+        message: `components/schemas/${name} ${unresolved(ref)}`,
+      });
+    }
+  }
 }
 
 /**
