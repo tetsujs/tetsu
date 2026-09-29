@@ -35,6 +35,11 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi`: the Swagger UI page fetches the document from the
+  address it was given when that address has a query of more than one
+  parameter. The address was escaped for HTML inside a script, where `&`
+  stays `&amp;`; Swagger UI now reads it from an attribute, as Scalar and
+  Redoc do.
 - `@tetsujs/openapi/testing`: `assertDescribed` finds no operation for a
   path longer than every template it could be, where it used to check the
   response against a template ending in a parameter — `/users/1/2/3`

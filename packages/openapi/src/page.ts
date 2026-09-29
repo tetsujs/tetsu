@@ -136,7 +136,7 @@ export function docsPage(options: DocsPageOptions): string {
     "<body>",
     body(options.ui, url),
     `<script src="${escapeHtml(assets.script)}"${verified(assets.integrity?.script)}></script>`,
-    bootstrap(options.ui, url),
+    bootstrap(options.ui),
     "</body>",
     "</html>",
   ]
@@ -153,17 +153,26 @@ function body(ui: DocsUi, url: string): string {
     return `<redoc spec-url="${url}"></redoc>`;
   }
 
-  return '<div id="swagger-ui"></div>';
+  return `<div id="swagger-ui" data-url="${url}"></div>`;
 }
 
-function bootstrap(ui: DocsUi, url: string): string {
+/**
+ * The call that starts Swagger UI, which alone of the three is started by
+ * a script. It reads the document's address from the element's
+ * attribute, where the other two carry it: a value escaped for HTML is
+ * decoded there and not inside a script, where `&` stayed `&amp;` and the
+ * renderer fetched a URL nobody served. So the script holds no value of
+ * the application's, and needs no escaping of its own.
+ */
+function bootstrap(ui: DocsUi): string {
   if (ui !== "swagger-ui") {
     return "";
   }
 
   return [
     "<script>",
-    `SwaggerUIBundle({ url: "${url}", dom_id: "#swagger-ui" });`,
+    'const root = document.getElementById("swagger-ui");',
+    'SwaggerUIBundle({ url: root.dataset.url, dom_id: "#swagger-ui" });',
     "</script>",
   ].join("\n");
 }
