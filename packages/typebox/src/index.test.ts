@@ -10,6 +10,7 @@ import type {
   StandardResult,
   StandardSchemaV1,
 } from "@tetsujs/core";
+import { ValidationError } from "@tetsujs/core";
 import { Type } from "typebox";
 import { Validator } from "typebox/compile";
 import Value from "typebox/value";
@@ -525,6 +526,154 @@ describe("a DTO wrapped again", () => {
     expect(validate(Coerced, { qty: "5" })).toEqual({ value: { qty: 5 } });
     expect(validate(Summarized, { qty: "5" }).issues).toEqual([
       { message: "does not match the schema" },
+    ]);
+  });
+});
+
+describe("a codec that throws on what the client sent", () => {
+  const Amount = tb(
+    Type.Object({
+      amount: Type.Codec(Type.String())
+        .Decode((text) => BigInt(text))
+        .Encode(String),
+    }),
+  );
+
+  test("is a failure of the value, not of the server", () => {
+    const result = validate(Amount, { amount: "abc" });
+
+    expect(result.issues).toEqual([
+      { message: "Failed to parse String to BigInt" },
+    ]);
+  });
+
+  test("says what the codec said", () => {
+    const Strict = tb(
+      Type.Codec(Type.String())
+        .Decode((text) => {
+          if (!text.startsWith("acct_")) {
+            throw new Error("must be an account id");
+          }
+
+          return text.slice(5);
+        })
+        .Encode((id) => `acct_${id}`),
+    );
+
+    expect(validate(Strict, "user_1").issues).toEqual([
+      { message: "must be an account id" },
+    ]);
+    expect(validate(Strict, "acct_1")).toEqual({ value: "1" });
+  });
+
+  test("something thrown that is not an Error still fails the value", () => {
+    const Odd = tb(
+      Type.Codec(Type.String())
+        .Decode(() => {
+          throw { reason: "no" };
+        })
+        .Encode(String),
+    );
+
+    expect(validate(Odd, "x").issues).toEqual([
+      { message: "could not be decoded" },
+    ]);
+  });
+
+  test("parse() throws a ValidationError for it", () => {
+    expect(() => adapter.parse(Amount, { amount: "abc" })).toThrow(
+      ValidationError,
+    );
+  });
+});
+
+describe("a property named like the message keyword", () => {
+  const ErrorBody = tb(
+    Type.Object(
+      {
+        errorMessage: Type.String({ errorMessage: "must be text" }),
+        code: Type.Number(),
+      },
+      { default: { errorMessage: "hi", code: 1 } },
+    ),
+  );
+
+  const emitted = () =>
+    props(ErrorBody).jsonSchema.output({ target: "draft-2020-12" });
+
+  test("stays in the document as the property it is", () => {
+    expect(emitted()).toEqual({
+      type: "object",
+      required: ["errorMessage", "code"],
+      properties: {
+        errorMessage: { type: "string" },
+        code: { type: "number" },
+      },
+      default: { errorMessage: "hi", code: 1 },
+    });
+  });
+
+  test("as it does wherever a key is a name or data, not a keyword", () => {
+    const Named = tb(
+      Type.Object(
+        {
+          byName: Type.Record(Type.String(), Type.String()),
+          fixed: Type.Literal("x"),
+        },
+        {
+          examples: [{ errorMessage: "shown" }],
+          patternProperties: { errorMessage: { type: "string" } },
+          $defs: { errorMessage: { type: "number" } },
+          dependentRequired: { errorMessage: ["fixed"] },
+          "x-sample": { errorMessage: "kept" },
+        },
+      ),
+    );
+
+    const emitted = props(Named).jsonSchema.output({
+      target: "draft-2020-12",
+    });
+
+    expect(emitted).toMatchObject({
+      examples: [{ errorMessage: "shown" }],
+      patternProperties: { errorMessage: { type: "string" } },
+      $defs: { errorMessage: { type: "number" } },
+      dependentRequired: { errorMessage: ["fixed"] },
+      "x-sample": { errorMessage: "kept" },
+    });
+  });
+
+  test("a default that is not plain data keeps its kind", () => {
+    const At = tb(Type.Unsafe<Date>({ default: new Date(0) }));
+    const emitted = props(At).jsonSchema.output({ target: "draft-2020-12" });
+
+    expect(JSON.stringify(emitted)).toBe(
+      '{"default":"1970-01-01T00:00:00.000Z"}',
+    );
+  });
+
+  test("while the keyword itself is still dropped, and still used", () => {
+    expect(validate(ErrorBody, { errorMessage: 1, code: 1 }).issues).toEqual([
+      { message: "must be text", path: ["errorMessage"] },
+    ]);
+  });
+});
+
+describe("the path of a failure", () => {
+  const Stock = tb(Type.Record(Type.String(), Type.Number()));
+
+  test("a key that looks like a number is still a key", () => {
+    expect(validate(Stock, { "0": "a", "a/b": "x" }).issues).toEqual([
+      { message: "must be number", path: ["0"] },
+      { message: "must be number", path: ["a/b"] },
+    ]);
+  });
+
+  test("an index is a number", () => {
+    const Lines = tb(Type.Array(Type.Number()));
+
+    expect(validate(Lines, [1, "x"]).issues).toEqual([
+      { message: "must be number", path: [1] },
     ]);
   });
 });

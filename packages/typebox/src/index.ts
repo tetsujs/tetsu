@@ -175,6 +175,14 @@ export type TypeBoxSchema<T extends TSchema> = T &
  * the complete set: nothing carries over from the earlier call, so an
  * option it turned on and this one omits is off.
  *
+ * A DTO nested in the schema is checked with these options, not its own.
+ * One declared with `convert`, `clean` or `defaults` that these do not
+ * include is refused. A schema derived from a DTO — `Type.Pick`,
+ * `Type.Omit`, `Type.Partial` and their kind build a new one — is not that
+ * DTO, and carries none of its options.
+ *
+ * @throws When a nested DTO asks for an option this call does not have.
+ *
  * @example Coercing path parameters
  * ```ts
  * const Params = tb(Type.Object({ id: Type.Integer() }), { convert: true });
@@ -205,7 +213,6 @@ export function tb<T extends TSchema>(
   schema: T,
   options: TypeBoxOptions = {},
 ): TypeBoxSchema<T> {
-  const compiled = Compile(schema);
   const {
     convert = false,
     clean = false,
@@ -213,6 +220,11 @@ export function tb<T extends TSchema>(
     vendor = "typebox",
     issues = "detailed",
   } = options;
+  const mutations = { convert, clean, defaults };
+
+  assertNestedOptions(schema, mutations);
+
+  const compiled = Compile(schema);
 
   /**
    * The copy the adapter hands back.
@@ -283,28 +295,118 @@ export function tb<T extends TSchema>(
         issues:
           issues === "summary"
             ? summaryIssues
-            : collectIssues(compiled.Errors(candidate), schema),
+            : collectIssues(compiled.Errors(candidate), schema, candidate),
       };
     }
 
     const checked = clean ? Value.Clean(schema, candidate) : candidate;
 
-    return {
-      value: (decodes ? compiled.Decode(checked) : checked) as StaticDecode<T>,
-    };
+    if (!decodes) {
+      return { value: checked as StaticDecode<T> };
+    }
+
+    // A codec runs on what the client sent, once it has the stored shape:
+    // `BigInt("abc")`, `JSON.parse`, `new URL` all throw on a value that is
+    // a string, as the schema asked, and not a number, a document or an
+    // address. That is the value failing, and a `422` — escaping, it was a
+    // `500` any client could produce with one request.
+    try {
+      return { value: compiled.Decode(checked) as StaticDecode<T> };
+    } catch (error) {
+      return {
+        issues: [
+          {
+            message:
+              error instanceof Error ? error.message : "could not be decoded",
+          },
+        ],
+      };
+    }
   };
+
+  const standard = {
+    version: 1,
+    vendor,
+    validate,
+    jsonSchema: { input: jsonSchema("input"), output: jsonSchema("output") },
+  };
+
+  applied.set(validate, mutations);
 
   Object.defineProperty(adapted, "~standard", {
     enumerable: false,
-    value: {
-      version: 1,
-      vendor,
-      validate,
-      jsonSchema: { input: jsonSchema("input"), output: jsonSchema("output") },
-    },
+    value: standard,
   });
 
   return adapted;
+}
+
+/** The options that change the value, as a DTO was declared with them. */
+interface Mutations {
+  readonly convert: boolean;
+  readonly clean: boolean;
+  readonly defaults: boolean;
+}
+
+/**
+ * The options each DTO was made with, by its `validate` — which TypeBox
+ * carries along where the DTO is nested as it is: in an array, a union, a
+ * record, a tuple, an intersection, `Type.Optional`. Not by the DTO, nor
+ * by its interface: `Type.Optional` and its kind copy both onto the node
+ * they make, and only the function inside stays the same.
+ *
+ * A schema derived from a DTO — `Type.Pick`, `Type.Omit`, `Type.Partial`
+ * — is rebuilt without the interface, and is a schema of its own.
+ */
+const applied = new WeakMap<object, Mutations>();
+
+/**
+ * Refuses a schema holding a DTO that asks for an option it does not have.
+ *
+ * The schema is checked as one tree, with the options of the call that
+ * checks it: those of a DTO nested inside are not applied. That is right
+ * for a DTO that asks for less, and silently wrong for one that asks for
+ * more — a `clean` that no longer strips, on the response it was declared
+ * to keep fields out of. The outer schema turning the option on applies
+ * it to the whole tree, the nested DTO's part included.
+ *
+ * The root is not looked at: a DTO wrapped again takes the options it is
+ * given, which is how its options are changed.
+ */
+function assertNestedOptions(root: object, outer: Mutations): void {
+  const pending: unknown[] = Object.values(root);
+  const seen = new Set<unknown>([root]);
+
+  while (pending.length > 0) {
+    const node = pending.pop();
+
+    if (node === null || typeof node !== "object" || seen.has(node)) {
+      continue;
+    }
+
+    seen.add(node);
+
+    const interfaceOf = (node as { "~standard"?: { validate?: unknown } })[
+      "~standard"
+    ];
+    const nested =
+      typeof interfaceOf?.validate === "function"
+        ? applied.get(interfaceOf.validate)
+        : undefined;
+    const missing = nested
+      ? (Object.keys(outer) as (keyof Mutations)[]).filter(
+          (option) => nested[option] && !outer[option],
+        )
+      : [];
+
+    if (missing.length > 0) {
+      throw new Error(
+        `@tetsujs/typebox: a nested DTO is declared with ${missing.join(", ")}, and the schema it is nested in is not — a schema is checked with the options of the tb() around it, so turn ${missing.join(", ")} on there`,
+      );
+    }
+
+    pending.push(...Object.values(node));
+  }
 }
 
 /**
@@ -358,12 +460,83 @@ function documented(node: unknown): unknown {
   const copy: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(node)) {
-    if (key !== messageKeyword) {
-      copy[key] = documented(value);
+    if (key === messageKeyword) {
+      continue;
     }
+
+    copy[key] = isData(key)
+      ? copied(value)
+      : named.has(key)
+        ? eachDocumented(value)
+        : documented(value);
   }
 
   return copy;
+}
+
+/**
+ * Keywords whose value is data — what a client sends or is shown, a list
+ * of names — where a key named `errorMessage` is a field like any other.
+ * So is an extension's value, `x-…`, which is its author's own.
+ */
+const data = new Set([
+  "const",
+  "default",
+  "enum",
+  "examples",
+  "example",
+  "dependentRequired",
+]);
+
+const isData = (key: string): boolean => data.has(key) || key.startsWith("x-");
+
+/**
+ * Keywords whose value maps names to schemas: the names are a DTO's own —
+ * a property may well be called `errorMessage` — and only what they map
+ * to is a schema.
+ */
+const named = new Set([
+  "properties",
+  "patternProperties",
+  "dependentSchemas",
+  "$defs",
+]);
+
+function eachDocumented(node: unknown): unknown {
+  if (node === null || typeof node !== "object" || Array.isArray(node)) {
+    return documented(node);
+  }
+
+  return Object.fromEntries(
+    Object.entries(node).map(([name, schema]) => [name, documented(schema)]),
+  );
+}
+
+/**
+ * A deep copy of data, so the document never shares it with the schema.
+ *
+ * Only arrays and plain objects are copied; anything else — a `Date`, a
+ * typed array — is kept as it is, for the document's serialization to
+ * write it the way it would have.
+ */
+function copied(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(copied);
+  }
+
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  const prototype = Object.getPrototypeOf(value) as unknown;
+
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, copied(item)]),
+  );
 }
 
 /**
@@ -470,6 +643,7 @@ interface TypeBoxError {
 function collectIssues(
   errors: Iterable<TypeBoxError>,
   schema: unknown,
+  value: unknown,
 ): StandardIssue[] {
   const issues: StandardIssue[] = [];
   const raw = [...errors];
@@ -483,7 +657,7 @@ function collectIssues(
       continue;
     }
 
-    const at = toPath(error.instancePath);
+    const at = toPath(error.instancePath, value);
     const failing = resolveNode(schema, error.schemaPath);
     const missing = propertyNames(error.params?.requiredProperties);
     const unexpected = propertyNames(error.params?.additionalProperties);
@@ -723,18 +897,36 @@ function propertyNames(value: unknown): string[] | undefined {
     : undefined;
 }
 
-function toPath(instancePath: string): (string | number)[] {
+/**
+ * The segments of a failure's path: a number where the value is an array,
+ * a string where it is an object.
+ *
+ * The pointer TypeBox reports cannot tell them apart — `/0` is the first
+ * item of a list and the key `"0"` of a record alike — so the value is
+ * walked alongside it. Read from the pointer alone, a record's numeric
+ * keys came out as numbers, and a client matching paths to fields got two
+ * kinds of segment for one kind of data.
+ */
+function toPath(instancePath: string, value: unknown): (string | number)[] {
   if (instancePath === "") {
     return [];
   }
+
+  let node = value;
 
   return instancePath
     .slice(1)
     .split("/")
     .map((segment) => {
       const key = decodeSegment(segment);
+      const indexed = Array.isArray(node);
 
-      return /^\d+$/.test(key) ? Number(key) : key;
+      node =
+        node !== null && typeof node === "object"
+          ? (node as Record<string, unknown>)[key]
+          : undefined;
+
+      return indexed ? Number(key) : key;
     });
 }
 
