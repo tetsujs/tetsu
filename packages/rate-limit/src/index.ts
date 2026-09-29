@@ -5,7 +5,7 @@
  * const limit = rateLimit({
  *   limit: 60,
  *   windowMs: 60_000,
- *   key: (ctx) => ctx.server.requestIP(ctx.req)?.address ?? undefined,
+ *   key: (ctx) => ctx.server.requestIP(ctx.req)?.address,
  * });
  *
  * createApp({ hooks: { beforeParse: [limit] }, routes });
@@ -39,12 +39,28 @@ export { memoryStore } from "./store.ts";
  * How the limit is counted and what happens when it is reached.
  *
  * `Ctx` is what `key` reads, inferred from how its parameter is typed.
+ *
+ * `store` and `name` come together or not at all: see {@link SharedCounters}.
  */
-export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
-  /** Hits allowed per window. */
+export type RateLimitOptions<Ctx extends BaseCtx = BaseCtx> =
+  LimitOptions<Ctx> & (OwnCounters | SharedCounters);
+
+/** The options of a limiter whatever its counters live in. */
+interface LimitOptions<Ctx extends BaseCtx = BaseCtx> {
+  /**
+   * Hits allowed per window: an integer, `0` included — a limiter that
+   * refuses everything.
+   */
   readonly limit: number;
 
-  /** Length of the window in milliseconds. */
+  /**
+   * Length of the window in milliseconds: a positive, finite number.
+   *
+   * Anything else is refused when the limiter is made. `NaN` — what
+   * `Number(process.env.RATE_WINDOW)` reads as when the variable is not
+   * set — and `0` used to start a new window on every request, so nothing
+   * was ever refused while the headers went on reporting a budget.
+   */
   readonly windowMs: number;
 
   /**
@@ -60,12 +76,20 @@ export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
    * refusing to sniff a `content-type`: the caller knows, so the caller
    * says.
    *
-   * It is also rarely an address that is meant. A session, an API token, a
-   * tenant, an account — each is a better answer than "wherever this
-   * packet came from" for the thing actually being protected.
+   * It is also rarely an address that is meant. A user, a tenant, an
+   * account — each is a better answer than "wherever this packet came
+   * from" for the thing actually being protected, once a hook has
+   * verified it.
+   *
+   * A key must be something the client cannot choose. A cookie, a token
+   * or a header nobody has verified is whatever the client sends: a new
+   * value is a new, empty budget. Count by the connection's address, or by
+   * what a hook that verified the client put in the context.
    *
    * Returning `undefined` skips the limit for that request, which is how
-   * an allowance is expressed — an internal caller, a health probe.
+   * an allowance is expressed — for an address on a list of your own, not
+   * for a request that says it deserves one. `?? undefined` after a value
+   * the client may leave out lets through everyone who leaves it out.
    *
    * It runs before the request is parsed, so it sees the request itself
    * and not the validated parts: `ctx.cookies` is not filled in yet, and a
@@ -81,7 +105,7 @@ export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
    * rateLimit({
    *   limit: 5,
    *   windowMs: 60_000,
-   *   key: (ctx) => ctx.req.cookies?.get("session") ?? undefined,
+   *   key: (ctx) => ctx.server.requestIP(ctx.req)?.address,
    * });
    * ```
    *
@@ -98,8 +122,20 @@ export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
    */
   readonly key: (ctx: Ctx) => string | undefined;
 
-  /** Where counters live. In-process by default. */
-  readonly store?: RateLimitStore;
+  /**
+   * Whether each route has a budget of its own.
+   *
+   * Off by default: one limiter is one budget, across every route it is
+   * mounted on — "100 a minute for the whole API". On, it is one budget
+   * per route and client — "20 a minute on each endpoint" — from a single
+   * limiter on the application or a group.
+   *
+   * A route is its template, `GET /orders/:id`, so every order shares
+   * one. Requests no route answers — a `404`, a `405`, a CORS preflight —
+   * share one budget between them, so probing paths that do not exist is
+   * counted too; `cors()` before the limiter answers a preflight first.
+   */
+  readonly perRoute?: boolean;
 
   /** Status of a refusal. `429` by default. */
   readonly status?: number;
@@ -111,6 +147,36 @@ export interface RateLimitOptions<Ctx extends BaseCtx = BaseCtx> {
    * it by being refused.
    */
   readonly headers?: boolean;
+}
+
+/** Counters in the limiter itself: one limiter, one budget. */
+export interface OwnCounters {
+  readonly store?: undefined;
+  readonly name?: undefined;
+}
+
+/**
+ * Counters in a store the limiter is given — a Redis every server of a
+ * fleet shares.
+ *
+ * A store finds a counter by its key alone, and the limiter's name is
+ * what tells its counters from another's: the key is the name, then the
+ * client, as in `shop-login:203.0.113.7`. Without one, two limiters on one
+ * store counted into one counter — a login allowed five an hour lived in
+ * the window of a global limit allowed a hundred a minute.
+ *
+ * In a store, the name is the budget. Every server of a fleet whose
+ * limiter has the name shares it, which is what a shared store is for;
+ * two services on one Redis need two names. One name on one store with
+ * other settings is refused when the second limiter is made: one counter
+ * cannot have two windows.
+ */
+export interface SharedCounters {
+  /** Where the counters live. */
+  readonly store: RateLimitStore;
+
+  /** What tells this limiter's counters from any other's in the store. */
+  readonly name: string;
 }
 
 /**
@@ -131,25 +197,32 @@ export type RateLimitHook = ReturnType<typeof rateLimit<BaseCtx>>;
  * const perUser = rateLimit({
  *   limit: 100,
  *   windowMs: 60_000,
- *   key: (ctx) => ctx.req.headers.get("authorization") ?? undefined,
+ *   key: (ctx: Requires<{ userId: string }>) => ctx.userId,
  * });
  * ```
  */
 export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
   options: RateLimitOptions<Ctx>,
 ) {
+  assertOptions(options);
+
   const store = options.store ?? memoryStore();
   const status = options.status ?? 429;
   const withHeaders = options.headers ?? true;
+  const prefix = options.name === undefined ? "" : `${options.name}:`;
 
   const guard = hook.beforeParse(async (ctx: Ctx) => {
-    const key = options.key(ctx);
+    const client = options.key(ctx);
 
-    if (key === undefined) {
+    if (client === undefined) {
       return undefined;
     }
 
-    const window = await store.hit(key, options.windowMs);
+    const route = options.perRoute ? `${routeOf(ctx)}:` : "";
+    const window = await store.hit(
+      `${prefix}${route}${client}`,
+      options.windowMs,
+    );
     const remaining = Math.max(0, options.limit - window.count);
     const seconds = Math.max(
       0,
@@ -166,11 +239,16 @@ export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
       return undefined;
     }
 
-    ctx.out.headers.set("retry-after", String(seconds));
+    // A store may answer with a window already over — a Redis key whose
+    // expiry was never set. "Come back in 0 seconds" is then an invitation
+    // to try again at once, as fast as the client can.
+    const retryAfter = Math.max(1, seconds);
+
+    ctx.out.headers.set("retry-after", String(retryAfter));
 
     throw new HttpError(status, {
       ...errorBody(status, "RATE_LIMITED"),
-      retryAfter: seconds,
+      retryAfter,
     });
   });
 
@@ -180,14 +258,86 @@ export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
         status,
         description: "Too many requests within the configured window",
         error: "RATE_LIMITED",
-        fields: { retryAfter: { type: "integer", minimum: 0 } },
+        fields: { retryAfter: { type: "integer", minimum: 1 } },
         headers: {
           "retry-after": {
             description: "Seconds until the window resets",
-            schema: { type: "integer", minimum: 0 },
+            schema: { type: "integer", minimum: 1 },
           },
         },
       },
     ],
   });
+}
+
+/**
+ * Which settings each name on each store was given — so a second limiter
+ * under a name can be told apart from another copy of the first.
+ *
+ * Another copy is ordinary: an application rebuilt for every test makes
+ * its limiters again, and every server of a fleet has one. Other settings
+ * under the same name are not: the counter is one, and would be counted
+ * against two limits and reset by two windows.
+ */
+const claimed = new WeakMap<RateLimitStore, Map<string, string>>();
+
+/**
+ * Refuses a limiter that would not limit, or would count into another's
+ * counters. Typed loosely on purpose: it is what holds for a caller the
+ * types did not reach — plain JavaScript, a value cast on its way in.
+ */
+function assertOptions(
+  options: LimitOptions<never> & {
+    store?: RateLimitStore | undefined;
+    name?: unknown;
+  },
+): void {
+  if (!(Number.isFinite(options.windowMs) && options.windowMs > 0)) {
+    throw new Error(
+      `rateLimit: windowMs must be a positive number of milliseconds, got ${options.windowMs} — Number() of a variable that is not set is NaN, and a window of NaN or 0 refuses nothing`,
+    );
+  }
+
+  if (!(Number.isInteger(options.limit) && options.limit >= 0)) {
+    throw new Error(
+      `rateLimit: limit must be a whole number of requests, 0 or more, got ${options.limit}`,
+    );
+  }
+
+  if (options.store == null) {
+    if (options.name !== undefined) {
+      throw new Error(
+        `rateLimit: name "${String(options.name)}" is given without a store — a name tells counters apart in a shared store, and without one the counters are the limiter's own`,
+      );
+    }
+
+    return;
+  }
+
+  if (typeof options.name !== "string" || options.name === "") {
+    throw new Error(
+      "rateLimit: a limiter given a store needs a name — the store finds counters by key, and the name keeps this limiter's apart from every other's in it",
+    );
+  }
+
+  const settings = `limit ${options.limit}, windowMs ${options.windowMs}, perRoute ${options.perRoute === true}`;
+  const names = claimed.get(options.store) ?? new Map<string, string>();
+  const earlier = names.get(options.name);
+
+  if (earlier !== undefined && earlier !== settings) {
+    throw new Error(
+      `rateLimit: "${options.name}" is already a limiter on this store with ${earlier}, and this one has ${settings} — one name is one counter, and cannot have two limits; give this limiter a name of its own`,
+    );
+  }
+
+  names.set(options.name, settings);
+  claimed.set(options.store, names);
+}
+
+/**
+ * The route a request is counted under with `perRoute`: its method and
+ * template, or one name for every request no route answers.
+ */
+function routeOf(ctx: BaseCtx): string {
+  return ctx.route ? `${ctx.route.method}:${ctx.route.path}` : "unrouted";
 }

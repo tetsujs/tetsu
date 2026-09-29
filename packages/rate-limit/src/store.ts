@@ -24,12 +24,18 @@ export interface WindowState {
  * servers behind a balancer needs a shared one, and this is the seam for
  * it. The framework never keeps a second copy of the state.
  *
+ * A limiter given a store has a `name`, and the keys it counts under start
+ * with it: one store serves any number of limiters without their counters
+ * meeting.
+ *
  * @example
  * ```ts
  * const redisStore: RateLimitStore = {
  *   hit: async (key, windowMs) => {
  *     const count = await redis.incr(key);
- *     if (count === 1) await redis.pexpire(key, windowMs);
+ *     // On every hit, if the key has none: a timeout between the commands
+ *     // is repaired by the next request instead of never expiring.
+ *     await redis.pexpire(key, windowMs, "NX");
  *     return { count, resetAt: Date.now() + (await redis.pttl(key)) };
  *   },
  * };
