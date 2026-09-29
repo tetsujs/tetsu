@@ -38,6 +38,10 @@ API.
 - `@tetsujs/openapi`: a route that validates only its cookies documents the
   `422` it answers when they fail; a schema on the cookies alone did not
   count as one on a request part.
+- `@tetsujs/openapi`: a route with `rawBody: true` and no body schema
+  documents the JSON body it parses, and the `400` and `413` it answers when
+  that body is not JSON or too large. Only a body schema or a `bodyType`
+  counted as a body.
 - `@tetsujs/openapi`: the README's recipe for an error format of one's own
   answers an unexpected error in that format too, and reports it with
   `reportFailure`, since `reportError` hears only of what no hook

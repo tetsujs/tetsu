@@ -439,7 +439,15 @@ function requestBody(
   warn: (message: string) => void,
 ): { required: boolean; content: ContentMap } | undefined {
   const declared = entry.def.schema?.body;
-  const bodyType = entry.def.bodyType ?? (declared ? "json" : undefined);
+
+  /**
+   * A body is read when the core reads one: a schema, a declared shape, or
+   * `rawBody` — which parses JSON as any body does, next to keeping its
+   * bytes. Without a schema the document says what the body is, not what
+   * is in it.
+   */
+  const bodyType =
+    entry.def.bodyType ?? (declared || entry.def.rawBody ? "json" : undefined);
 
   if (!bodyType) {
     return undefined;
@@ -706,7 +714,7 @@ function failures(
     ]);
   }
 
-  if (schema?.body || entry.def.bodyType) {
+  if (schema?.body || entry.def.bodyType || entry.def.rawBody) {
     const unparsable = parseFailure(entry.def.bodyType);
 
     if (unparsable) {
