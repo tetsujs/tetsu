@@ -345,8 +345,9 @@ none, as `null` does: a value the handler returns for it is refused with a
 
 A route declares how its body is read with `bodyType`: `"json"` (the
 default), `"form"` (multipart and urlencoded; uploads arrive as `File`
-values inside `ctx.body`, validated like any other field), `"text"`, or
-`"stream"`:
+values inside `ctx.body`, validated like any other field — a file input
+nothing was chosen in is left out, as a field that is not there),
+`"text"`, or `"stream"`:
 
 ```ts
 route({

@@ -56,20 +56,25 @@ secureHeaders({ contentSecurityPolicy: apiPolicy });
 
 If the same application serves a page — the docs page of
 [`@tetsujs/openapi`](../openapi), for instance — remove the policy for that
-route:
+route, named by the path it is mounted at:
 
 ```ts
+const docsPage = "/docs";
+
 const allowDocs = hook.beforeResponse((ctx) => {
-  if (ctx.route?.path === "/docs") ctx.out.headers.delete("content-security-policy");
+  if (ctx.route?.path === docsPage) ctx.out.headers.delete("content-security-policy");
 });
 
 const secure = secureHeaders({ contentSecurityPolicy: apiPolicy });
 
 createApp({
   hooks: { beforeResponse: [secure, allowDocs] },
-  routes: [docs({ info }), apiController()],
+  routes: [docs({ info, uiPath: docsPage }), apiController()],
 });
 ```
+
+`ctx.route.path` is the route's whole path: mounted in a group, the page
+at `/docs` under `/api` is `/api/docs`, and that is what to compare with.
 
 ## An exception for one route
 
@@ -79,6 +84,15 @@ can change a header for that route:
 ```ts
 const allowFraming = hook.beforeResponse((ctx) => {
   ctx.out.headers.set("x-frame-options", "SAMEORIGIN");
+
+  const policy = ctx.out.headers.get("content-security-policy");
+
+  if (policy) {
+    ctx.out.headers.set(
+      "content-security-policy",
+      policy.replace(/frame-ancestors [^;]*/, "frame-ancestors 'self'"),
+    );
+  }
 });
 
 route({
@@ -89,8 +103,11 @@ route({
 });
 ```
 
-Setting the header in the handler does not work: the handler runs before
-`beforeResponse`, and the application's value replaces it.
+A policy with `frame-ancestors` — `apiPolicy` has `'none'` — is what a
+browser follows, and it ignores `x-frame-options` then: allowing a frame
+means changing both. Setting the header in the handler does not work: the
+handler runs before `beforeResponse`, and the application's value replaces
+it.
 
 ## Options
 

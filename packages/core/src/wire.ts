@@ -196,6 +196,14 @@ interface FormParser {
  * Builds the form object. A repeated field becomes an array, in order of
  * appearance — the same rule as query parameters.
  *
+ * A file with no name and no bytes is left out: it is what a browser sends
+ * for a file input nothing was chosen in, and it means "no file". Kept, it
+ * made an optional file field required on every ordinary HTML form — the
+ * empty part failed the checks of the file it was not — and a required
+ * one fail as the wrong type rather than as missing. Django and Rack drop
+ * it the same way. A file that has a name and no bytes is a file, and
+ * stays.
+ *
  * Prototype-free for the same reason `materializeQuery` is: the field
  * names come from the client.
  */
@@ -205,6 +213,11 @@ function materializeForm(
   const body: FormBody = Object.create(null);
 
   for (const [name, value] of entries) {
+    // Bun reads `filename=""` as a file whose name is missing altogether.
+    if (value instanceof File && !value.name && value.size === 0) {
+      continue;
+    }
+
     const existing = body[name];
 
     if (existing === undefined) {
