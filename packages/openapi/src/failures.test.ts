@@ -94,6 +94,13 @@ class Controller {
     handler: () => ({ ok: true }),
   });
 
+  webhook = route({
+    method: "POST",
+    path: "/webhooks",
+    rawBody: true,
+    handler: () => ({ ok: true }),
+  });
+
   broken = route({
     method: "GET",
     path: "/broken",
@@ -166,6 +173,28 @@ const matchesDocumentation = async (
   expect(schema.properties.error.const).toBe(body.error);
   expect(schema.properties.message.examples).toEqual([body.message]);
 };
+
+describe("a rawBody route without a body schema", () => {
+  test("documents the parse failure it answers", async () => {
+    const res = await request("/webhooks", {
+      method: "POST",
+      body: "{not json",
+    });
+
+    expect(res.status).toBe(400);
+    await matchesDocumentation(res, "/webhooks", "post");
+  });
+
+  test("documents the size failure it answers", async () => {
+    const res = await request("/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ padding: "x".repeat(100) }),
+    });
+
+    expect(res.status).toBe(413);
+    await matchesDocumentation(res, "/webhooks", "post");
+  });
+});
 
 describe("what the document promises is what arrives", () => {
   test("a body that is not JSON", async () => {
@@ -396,6 +425,13 @@ describe("a schema on any one part documents the validation failure", () => {
       handler: () => ({ ok: true }),
     });
 
+    byCookies = route({
+      method: "POST",
+      path: "/cookies",
+      schema: { cookies: Named },
+      handler: () => ({ ok: true }),
+    });
+
     byNothing = route({
       method: "POST",
       path: "/nothing",
@@ -425,6 +461,10 @@ describe("a schema on any one part documents the validation failure", () => {
 
   test("body alone", () => {
     expect(statuses("/body")).toContain("422");
+  });
+
+  test("cookies alone", () => {
+    expect(statuses("/cookies")).toContain("422");
   });
 
   test("and a route with no schema at all does not claim it", () => {
@@ -474,6 +514,19 @@ describe("whether a body is required", () => {
     expect(bare.status).toBe(200);
     expect(declared.documented).toBe(false);
     expect(declared.status).toBe(200);
+  });
+
+  test("rawBody without a schema says a JSON body is required, and it is", async () => {
+    const bare = await bodyless("/webhooks");
+
+    expect(bare.documented).toBe(true);
+    expect(
+      Object.keys(
+        document.paths["/webhooks"]?.post?.requestBody?.content ?? {},
+      ),
+    ).toEqual(["application/json"]);
+    expect(bare.status).toBe(400);
+    expect(bare.body).toContain("MALFORMED_JSON");
   });
 
   test("stream says optional, because an absent body reads as an empty stream", async () => {

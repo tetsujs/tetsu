@@ -227,13 +227,23 @@ function setCookie(
   };
 }
 
-/** The properties of an object schema, and which of them it requires. */
+/**
+ * The properties of an object schema, and which of them it requires.
+ *
+ * Read as the schema's input: a response's headers and cookies are checked
+ * against it and sent as the handler set them, not as the schema returns
+ * them — unlike a body, whose checked value is what gets serialized. A
+ * field with a default is one the handler may leave out, and the response
+ * then leaves without it.
+ */
 function shapeOf(
   schema: AnySchema | undefined,
   subject: string,
   warn: (message: string) => void,
 ): [Record<string, Record<string, unknown>>, Set<string>] {
-  const described = schema ? emitted(schema, subject, warn) : undefined;
+  const described = schema
+    ? emitted(schema, subject, warn, "input")
+    : undefined;
 
   const properties = (described?.properties ?? {}) as Record<
     string,
@@ -439,7 +449,15 @@ function requestBody(
   warn: (message: string) => void,
 ): { required: boolean; content: ContentMap } | undefined {
   const declared = entry.def.schema?.body;
-  const bodyType = entry.def.bodyType ?? (declared ? "json" : undefined);
+
+  /**
+   * A body is read when the core reads one: a schema, a declared shape, or
+   * `rawBody` — which parses JSON as any body does, next to keeping its
+   * bytes. Without a schema the document says what the body is, not what
+   * is in it.
+   */
+  const bodyType =
+    entry.def.bodyType ?? (declared || entry.def.rawBody ? "json" : undefined);
 
   if (!bodyType) {
     return undefined;
@@ -631,7 +649,13 @@ function failures(
     return ref as unknown as Record<string, unknown>;
   };
 
-  if (schema?.params || schema?.query || schema?.headers || schema?.body) {
+  if (
+    schema?.params ||
+    schema?.query ||
+    schema?.headers ||
+    schema?.cookies ||
+    schema?.body
+  ) {
     found.push([
       options.validationStatus,
       {
@@ -700,7 +724,7 @@ function failures(
     ]);
   }
 
-  if (schema?.body || entry.def.bodyType) {
+  if (schema?.body || entry.def.bodyType || entry.def.rawBody) {
     const unparsable = parseFailure(entry.def.bodyType);
 
     if (unparsable) {
