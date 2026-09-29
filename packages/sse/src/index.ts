@@ -90,7 +90,22 @@ export interface SseOptions {
   readonly status?: number;
 
   /**
-   * Called once when the stream is over, with what it did.
+   * Ends the stream when it fires, as a client leaving would. What a
+   * server that is stopping closes its streams on — see
+   * {@link StreamOptions.until}.
+   *
+   * @example
+   * ```ts
+   * const { draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+   *
+   * sse(ctx, feed, { until: draining });
+   * ```
+   */
+  readonly until?: AbortSignal;
+
+  /**
+   * Called once when the stream is over, with what it did — for a stream
+   * that went out: one made and never sent has nothing to report.
    *
    * The gap this closes: `afterResponse` runs as the response goes to Bun,
    * which for a stream is the moment it *starts*. An
@@ -232,6 +247,8 @@ export function sse(
 
       ...(options.status === undefined ? {} : { status: options.status }),
 
+      ...(options.until === undefined ? {} : { until: options.until }),
+
       ...(heartbeatMs > 0
         ? { keepAlive: { everyMs: heartbeatMs, chunk: ": ping\n\n" } }
         : {}),
@@ -280,7 +297,7 @@ export function frame(event: ServerSentEvent): string {
   }
 
   if (event.retry !== undefined) {
-    lines.push(`retry: ${event.retry}`);
+    lines.push(`retry: ${reconnection(event.retry)}`);
   }
 
   const payload =
@@ -324,6 +341,23 @@ function single(field: string, value: string): string {
   }
 
   return value;
+}
+
+/**
+ * Checks a reconnection time: the protocol takes digits only, and a client
+ * ignores anything else without a word — `NaN` from a variable that is not
+ * set, a negative, a fraction. Refused, like a line break in an `id`, so
+ * the stream does not go on believing it set a delay the browser threw
+ * away.
+ */
+function reconnection(retry: number): number {
+  if (!(Number.isSafeInteger(retry) && retry >= 0)) {
+    throw new TypeError(
+      `an SSE retry must be a whole number of milliseconds, 0 or more: ${retry}`,
+    );
+  }
+
+  return retry;
 }
 
 /**

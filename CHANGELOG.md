@@ -51,6 +51,13 @@ API.
   own from one limiter — twenty a minute on every endpoint, mounted once
   on the application. A route is its template; requests no route answers
   share one budget.
+- `@tetsujs/lifecycle`: `onShutdownSignals` returns `draining` too, a
+  signal that fires when the server starts to stop — after the pre-stop
+  delay. `@tetsujs/sse`: `sse()` and `stream()` take `until`, a signal that
+  ends the stream. Together they close the streams a stopping server would
+  otherwise wait for: `server.stop()` waits for every response in flight,
+  and an event stream held every deploy for the whole grace period before
+  it was cut and the process exited with `1`.
 
 ### Fixed
 
@@ -213,6 +220,20 @@ API.
   and a feed with nothing to say yet kept a browser's `EventSource` in
   "connecting" until the first event or keep-alive — up to 15 seconds, or
   for good with `heartbeatMs: 0`.
+- `@tetsujs/lifecycle`: a server whose `stop` throws is a failure in the
+  result, forced, and the closers still run. `shutdown()` used to reject
+  past its closers, and `onShutdownSignals` crashed on the unhandled
+  rejection before they ran.
+- `@tetsujs/lifecycle`: the documentation of `exit: false` says that a
+  third signal ends the process anyway, as it always did — the way out of
+  a shutdown that hangs.
+- `@tetsujs/sse`: a stream starts its generator and keep-alive when it is
+  first read, `stream()`'s too. A stream made by a handler that then threw
+  was sent nowhere, and its timer beat for as long as the process lived.
+- `@tetsujs/sse`: an event's `retry` that is not a whole number of
+  milliseconds is refused, as a line break in its `id` is. A browser
+  ignores any other value without a word, and a `NaN` from a variable that
+  is not set went out as the delay the stream believed it had set.
 
 ### Moving from 0.5
 

@@ -93,6 +93,16 @@ left, so there is no `onError` to hand it to. So does a `finally` that
 throws while the stream is being closed — a broker that refuses to close a
 subscription.
 
+A server that is stopping waits for every response in flight, and a
+stream is one that never finishes: `until` ends it from outside. With
+[`@tetsujs/lifecycle`](../lifecycle#streams-and-long-polls), that is the
+`draining` signal — the stream closes as the server starts to stop, and
+its client reconnects to another:
+
+```ts
+sse(ctx, feed, { until: draining });
+```
+
 A source that takes the signal rejects when the client leaves — `fetch`,
 `events.on` and the timers of `node:timers/promises` throw the signal's
 `AbortError`. That is the client leaving, not the source failing: the
@@ -151,6 +161,7 @@ for a keep-alive:
 | --- | --- | --- |
 | `heartbeatMs` | `15000` | keep-alive interval; `0` turns it off |
 | `status` | `200` | |
+| `until` | — | a signal that ends the stream — `draining`, when the server stops |
 | `onEnd` | — | receives the summary when the stream ends |
 
 | `stream()` | Default | |
@@ -159,4 +170,5 @@ for a keep-alive:
 | `status` | `200` | |
 | `headers` | — | more response headers |
 | `keepAlive` | off | `{ everyMs, chunk }` |
+| `until` | — | a signal that ends the stream |
 | `onEnd` | — | receives the summary; it counts `chunks` instead of `events` |
