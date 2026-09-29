@@ -876,3 +876,91 @@ describe("hooks written as a list, the form before 0.3.0", () => {
     ).toThrow('group("/zone"): hooks is an object keyed by slot, not a list');
   });
 });
+
+describe("observers after an async one", () => {
+  const seen: string[] = [];
+
+  const flush = hook.afterResponse(async () => {
+    await Bun.sleep(20);
+
+    seen.push("flushed");
+  });
+
+  const look = hook.afterResponse((ctx) => {
+    seen.push(
+      `${new URL(ctx.req.url).pathname} ${ctx.req.headers.get("x-probe")}`,
+    );
+  });
+
+  const request = serve(
+    createApp({
+      hooks: { afterResponse: [flush, look] },
+      routes: {
+        get: route({ method: "GET", path: "/seen", handler: () => "ok" }),
+      },
+    }),
+  );
+
+  test("start before the response is sent, and see the whole request", async () => {
+    seen.length = 0;
+
+    await (await request("/seen", { headers: { "x-probe": "yes" } })).text();
+    await Bun.sleep(40);
+
+    // Started in order, each without waiting for the one before: the
+    // second read the request while it was still there, and the first
+    // finished later.
+    expect(seen).toEqual(["/seen yes", "flushed"]);
+  });
+
+  test("a failing one does not keep the next from starting", async () => {
+    const reports: string[] = [];
+    const ran: string[] = [];
+
+    const failing = serve(
+      createApp({
+        reportError: (report) => reports.push(report.source),
+        hooks: {
+          afterResponse: [
+            hook.afterResponse(async () => {
+              await Bun.sleep(20);
+
+              throw new Error("metrics down");
+            }),
+            hook.afterResponse(() => {
+              throw new Error("log down");
+            }),
+            hook.afterResponse(
+              () =>
+                ({
+                  // A thenable whose `then` itself throws.
+                  // biome-ignore lint/suspicious/noThenProperty: the point.
+                  then: () => {
+                    throw new Error("broken thenable");
+                  },
+                }) as unknown as Promise<void>,
+            ),
+            hook.afterResponse(() => void ran.push("fourth")),
+          ],
+        },
+        routes: {
+          get: route({ method: "GET", path: "/seen", handler: () => "ok" }),
+        },
+      }),
+    );
+
+    const res = await failing("/seen");
+
+    // Already run as the response arrives: not after the first settled.
+    expect(ran).toEqual(["fourth"]);
+    expect(res.status).toBe(200);
+
+    await Bun.sleep(40);
+
+    expect(reports).toEqual([
+      "afterResponse",
+      "afterResponse",
+      "afterResponse",
+    ]);
+  });
+});

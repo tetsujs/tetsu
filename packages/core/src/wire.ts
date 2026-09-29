@@ -518,9 +518,10 @@ function yieldsOverTime(value: object): boolean {
  * error's status belongs to the error mapping, and a short-circuiting
  * hook states its status on the `Response` it returns.
  *
- * `set-cookie` is appended — the one header that legitimately repeats;
- * every other name overwrites. A response whose headers cannot be mutated
- * (a proxied `fetch` response has immutable headers) is copied first.
+ * `set-cookie` is appended — the one header that legitimately repeats —
+ * and `vary` is merged; every other name overwrites. A response whose
+ * headers cannot be mutated (a proxied `fetch` response has immutable
+ * headers) is copied first.
  */
 export function applyOutgoingHeaders(
   res: Response,
@@ -549,8 +550,34 @@ function writeHeaders(target: Headers, headers: Headers): void {
   for (const [name, value] of headers) {
     if (name === "set-cookie") {
       target.append(name, value);
+    } else if (name === "vary") {
+      target.set(name, varying(target.get(name), value));
     } else {
       target.set(name, value);
     }
   }
+}
+
+/**
+ * The request headers a response varies by, from both sides.
+ *
+ * `vary` is a list that more than one party adds to: a handler whose
+ * `Response` says `Vary: Cookie`, and `cors` saying `origin` over it.
+ * Overwritten like any other header, the handler's token was lost, and a
+ * shared cache that no longer told users apart served one user's
+ * response to another. Each token once, however it is spelled, in the
+ * order it first appeared; `*` — varies by everything — stands alone.
+ */
+function varying(existing: string | null, added: string): string {
+  const tokens = new Map<string, string>();
+
+  for (const token of `${existing ?? ""},${added}`.split(",")) {
+    const trimmed = token.trim();
+
+    if (trimmed !== "" && !tokens.has(trimmed.toLowerCase())) {
+      tokens.set(trimmed.toLowerCase(), trimmed);
+    }
+  }
+
+  return tokens.has("*") ? "*" : [...tokens.values()].join(", ");
 }

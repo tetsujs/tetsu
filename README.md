@@ -236,7 +236,10 @@ for. Two things follow. The body is not an observer's to read, and
 `beforeResponse`, where it is still yours. And what an observer needs of
 the request or the response it reads before its first `await` — by then
 the response may be sent, and a URL, a header or the address nobody read
-is gone, without an error:
+is gone, without an error. The observers of a request start in order,
+each without waiting for the one before, so each gets there in time; one
+that needs another's result does both in one hook, or awaits a promise
+the other left:
 
 ```ts
 const shipped = hook.afterResponse(async (ctx) => {

@@ -47,6 +47,13 @@ export interface CorsOptions {
    * returning the list is what the header format requires. `"*"` allows
    * every origin, and is refused together with `credentials`, which the
    * specification does not permit.
+   *
+   * An origin is written as a browser sends it — scheme, host and port,
+   * nothing after: `https://app.example.com`. Anything else never matches,
+   * so it is refused where it is written, naming the origin it means: a
+   * trailing slash, capitals, a path, a default port. `"null"` — what a
+   * sandboxed frame or a `file:` page sends — is taken as it is, and
+   * refused with `credentials`: any site can send it.
    */
   readonly origin: string | readonly string[] | "*";
 
@@ -101,6 +108,30 @@ export function cors(options: CorsOptions) {
     );
   }
 
+  const listed =
+    options.origin === "*"
+      ? []
+      : typeof options.origin === "string"
+        ? [options.origin]
+        : options.origin;
+
+  for (const origin of listed) {
+    assertOrigin(origin);
+  }
+
+  if (options.credentials && listed.includes("null")) {
+    throw new Error(
+      'CORS: origin "null" cannot be combined with credentials — a sandboxed frame, a data: or file: page, a redirect all send it, and any site can put itself in one, so the pair lets any site make credentialed requests and read the answers',
+    );
+  }
+
+  // A response that depends on the origin says so on every answer — the
+  // ones without CORS headers too: a shared cache that stored one of those
+  // as the same for everyone handed it to an allowed site, whose browser
+  // then refused it. A wildcard answers everyone alike, and varies by
+  // nothing.
+  const varies = options.origin !== "*";
+
   const methods = (options.methods ?? defaultMethods).join(", ");
   const headers = (options.headers ?? defaultHeaders).join(", ");
   const maxAge = String(options.maxAge ?? 86_400);
@@ -128,10 +159,6 @@ export function cors(options: CorsOptions) {
   const write = (ctx: BaseCtx, origin: string): void => {
     ctx.out.headers.set("access-control-allow-origin", origin);
 
-    if (origin !== "*") {
-      ctx.out.headers.append("vary", "origin");
-    }
-
     if (options.credentials) {
       ctx.out.headers.set("access-control-allow-credentials", "true");
     }
@@ -145,6 +172,10 @@ export function cors(options: CorsOptions) {
   };
 
   return hook.beforeParse((ctx) => {
+    if (varies) {
+      ctx.out.headers.append("vary", "origin");
+    }
+
     const origin = allowedOrigin(ctx);
 
     if (!origin) {
@@ -164,3 +195,76 @@ export function cors(options: CorsOptions) {
     return new Response(null, { status: 204 });
   });
 }
+
+/**
+ * Refuses an origin a browser would never send, naming the one it means.
+ *
+ * The request's `Origin` is compared as it arrives, and a browser sends it
+ * one way only: lowercase, no path, no trailing slash, no default port.
+ * Written any other way — copied from an address bar, typed with a
+ * capital — it never matched, and every request from the site was refused
+ * with nothing at startup to say why. A wildcard never matched either:
+ * origins are compared whole.
+ *
+ * Only the schemes the URL standard knows how to normalize are read with
+ * `URL` — `http`, `https`, `ws`, `wss`, `ftp`. For any other, `URL` says
+ * the origin is `"null"`, and yet browsers send such origins as they are:
+ * `chrome-extension://…`, `capacitor://localhost`, `tauri://localhost`.
+ * Those are taken as written, in lowercase, with nothing after the host.
+ */
+function assertOrigin(origin: string): void {
+  if (origin === "null") {
+    return;
+  }
+
+  if (origin.toLowerCase() === "null" || origin === "*") {
+    throw new Error(
+      origin === "*"
+        ? 'CORS: "*" in a list is compared as a string and never matches — to allow every origin, pass origin: "*" itself'
+        : `CORS: "${origin}" is not what a browser sends — the opaque origin is "null", in lowercase`,
+    );
+  }
+
+  if (origin.includes("*")) {
+    throw new Error(
+      `CORS: "${origin}" is a pattern, and origins are matched whole — list each origin that is allowed`,
+    );
+  }
+
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(origin)?.[1];
+
+  if (scheme !== undefined && !special.has(scheme.toLowerCase())) {
+    const meant = origin.toLowerCase();
+
+    if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]+$/.test(origin)) {
+      return;
+    }
+
+    throw new Error(
+      /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+$/.test(meant)
+        ? `CORS: "${origin}" is not an origin as a browser sends it, and would never match — did you mean "${meant}"?`
+        : `CORS: "${origin}" is not an origin — a scheme and a host, with nothing after: "capacitor://localhost"`,
+    );
+  }
+
+  let meant: string | undefined;
+
+  try {
+    meant = new URL(origin).origin;
+  } catch {
+    meant = undefined;
+  }
+
+  if (meant === origin) {
+    return;
+  }
+
+  throw new Error(
+    meant === undefined || meant === "null"
+      ? `CORS: "${origin}" is not an origin — an origin is a scheme, a host and a port, as a browser sends it: "https://app.example.com"`
+      : `CORS: "${origin}" is not an origin as a browser sends it, and would never match — did you mean "${meant}"?`,
+  );
+}
+
+/** The schemes whose origins the URL standard normalizes. */
+const special = new Set(["http", "https", "ws", "wss", "ftp"]);
