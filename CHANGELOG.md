@@ -35,6 +35,12 @@ API.
 
 ### Fixed
 
+- `@tetsujs/openapi`: the README's recipe for an error format of one's own
+  answers an unexpected error in that format too, and reports it with
+  `reportFailure`, since `reportError` hears only of what no hook
+  answered. Its hook left such errors to the framework, whose `500` the
+  document described in the application's format; its contract test, now
+  on `assertDescribed`, provokes the `500` as well.
 - `@tetsujs/core`: `ctx.route` is not optional in the `beforeResponse`,
   `afterResponse` and `onError` hooks of a route, where it is always set;
   a hook asking for it with `Requires<{ route: RouteInfo }>` mounts there.
