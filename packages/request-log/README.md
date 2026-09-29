@@ -33,6 +33,7 @@ produces one record as its response goes out:
   status: 200,
   durationMs: 12.418,
   thrown: "TypeError",   // the class of what was thrown, if anything was
+  aborted: true,         // the connection closed before the response was ready
   requestId: "…",        // when requestId() ran before it
 }
 ```
@@ -87,6 +88,13 @@ where it can be grouped by.
 - **A failure's full error** — message, stack — is not in either record:
   pass `reportError` to `createApp`, and join the report to the records by
   `ctx?.requestId`.
+- **A connection that closed before the response was ready** — a client
+  that left, or a forced stop that cut it — is recorded with
+  `aborted: true` and the status the server answered, which the client
+  never got. nginx logs `499` there
+  instead; that view is `record.aborted ? 499 : record.status`, and the
+  status is kept because a server failing while its clients gave up would
+  otherwise leave no `5xx` behind.
 
 ## Metrics
 

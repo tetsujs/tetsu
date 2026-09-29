@@ -35,6 +35,22 @@ API.
   was declared to strip went out in the response. A schema derived from a
   DTO — `Type.Pick`, `Type.Omit`, `Type.Partial` — is a new schema and
   carries none of its options.
+- `@tetsujs/core`: the `afterResponse` observers of a request start in
+  order, each without waiting for the one before. An observer started only
+  once an async one before it had settled started after the response was
+  sent, and found the URL, the headers and the address gone — `accessLog()`
+  behind an async observer wrote nothing, and reported an `Invalid URL` on
+  every request. An observer that counted on the one before it having
+  finished takes its result in the same hook, or awaits a promise the
+  other left.
+- `@tetsujs/cors`: an origin a browser would never send — a trailing
+  slash, capitals, a path, a default port — is refused where it is
+  written, naming the origin it means, and so is a pattern such as
+  `https://*.example.com`. Neither ever matched, and every request from
+  the site was refused with nothing at startup to say why. An app or
+  extension scheme — `capacitor://localhost` — is taken as written.
+  So is `"null"` together with `credentials`, which let any site make
+  credentialed requests: a sandboxed frame sends it.
 
 ### Added
 
@@ -58,6 +74,10 @@ API.
   otherwise wait for: `server.stop()` waits for every response in flight,
   and an event stream held every deploy for the whole grace period before
   it was cut and the process exited with `1`.
+- `@tetsujs/request-log`: an access record carries `aborted: true` when
+  the connection closed before the response was ready — the client left,
+  or a forced stop cut it — with the status the server answered. It read
+  as an ordinary success.
 
 ### Fixed
 
@@ -234,6 +254,15 @@ API.
   milliseconds is refused, as a line break in its `id` is. A browser
   ignores any other value without a word, and a `NaN` from a variable that
   is not set went out as the delay the stream believed it had set.
+- `@tetsujs/core`: a response's `vary` from the handler and from a hook
+  are merged, each token once. The hook's overwrote the handler's: a
+  handler's own `Response` with `Vary: Cookie` under `cors()` left with
+  `vary: origin` alone, and a shared cache served one user's response to
+  another.
+- `@tetsujs/cors`: every answer says `vary: origin` unless the origin is
+  `"*"`, those without CORS headers too. A cache that stored an answer to
+  a request with no `Origin` as the same for everyone handed it to the
+  allowed site, and the browser refused it.
 
 ### Moving from 0.5
 
@@ -254,6 +283,11 @@ the request the schema refused.
 A `tb()` DTO nested in another, with an option the outer one lacks, is
 refused at startup: turn the option on for the outer DTO, which then
 applies it to the nested one too.
+
+An `afterResponse` observer that relied on the one before it having
+finished its async part — a value it left in a shared variable — takes
+that result in the same hook, or awaits a promise the other left: the
+observers of a request no longer wait for each other.
 
 A `rateLimit()` given a `store` is given a `name` too. A shared store's
 keys change from the client to the name and the client, so its counters

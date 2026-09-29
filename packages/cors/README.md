@@ -43,9 +43,18 @@ createApp({ hooks: { beforeParse: [id, arrival, browser, auth, limit] }, routes 
 
 | Option | Default | |
 | --- | --- | --- |
-| `origin` | — | `"*"`, one origin, or a list of origins matched exactly |
+| `origin` | — | `"*"`, one origin, or a list of origins matched exactly — each as a browser sends it, `https://app.example.com`, or startup refuses it |
 | `methods` | `GET, POST, PUT, PATCH, DELETE` | methods allowed in a preflight |
 | `headers` | `content-type, authorization` | request headers a browser may send |
 | `exposeHeaders` | none | response headers a browser may read |
-| `credentials` | `false` | allow cookies and credentials; refused together with `origin: "*"`, which browsers reject |
+| `credentials` | `false` | allow cookies and credentials; refused together with `origin: "*"`, which browsers reject, and with `"null"`, which any site can send |
 | `maxAge` | `86400` | how long a browser may cache a preflight, in seconds |
+
+## Notes
+
+- **Every answer says `vary: origin`** unless `origin` is `"*"` — the ones
+  without CORS headers too, to a request with no `Origin` or one that is
+  not allowed. A shared cache otherwise stored such an answer as the same
+  for everyone, and handed it to an allowed site, whose browser refused
+  it. A `Vary` of the handler's own response is kept: the core merges the
+  two.

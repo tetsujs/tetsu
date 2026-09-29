@@ -155,6 +155,23 @@ export interface AccessRecord {
    */
   readonly thrown?: string;
 
+  /**
+   * `true` when the connection closed before the response was ready.
+   * Absent otherwise.
+   *
+   * Mostly the client leaving — a closed tab, a timeout on its side. The
+   * server closing it counts too: a stop that cut the connections left in
+   * flight, as `@tetsujs/lifecycle` does when the grace period runs out.
+   * The request cannot tell the two apart.
+   *
+   * `status` stays what the server answered, which the client never got.
+   * nginx writes `499` in its place instead; that loses the status, and a
+   * server failing while its clients gave up on it would leave no `5xx`
+   * in the log. A dashboard that wants nginx's view derives it:
+   * `record.aborted ? 499 : record.status`.
+   */
+  readonly aborted?: true;
+
   readonly requestId?: string;
 }
 
@@ -194,6 +211,7 @@ export function accessLog(options: AccessLogOptions = {}) {
       status: carrying.res.status,
       durationMs: elapsed(ctx.startedAt),
       ...("error" in carrying ? { thrown: nameOf(carrying.error) } : {}),
+      ...(ctx.req.signal.aborted ? { aborted: true as const } : {}),
       ...(id === undefined ? {} : { requestId: id }),
     });
   });

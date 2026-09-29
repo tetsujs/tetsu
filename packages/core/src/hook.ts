@@ -262,6 +262,11 @@ interface HookFactories {
    *   `await`. By then the response may be sent, and Bun fills both
    *   lazily: a URL or a header nobody read is gone without an error, and
    *   so is the client's address.
+   *
+   * The observers of a request start in order, each without waiting for
+   * the one before, so every one of them reaches its first `await` while
+   * the request is still there. One that needs another's result takes it
+   * in the same hook, or awaits a promise the other left.
    */
   readonly afterResponse: HookFactory<
     "afterResponse",

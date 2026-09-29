@@ -531,7 +531,7 @@ function recoverThenObserve(
 function observe(entry: Executable, ctx: PipelineCtx, res: Response): Response {
   if (entry.hooks.afterResponse.length > 0) {
     ctx.res = res;
-    observersFrom(0, entry.hooks.afterResponse, ctx);
+    startObservers(entry.hooks.afterResponse, ctx);
   }
 
   return res;
@@ -778,25 +778,29 @@ function hardFailure(ctx: PipelineCtx, failure: unknown): Response {
 }
 
 /**
- * Runs the `afterResponse` observers from `first` on, in order.
+ * Starts the `afterResponse` observers, in order, each without waiting for
+ * the one before.
  *
  * Not awaited by the pipeline: an async observer — shipping an access log,
- * flushing a metric — must not become part of the client's latency, so the
- * observers after it run when it settles, and the response has already
- * gone. Synchronous observers complete before the response is returned. A
- * failing observer is printed and the next one runs: there is no response
+ * flushing a metric — must not become part of the client's latency. Nor by
+ * the observer after it: every observer reads what it needs of the request
+ * before its first `await`, because Bun fills the request lazily and what
+ * nobody read is gone once the response is sent — and an observer started
+ * only when an async one before it settled started after the send, and
+ * found the URL and the headers empty. Started together, each has run up
+ * to its first `await` before the response is returned.
+ *
+ * An observer that needs another's result takes it in one hook, or awaits
+ * a promise the other left; no observer's return reaches the next one.
+ * One that fails is reported, and the others run: there is no response
  * left to change.
  */
-function observersFrom(
-  first: number,
-  observers: readonly AnyHook[],
-  ctx: PipelineCtx,
-): void {
-  for (let index = first; index < observers.length; index += 1) {
+function startObservers(observers: readonly AnyHook[], ctx: PipelineCtx): void {
+  for (const observer of observers) {
     let result: unknown;
 
     try {
-      result = call(observers[index] as AnyHook, ctx);
+      result = call(observer, ctx);
     } catch (error) {
       ctx[reporterKey]({ source: "afterResponse", error, ctx });
 
@@ -804,15 +808,11 @@ function observersFrom(
     }
 
     if (isThenable(result)) {
-      void result.then(
-        () => observersFrom(index + 1, observers, ctx),
-        (error: unknown) => {
-          ctx[reporterKey]({ source: "afterResponse", error, ctx });
-          observersFrom(index + 1, observers, ctx);
-        },
-      );
-
-      return;
+      // Through `Promise.resolve`, so a thenable whose own `then` throws is
+      // a rejection like any other rather than an escape past the rest.
+      void Promise.resolve(result).then(undefined, (error: unknown) => {
+        ctx[reporterKey]({ source: "afterResponse", error, ctx });
+      });
     }
   }
 }

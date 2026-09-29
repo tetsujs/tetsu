@@ -365,3 +365,50 @@ describe("the arrival log", () => {
     expect(Object.keys(arrived[0] ?? {})).toEqual(["method", "path"]);
   });
 });
+
+describe("a client that left", () => {
+  const records: AccessRecord[] = [];
+
+  const app = createApp({
+    hooks: { afterResponse: [accessLog({ write: (r) => records.push(r) })] },
+    routes: {
+      slow: route({
+        method: "GET",
+        path: "/slow",
+        handler: async () => {
+          await Bun.sleep(150);
+
+          return { ok: true };
+        },
+      }),
+    },
+  });
+
+  const server = serve(app);
+
+  test("is marked aborted, with the status the server answered", async () => {
+    records.length = 0;
+
+    const controller = new AbortController();
+    const asked = fetch(new URL("/slow", server.url), {
+      signal: controller.signal,
+    }).catch(() => undefined);
+
+    setTimeout(() => controller.abort(), 30);
+
+    await asked;
+    await Bun.sleep(200);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: 200, aborted: true });
+  });
+
+  test("a client that waited has no such field", async () => {
+    records.length = 0;
+
+    await (await server("/slow")).text();
+
+    expect(records).toHaveLength(1);
+    expect("aborted" in (records[0] as object)).toBe(false);
+  });
+});

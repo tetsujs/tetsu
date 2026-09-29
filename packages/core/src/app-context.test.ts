@@ -762,3 +762,92 @@ describe("when the request was taken", () => {
     expect(body.startedAt).toBeGreaterThan(0);
   });
 });
+
+describe("vary, from the handler and from a hook", () => {
+  const byOrigin = hook.beforeParse((ctx) => {
+    ctx.out.headers.append("vary", "origin");
+  });
+
+  const request = serve(
+    createApp({
+      hooks: { beforeParse: [byOrigin] },
+      routes: {
+        own: route({
+          method: "GET",
+          path: "/own",
+          handler: () =>
+            new Response("profile", {
+              headers: { "cache-control": "public", vary: "Cookie, Origin" },
+            }),
+        }),
+        plain: route({
+          method: "GET",
+          path: "/plain",
+          handler: (ctx) => {
+            ctx.out.headers.append("vary", "accept-language");
+
+            return "ok";
+          },
+        }),
+      },
+    }),
+  );
+
+  test("add up on a response the handler built, each once", async () => {
+    const res = await request("/own");
+
+    expect(res.headers.get("vary")).toBe("Cookie, Origin");
+  });
+
+  test("and on one the framework built", async () => {
+    const res = await request("/plain");
+
+    expect(res.headers.get("vary")).toBe("origin, accept-language");
+  });
+
+  test("a token both sides name, spelled differently, is there once", async () => {
+    const shouting = serve(
+      createApp({
+        hooks: { beforeParse: [byOrigin] },
+        routes: {
+          own: route({
+            method: "GET",
+            path: "/own",
+            handler: () => new Response("x", { headers: { vary: "ORIGIN" } }),
+          }),
+        },
+      }),
+    );
+
+    expect((await shouting("/own")).headers.get("vary")).toBe("ORIGIN");
+  });
+});
+
+describe("vary on a handler's response that a hook adds to", () => {
+  const byOrigin = hook.beforeParse((ctx) => {
+    ctx.out.headers.append("vary", "origin");
+  });
+
+  const request = serve(
+    createApp({
+      hooks: { beforeParse: [byOrigin] },
+      routes: {
+        own: route({
+          method: "GET",
+          path: "/own",
+          handler: () =>
+            new Response("profile", {
+              headers: { "cache-control": "public", vary: "cookie" },
+            }),
+        }),
+      },
+    }),
+  );
+
+  test("keeps the handler's tokens and adds the hook's", async () => {
+    const res = await request("/own");
+
+    expect(res.headers.get("vary")).toBe("cookie, origin");
+    expect(res.headers.get("cache-control")).toBe("public");
+  });
+});

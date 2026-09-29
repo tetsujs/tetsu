@@ -84,11 +84,21 @@ describe("an ordinary response", () => {
     expect(res.headers.get("vary")).toBe("origin");
   });
 
-  test("without an origin header is left alone", async () => {
+  test("without an origin header carries no CORS headers, and says it varies", async () => {
+    // A cache that stored this answer without `vary: origin` handed it —
+    // without `allow-origin` — to the allowed site's next request, and the
+    // browser refused it until the entry expired.
     const res = await request("/items");
 
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
-    expect(res.headers.get("vary")).toBeNull();
+    expect(res.headers.get("vary")).toBe("origin");
+  });
+
+  test("from an origin that is not allowed says it varies too", async () => {
+    const res = await request("/items", from("https://evil.example.com"));
+
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(res.headers.get("vary")).toBe("origin");
   });
 
   test("an error response carries them too", async () => {
@@ -180,5 +190,87 @@ describe("options", () => {
     expect(() => cors({ origin: "*", credentials: true })).toThrow(
       "cannot be combined with credentials",
     );
+  });
+});
+
+describe("an origin as the browser sends it", () => {
+  test.each([
+    ["https://app.example.com/", "https://app.example.com"],
+    ["https://App.Example.com", "https://app.example.com"],
+    ["https://app.example.com/admin", "https://app.example.com"],
+    ["https://app.example.com:443", "https://app.example.com"],
+  ])("%s is refused, naming the origin it means", (written, meant) => {
+    expect(() => cors({ origin: [written] })).toThrow(meant);
+  });
+
+  test("something that is not an address at all is refused", () => {
+    expect(() => cors({ origin: ["app.example.com"] })).toThrow(
+      "app.example.com",
+    );
+  });
+
+  test("an app or extension scheme is taken as a browser sends it", () => {
+    expect(() =>
+      cors({
+        origin: [
+          "chrome-extension://abcdefghijklmnop",
+          "capacitor://localhost",
+          "tauri://localhost",
+        ],
+      }),
+    ).not.toThrow();
+    expect(() => cors({ origin: ["Capacitor://Localhost"] })).toThrow(
+      "capacitor://localhost",
+    );
+    expect(() => cors({ origin: ["capacitor://localhost/"] })).toThrow(
+      "capacitor://",
+    );
+  });
+
+  test("a wildcard in a list, or a pattern, is refused", () => {
+    expect(() => cors({ origin: ["*"] })).toThrow('origin: "*"');
+    expect(() => cors({ origin: ["https://*.example.com"] })).toThrow(
+      "matched whole",
+    );
+    expect(() => cors({ origin: ["Null"] })).toThrow('"null"');
+  });
+
+  test("an origin, and null, are taken as they are", () => {
+    expect(() =>
+      cors({
+        origin: ["https://app.example.com", "http://localhost:5173", "null"],
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("a null origin with credentials", () => {
+  test("is refused, as the wildcard is: any site can send it", () => {
+    expect(() =>
+      cors({ origin: ["https://app.example.com", "null"], credentials: true }),
+    ).toThrow(/null/);
+    expect(() => cors({ origin: "null", credentials: true })).toThrow(/null/);
+  });
+
+  test("without credentials, it is allowed", () => {
+    expect(() => cors({ origin: ["null"] })).not.toThrow();
+  });
+});
+
+describe("a wildcard", () => {
+  test("does not vary, since every caller gets the same answer", async () => {
+    const open = serve(
+      createApp({
+        hooks: { beforeParse: [cors({ origin: "*" })] },
+        routes: new ApiController(),
+      }),
+    );
+
+    expect((await open("/items")).headers.get("vary")).toBeNull();
+    expect(
+      (await open("/items", from("https://app.example.com"))).headers.get(
+        "vary",
+      ),
+    ).toBeNull();
   });
 });
