@@ -210,17 +210,33 @@ A status nothing describes keeps its reason phrase — `Not Found`,
 
 Every failure reaches the application's `onError` hooks — a thrown
 `HttpError`, a validation or body failure, a `404`, a `405`, a rate limit's
-refusal — so one hook answers all of them in your format:
+refusal, and an error nothing expected — so one hook answers all of them in
+your format:
 
 ```ts
-const inOurFormat = hook.onError(({ error }) => {
-  if (!(error instanceof HttpError)) return undefined;
+const inOurFormat = hook.onError((ctx) => {
+  const { error } = ctx;
 
-  const { status, error: code, ...rest } = error.body as ErrorBody;
+  if (error instanceof HttpError) {
+    const { status, error: code, ...rest } = error.body as ErrorBody;
 
-  return Response.json({ code, ...rest }, { status });
+    return Response.json({ code, ...rest }, { status });
+  }
+
+  reportFailure(ctx, "unhandled", error);
+
+  return Response.json(
+    { code: "INTERNAL_SERVER_ERROR", message: "Internal Server Error" },
+    { status: 500 },
+  );
 });
 ```
+
+An error the hook answers is one nothing else reports: `reportError` hears
+of a failure only when no `onError` hook answered it. So the hook that
+answers the unexpected ones — a database gone, a `TypeError` — reports them
+itself; left out, they answer in your format and never reach the error
+tracker.
 
 The document is generated from the routes, not from that hook, so it is
 told the same format with `errors`:
@@ -269,16 +285,19 @@ code: (schema) => {
 
 The hook and `errors` describe one format in two places — the core knows
 nothing about documents, and a function cannot be read for the shape it
-returns — so keep a test that holds them together: provoke a failure and
-check its body against the document, with the JSON Schema validator of
-your choice.
+returns — so keep a test that holds them together: provoke the failures,
+the unexpected one included, and check each against the document with
+[`assertDescribed`](#testing-against-the-document):
 
 ```ts
-test("a validation failure is what the document says", async () => {
-  const res = await request("/items", { method: "POST", body: "{}" });
-  const schema = document.components?.schemas?.ValidationFailed;
+const boom = route({ method: "GET", path: "/boom", handler: () => { throw new Error("boom"); } });
+const app = createApp({ hooks: { onError: [inOurFormat] }, routes: [api, boom] });
+const request = serve(app);
+const { document } = openapi(app, { info, errors });
 
-  expect(validator.validate(schema, await res.json())).toBe(true);
+test("failures are what the document says", async () => {
+  await assertDescribed(document, "POST /items", await request("/items", { method: "POST", body: "{}" }));
+  await assertDescribed(document, "GET /boom", await request("/boom"));
 });
 ```
 
