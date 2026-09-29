@@ -18,6 +18,7 @@ import type {
   EarlyCtx,
   ParsedBody,
   RawBodyOf,
+  RouteInfo,
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
@@ -461,25 +462,52 @@ export interface HooksConfig {
  * the "later contribution wins" order that holds everywhere else. A hook
  * may still normalize a declared part; what the code downstream sees is
  * the validator's output. Parts without a schema are absent here, and a
- * hook's contribution to them survives, exactly as it does at runtime.
+ * hook's contribution to them survives, exactly as it does at runtime —
+ * except the body of a route that parses one without a schema: parsing
+ * overwrites what `beforeParse` put there (see {@link ParsesBody}), and a
+ * `beforeValidation` hook's body, which comes after parsing and before
+ * nothing that would overwrite it, stays.
  * Internal to the core.
  */
-type SchemaOwned<S extends SchemaConfig> = (S["params"] extends infer P extends
-  AnySchema
+type SchemaOwned<
+  S extends SchemaConfig,
+  B,
+  Raw,
+  H,
+> = (S["params"] extends infer P extends AnySchema
   ? { readonly params: InferOutput<P> }
   : unknown) &
   (S["query"] extends infer Q extends AnySchema
     ? { readonly query: InferOutput<Q> }
     : unknown) &
-  (S["body"] extends infer B extends AnySchema
-    ? { readonly body: InferOutput<B> }
-    : unknown) &
-  (S["headers"] extends infer H extends AnySchema
-    ? { readonly headers: InferOutput<H> }
+  (S["body"] extends infer Body extends AnySchema
+    ? { readonly body: InferOutput<Body> }
+    : ParsesBody<S, B, Raw> extends true
+      ? "body" extends keyof ExtOfStack<StackOf<H, "beforeValidation">>
+        ? unknown
+        : { readonly body: ParsedBody<B> }
+      : unknown) &
+  (S["headers"] extends infer Hd extends AnySchema
+    ? { readonly headers: InferOutput<Hd> }
     : unknown) &
   (S["cookies"] extends infer C extends AnySchema
     ? { readonly cookies: InferOutput<C> }
     : unknown);
+
+/**
+ * Whether the route parses a body: a body schema asks for it, and so do a
+ * declared `bodyType` and `rawBody` without one. Parsing replaces
+ * `ctx.body` whatever a `beforeParse` hook put there, so from
+ * `beforeValidation` on the body is what parsing produced. Internal to the
+ * core.
+ */
+type ParsesBody<S extends SchemaConfig, B, Raw> = S["body"] extends AnySchema
+  ? true
+  : [B] extends [undefined]
+    ? [Raw] extends [true]
+      ? true
+      : false
+    : true;
 
 /**
  * The context of the `beforeHandle` slot: everything the path, the schemas
@@ -498,7 +526,7 @@ type BeforeHandleCtx<
     Merge<ValidatedCtx<Path, S, B, Raw>, ExtOfStack<StackOf<H, "beforeParse">>>,
     ExtOfStack<StackOf<H, "beforeValidation">>
   >,
-  SchemaOwned<S>
+  SchemaOwned<S, B, Raw, H>
 >;
 
 /**
@@ -544,14 +572,86 @@ export type HandlerCtx<
  * With a `params` schema the honest type is a union: an error may arrive
  * before validation ran (raw path strings) or after (the schema's output),
  * and a hook cannot know which. Without a schema the raw strings are the
- * only shape that ever exists. Internal to the core.
+ * shape Bun's router gives. Either way a hook before the handler may have
+ * replaced them (see `Contributed`). Internal to the core.
  */
-type ResponseParams<
-  Path extends string,
+type ResponseParams<Path extends string, S extends SchemaConfig, H> =
+  | (S["params"] extends infer P extends AnySchema
+      ? ExtractParams<Path> | InferOutput<P>
+      : ExtractParams<Path>)
+  | Contributed<H, "params">;
+
+/**
+ * The parts a route's schemas own, as a response-slot or error hook can
+ * find them. These hooks run on every outcome, so a part holds whatever
+ * the request got to: the schema's output when validation passed; when it
+ * refused, what it was given — the request's own shape (the parsed body,
+ * the query as strings, headers and cookies as strings) or what a hook
+ * put there first; and what a `beforeHandle` hook put there after. A
+ * body a `beforeParse` hook returned is still there when parsing failed —
+ * a `400`, a `413` — since parsing replaces it only when it succeeds.
+ *
+ * A route that parses a body without a schema has the same honest body.
+ * Parts without a schema, and a body nothing parses, keep the hooks' type
+ * from `HandlerCtx`: nothing overwrites them. Internal to the core.
+ */
+type ResponseParts<
   S extends SchemaConfig,
-> = S["params"] extends infer P extends AnySchema
-  ? ExtractParams<Path> | InferOutput<P>
-  : ExtractParams<Path>;
+  H,
+  B,
+  Raw,
+> = (S["query"] extends infer Q extends AnySchema
+  ? {
+      readonly query?:
+        | InferOutput<Q>
+        | Record<string, string | string[]>
+        | Contributed<H, "query">;
+    }
+  : unknown) &
+  (S["body"] extends infer Body extends AnySchema
+    ? {
+        readonly body?:
+          | InferOutput<Body>
+          | ParsedBody<B>
+          | Contributed<H, "body">;
+      }
+    : ParsesBody<S, B, Raw> extends true
+      ? { readonly body?: ParsedBody<B> | Contributed<H, "body"> }
+      : unknown) &
+  (S["headers"] extends infer Hd extends AnySchema
+    ? {
+        readonly headers?:
+          | InferOutput<Hd>
+          | Record<string, string>
+          | Contributed<H, "headers">;
+      }
+    : unknown) &
+  (S["cookies"] extends infer C extends AnySchema
+    ? {
+        readonly cookies?:
+          | InferOutput<C>
+          | Record<string, string>
+          | Contributed<H, "cookies">;
+      }
+    : unknown);
+
+/**
+ * What the hooks before the handler may have left in one part: the
+ * contribution of each slot, as a union — which of them the part holds
+ * depends on how far the request got, not on the order they ran in.
+ * `never` when none contributes it.
+ */
+type Contributed<H, K extends string> =
+  | SlotContribution<H, "beforeParse", K>
+  | SlotContribution<H, "beforeValidation", K>
+  | SlotContribution<H, "beforeHandle", K>;
+
+type SlotContribution<H, Slot extends SlotName, K extends string> =
+  ExtOfStack<StackOf<H, Slot>> extends infer Ext
+    ? K extends keyof Ext
+      ? Ext[K]
+      : never
+    : never;
 
 /**
  * The context a response-slot hook receives.
@@ -559,9 +659,11 @@ type ResponseParams<
  * These slots run on every outcome, including short-circuits and errors
  * raised before the handler — so the schema-validated fields and the hook
  * extensions may never have been produced. They are therefore optional
- * here, and a hook that needs one has to narrow. The early context and the
- * response itself are guaranteed; `params` is guaranteed but honest about
- * timing — see `ResponseParams`.
+ * here, and a hook that needs one has to narrow. The early context, the
+ * route and the response itself are guaranteed — a route's own chain runs
+ * only for a request its route matched; `params` is guaranteed but honest
+ * about timing — see `ResponseParams` — and so are the other parts a
+ * schema owns (`ResponseParts`).
  *
  * Built with `Merge`, not an intersection: intersecting the raw and the
  * validated `params` shapes would collapse conflicting fields to `never`,
@@ -586,9 +688,10 @@ export type ResponseCtx<
 > = Merge<
   Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
-    readonly params: ResponseParams<Path, S>;
+    readonly route: RouteInfo;
+    readonly params: ResponseParams<Path, S, H>;
     readonly res: Res;
-  }
+  } & ResponseParts<S, H, B, Raw>
 >;
 
 /**
@@ -609,9 +712,10 @@ export type ErrorCtx<
 > = Merge<
   Partial<HandlerCtx<Path, S, H, B, Raw>>,
   BaseCtx & {
-    readonly params: ResponseParams<Path, S>;
+    readonly route: RouteInfo;
+    readonly params: ResponseParams<Path, S, H>;
     readonly error: unknown;
-  }
+  } & ResponseParts<S, H, B, Raw>
 >;
 
 /**
@@ -650,7 +754,9 @@ export type ValidateHooks<
         EarlyCtx<Path> & { readonly body: ParsedBody<B> } & RawBodyOf<Raw>,
         ExtOfStack<StackOf<H, "beforeParse">>
       >,
-      S["body"] extends AnySchema ? { readonly body: ParsedBody<B> } : unknown
+      ParsesBody<S, B, Raw> extends true
+        ? { readonly body: ParsedBody<B> }
+        : unknown
     >
   >;
   readonly beforeHandle?: ValidateStack<

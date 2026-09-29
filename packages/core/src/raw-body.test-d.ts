@@ -78,5 +78,5 @@ export const mapped: "POST /webhook" extends keyof AppRoutes<typeof app>
 // A handler that reads the bytes is called in a unit test with the bytes it
 // reads, no HTTP involved.
 export const unit = asked.handler(
-  testCtx({ params: {}, rawBody: new TextEncoder().encode("{}") }),
+  testCtx({ params: {}, body: {}, rawBody: new TextEncoder().encode("{}") }),
 );

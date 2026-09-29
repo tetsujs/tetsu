@@ -13,6 +13,7 @@ import type {
   FormBody,
   FormValue,
   Requires,
+  RouteInfo,
   SchemaConfig,
 } from "./context.ts";
 import { HttpError } from "./error.ts";
@@ -935,3 +936,63 @@ export type maybeBodyCases = [
     >
   >,
 ];
+
+/**
+ * The route is known in every slot of a route's own chain, the response
+ * slots and `onError` included: a hook asking for it mounts on a route.
+ */
+const logsRoute = hook.afterResponse((ctx: Requires<{ route: RouteInfo }>) => {
+  void ctx.route.path;
+});
+
+const mapsByRoute = hook.onError((ctx: Requires<{ route: RouteInfo }>) => {
+  void ctx.route.path;
+});
+
+const decoratesByRoute = hook.beforeResponse(
+  (ctx: Requires<{ route: RouteInfo }>) => {
+    void ctx.route.path;
+  },
+);
+
+route({
+  method: "GET",
+  path: "/routed",
+  hooks: {
+    beforeResponse: [decoratesByRoute],
+    afterResponse: [logsRoute],
+    onError: [mapsByRoute],
+  },
+  handler: () => ({ ok: true }),
+});
+
+const QtyBody = mockSchema<{ qty: number }>();
+
+/**
+ * A hook of a response slot or `onError` that trusts a validated body is
+ * refused: after a refusal the body is what the client sent.
+ */
+const trustsBody = hook.onError((ctx: Requires<{ body?: { qty: number } }>) => {
+  void ctx.body?.qty;
+});
+
+const readsBodyAsSent = hook.onError((ctx: Requires<{ body?: unknown }>) => {
+  void ctx.body;
+});
+
+route({
+  method: "POST",
+  path: "/trusts-body",
+  schema: { body: QtyBody },
+  // @ts-expect-error the body may be what the client sent, not the schema's output
+  hooks: { onError: [trustsBody] },
+  handler: () => undefined,
+});
+
+route({
+  method: "POST",
+  path: "/reads-body-as-sent",
+  schema: { body: QtyBody },
+  hooks: { onError: [readsBodyAsSent] },
+  handler: () => undefined,
+});
