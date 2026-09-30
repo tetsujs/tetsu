@@ -16,19 +16,19 @@
  * cache is an `await` before `Bun.serve`, and an `onStart` would only hide
  * where the process actually begins.
  *
- * Stopping does need something, because `Bun.Server.stop()` has three
- * behaviours a caller has to know about — all three measured, not assumed:
+ * Stopping does need something, because `Bun.Server.stop()` does not always
+ * return — measured, not assumed:
  *
  * | | |
  * | --- | --- |
  * | an in-flight request | `stop()` waits for it and it completes normally |
  * | an open WebSocket | `stop()` never resolves; `stop(true)` closes it at once |
- * | a socket the server itself closed | **neither form resolves** |
  *
- * The third is the trap: an application that closes a socket on its own —
- * a protocol violation, an idle timeout — can never `await` its own stop.
- * Everything here therefore races the platform against a deadline instead
- * of trusting it to return.
+ * A socket a client keeps open holds `stop()` for as long as the client
+ * wants. Earlier Bun releases also never returned from either form once
+ * the server had closed a socket itself; 1.4.2 does. Everything here races
+ * the platform against a deadline rather than trust it to return — and a
+ * socket endpoint closes its own on `draining` with `until`.
  *
  * @module
  */

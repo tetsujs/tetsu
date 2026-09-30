@@ -67,12 +67,17 @@ interface Handlers {
  */
 export function socketHandler(report: Reporter): WebSocketHandler<SocketState> {
   return {
-    open: (socket) => run(report, socket, "open", (on) => on.open?.(socket)),
+    open: (socket) => {
+      run(report, socket, "open", (on) => on.open?.(socket));
+      follow(report, socket);
+    },
 
     message: (socket, message) => deliver(report, socket, message),
 
-    close: (socket, code, reason) =>
-      run(report, socket, "close", (on) => on.close?.(socket, code, reason)),
+    close: (socket, code, reason) => {
+      unfollow(socket);
+      run(report, socket, "close", (on) => on.close?.(socket, code, reason));
+    },
 
     drain: (socket) => run(report, socket, "drain", (on) => on.drain?.(socket)),
 
@@ -82,6 +87,102 @@ export function socketHandler(report: Reporter): WebSocketHandler<SocketState> {
     pong: (socket, data) =>
       run(report, socket, "pong", (on) => on.pong?.(socket, data)),
   };
+}
+
+/**
+ * The open sockets waiting on each `until` signal, and what closes them.
+ *
+ * The listener is on a signal only while a socket waits on it: `draining`
+ * lives as long as the process, and a listener left on it would hold every
+ * socket that ever waited.
+ */
+const followed = new WeakMap<
+  AbortSignal,
+  { readonly sockets: Set<AnySocket>; readonly close: () => void }
+>();
+
+/** The signal each open socket waits on, so its close can let go of it. */
+const waitingOn = new WeakMap<AnySocket, AbortSignal>();
+
+/** The code a socket closes with when its server is going away. */
+const goingAway = 1001;
+
+/**
+ * Starts closing a socket with its endpoint's `until` — at once, when the
+ * signal has already fired: a socket opened while the server drains would
+ * otherwise hold the stop it was opened into.
+ */
+function follow(report: Reporter, socket: AnySocket): void {
+  const declared = endpointOf(socket).until;
+
+  if (declared === undefined || socket.readyState !== socketOpen) {
+    return;
+  }
+
+  let until: AbortSignal | undefined;
+
+  try {
+    until = typeof declared === "function" ? declared() : declared;
+  } catch (error) {
+    report({ source: "websocket", error }, "websocket until failed");
+
+    return;
+  }
+
+  if (until === undefined) {
+    return;
+  }
+
+  if (until.aborted) {
+    socket.close(goingAway, "going away");
+
+    return;
+  }
+
+  let entry = followed.get(until);
+
+  if (entry === undefined) {
+    const signal = until;
+    const sockets = new Set<AnySocket>();
+    const close = (): void => {
+      followed.delete(signal);
+
+      for (const open of sockets) {
+        open.close(goingAway, "going away");
+      }
+    };
+
+    entry = { sockets, close };
+    followed.set(signal, entry);
+    signal.addEventListener("abort", close, { once: true });
+  }
+
+  entry.sockets.add(socket);
+  waitingOn.set(socket, until);
+}
+
+/** Lets go of a socket that closed, and of its signal once nothing waits. */
+function unfollow(socket: AnySocket): void {
+  const until = waitingOn.get(socket);
+
+  if (until === undefined) {
+    return;
+  }
+
+  waitingOn.delete(socket);
+
+  const entry = followed.get(until);
+
+  if (entry === undefined) {
+    return;
+  }
+
+  entry.sockets.delete(socket);
+
+  if (entry.sockets.size === 0) {
+    followed.delete(until);
+    until.removeEventListener("abort", entry.close);
+  }
 }
 
 /**

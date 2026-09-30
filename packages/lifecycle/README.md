@@ -117,6 +117,19 @@ Not on `stopping`: during the delay the balancer is still sending traffic
 here, and a client that reconnects at once would land on this server again,
 to be closed again. After it, the client reconnects to one that stays.
 
+A WebSocket is the same: open for as long as its client wants, it holds
+every stop for `graceMs` and is then cut with `1006`. `until` on the
+endpoint closes its sockets with `1001` — going away — and a client that
+reconnects on it gets a server that stays. The endpoint is declared before
+the server exists, so it takes a function, asked as a socket opens:
+
+```ts
+chat = ws({ path: "/chat/:room", until: () => shutdown.draining, open, message });
+
+const server = Bun.serve({ ...app });
+const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+```
+
 ### Health checks
 
 The readiness check fails while stopping, and while something the instance
@@ -235,12 +248,13 @@ to be cut, and what a server's `stop` and the closers threw.
 ## Notes
 
 - **Why not just `server.stop()`.** Bun's `stop()` waits forever while a
-  WebSocket is open, and `stop()` or `stop(true)` never resolves once the
-  server has closed a socket itself. Every step here runs against a
-  deadline instead.
-- **WebSocket clients** see the connection close without a warning frame:
-  Bun has no list of open sockets to send one to. To warn them, publish to a
-  topic they subscribe to before shutting down.
+  client holds a WebSocket open, and earlier Bun releases never returned
+  from `stop()` or `stop(true)` once the server had closed a socket
+  itself. Every step here runs against a deadline instead.
+- **WebSocket clients** of an endpoint without `until` see the connection
+  cut with `1006` when the grace period runs out, and the stop is forced:
+  give the endpoint `until: () => shutdown.draining` — see
+  [Streams and long polls](#streams-and-long-polls).
 - **Startup needs nothing from this package.** Open pools and run
   migrations with an `await` before `Bun.serve`.
 - **Once per fleet** — a job that must run on one instance out of several —

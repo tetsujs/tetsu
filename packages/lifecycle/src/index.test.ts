@@ -152,6 +152,8 @@ async function spawned(body: string) {
   }
 
   return {
+    /** What the process printed up to `listening`, that line included. */
+    started: output,
     signal: () => child.kill("SIGTERM"),
     ended: async () => {
       const code = await child.exited;
@@ -713,7 +715,7 @@ describe("the draining signal", () => {
 
       const server = Bun.serve({ ...app, port: 0 });
 
-      holder.draining = onShutdownSignals(server, { graceMs: 5_000 }).draining;
+      holder.draining = onShutdownSignals(server, { graceMs: 3_000 }).draining;
 
       const res = await fetch(new URL("/feed", server.url));
       const reader = res.body.getReader();
@@ -737,6 +739,59 @@ describe("the draining signal", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
+  test("a socket closed on it lets the stop be clean and quick", async () => {
+    // A connected client and a grace period long enough that waiting it
+    // out would show: without until, the stop waits for the socket and
+    // cuts it with 1006.
+    const child = await spawned(`
+      const { createApp, ws } = await import("${import.meta.dir}/../../core/src/index.ts");
+
+      const holder = { draining: undefined };
+
+      const app = createApp({
+        routes: {
+          chat: ws({
+            path: "/chat",
+            until: () => holder.draining,
+            open: (socket) => socket.send("ready"),
+          }),
+        },
+      });
+
+      const server = Bun.serve({ ...app, port: 0 });
+
+      holder.draining = onShutdownSignals(server, { graceMs: 3_000 }).draining;
+
+      console.log("listening " + server.url);
+
+      setInterval(() => {}, 1000);
+    `);
+
+    // The client is this process: in the child it would end with it,
+    // before its close event could say anything.
+    const url = new URL("/chat", /listening (\S+)/.exec(child.started)?.[1]);
+
+    url.protocol = "ws:";
+
+    const socket = new WebSocket(url);
+    const closed = new Promise<number>((resolve) => {
+      socket.onclose = (event) => resolve(event.code);
+    });
+
+    await new Promise((resolve) => {
+      socket.onmessage = resolve;
+    });
+
+    const started = performance.now();
+
+    child.signal();
+
+    const { code } = await child.ended();
+
+    expect({ code, saw: await closed }).toEqual({ code: 0, saw: 1001 });
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test("lets a stream that closes on it end, so the stop is clean and quick", async () => {
     const child = await spawned(`
       const holder = { draining: undefined };
@@ -755,7 +810,7 @@ describe("the draining signal", () => {
         },
       });
 
-      holder.draining = onShutdownSignals(server, { graceMs: 5_000 }).draining;
+      holder.draining = onShutdownSignals(server, { graceMs: 3_000 }).draining;
 
       const res = await fetch(server.url);
       await res.body.getReader().read();
