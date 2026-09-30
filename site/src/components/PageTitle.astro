@@ -1,0 +1,320 @@
+---
+import Default from "@astrojs/starlight/components/PageTitle.astro";
+
+const { entry, hasSidebar } = Astro.locals.starlightRoute;
+const markdown = `/${entry.id}.md`;
+const prompt = `Read ${new URL(markdown, Astro.site)} so I can ask questions about it.`;
+const claude = `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
+---
+
+{
+  hasSidebar ? (
+    <div class="title-row">
+      <Default />
+      <copy-page class="not-content" data-markdown={markdown}>
+        <div class="split">
+          <button type="button" class="main" data-copy>
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="icon">
+              <rect x="8" y="8" width="13" height="13" rx="2" />
+              <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+            </svg>
+            <span data-label>Copy page</span>
+          </button>
+          <button
+            type="button"
+            class="toggle"
+            aria-label="More ways to use this page"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="copy-page-menu"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="icon caret">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+        <div class="menu" id="copy-page-menu" role="menu" hidden>
+          <button type="button" role="menuitem" data-copy>
+            <span class="box">
+              <svg aria-hidden="true" viewBox="0 0 24 24" class="icon">
+                <rect x="8" y="8" width="13" height="13" rx="2" />
+                <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+              </svg>
+            </span>
+            <span class="text">
+              <span class="name">Copy page</span>
+              <span class="hint">Markdown, ready to paste into an LLM</span>
+            </span>
+          </button>
+          <a href={markdown} role="menuitem">
+            <span class="box">
+              <svg aria-hidden="true" viewBox="0 0 24 24" class="icon">
+                <rect x="2" y="5" width="20" height="14" rx="2" />
+                <path d="M6 15V9l3 3 3-3v6M16 9v6m-2.5-2.5L16 15l2.5-2.5" />
+              </svg>
+            </span>
+            <span class="text">
+              <span class="name">View as Markdown</span>
+              <span class="hint">This page as plain text</span>
+            </span>
+          </a>
+          <a href={claude} role="menuitem" target="_blank" rel="noopener">
+            <span class="box">
+              <svg aria-hidden="true" viewBox="0 0 24 24" class="icon">
+                <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4" />
+              </svg>
+            </span>
+            <span class="text">
+              <span class="name">
+                Open in Claude
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="icon arrow">
+                  <path d="M7 17 17 7M8 7h9v9" />
+                </svg>
+              </span>
+              <span class="hint">Ask Claude about this page</span>
+            </span>
+          </a>
+        </div>
+        <span class="sr-only" aria-live="polite" data-status />
+      </copy-page>
+    </div>
+  ) : (
+    <Default />
+  )
+}
+
+<script>
+  class CopyPage extends HTMLElement {
+    connectedCallback() {
+      const url = this.dataset.markdown ?? "";
+      const toggle = this.querySelector<HTMLButtonElement>(".toggle");
+      const menu = this.querySelector<HTMLElement>(".menu");
+      const label = this.querySelector<HTMLElement>("[data-label]");
+      const status = this.querySelector<HTMLElement>("[data-status]");
+      if (!toggle || !menu || !label || !status) return;
+      const items = () => [...menu.querySelectorAll<HTMLElement>("[role=menuitem]")];
+
+      const open = (focusFirst: boolean) => {
+        menu.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+        if (focusFirst) items()[0]?.focus();
+      };
+      const close = (focusToggle: boolean) => {
+        menu.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+        if (focusToggle) toggle.focus();
+      };
+
+      // The Markdown is fetched inside the clipboard write, so Safari still
+      // counts the write as part of the click.
+      const copy = async () => {
+        const text = fetch(url).then((response) => {
+          if (!response.ok) throw new Error(`${response.status}`);
+          return response.text();
+        });
+        try {
+          if (typeof ClipboardItem !== "undefined") {
+            const blob = text.then((body) => new Blob([body], { type: "text/plain" }));
+            await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+          } else {
+            await navigator.clipboard.writeText(await text);
+          }
+          show("Copied");
+        } catch {
+          show("Copy failed");
+        }
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const show = (message: string) => {
+        label.textContent = message;
+        status.textContent = message;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          label.textContent = "Copy page";
+          status.textContent = "";
+        }, 2000);
+      };
+
+      for (const button of this.querySelectorAll<HTMLElement>("[data-copy]")) {
+        button.addEventListener("click", () => {
+          close(false);
+          void copy();
+        });
+      }
+      toggle.addEventListener("click", () => {
+        if (menu.hidden) open(false);
+        else close(false);
+      });
+      toggle.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          open(true);
+        }
+      });
+      menu.addEventListener("keydown", (event) => {
+        const list = items();
+        const index = list.indexOf(document.activeElement as HTMLElement);
+        if (event.key === "Escape") {
+          event.preventDefault();
+          close(true);
+        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const step = event.key === "ArrowDown" ? 1 : list.length - 1;
+          list[(index + step) % list.length]?.focus();
+        } else if (event.key === "Tab") {
+          close(false);
+        }
+      });
+      menu.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement).closest("a")) close(false);
+      });
+      document.addEventListener("click", (event) => {
+        if (!menu.hidden && !this.contains(event.target as Node)) close(false);
+      });
+    }
+  }
+  customElements.define("copy-page", CopyPage);
+</script>
+
+<style>
+  .title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .title-row > :global(h1) {
+    min-width: 0;
+  }
+  copy-page {
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 1.35rem;
+  }
+  .split {
+    display: flex;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+  .split button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 0;
+    background: none;
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+    cursor: pointer;
+  }
+  .split button:hover,
+  .split button[aria-expanded="true"] {
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+  }
+  .main {
+    padding: 0.4rem 0.75rem;
+    min-width: 7.5rem;
+  }
+  .toggle {
+    padding: 0.4rem 0.55rem;
+    border-left: 1px solid var(--sl-color-gray-5) !important;
+  }
+  .icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .caret {
+    transition: transform 0.15s;
+  }
+  [aria-expanded="true"] .caret {
+    transform: rotate(180deg);
+  }
+  .menu {
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    z-index: 10;
+    width: max-content;
+    max-width: calc(100vw - 2rem);
+    padding: 0.35rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+    box-shadow: var(--sl-shadow-md);
+  }
+  .menu[hidden] {
+    display: none;
+  }
+  .menu [role="menuitem"] {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: none;
+    color: var(--sl-color-white);
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .menu [role="menuitem"]:hover,
+  .menu [role="menuitem"]:focus-visible {
+    background: var(--sl-color-gray-6);
+    outline: none;
+  }
+  .box {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    flex-shrink: 0;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.35rem;
+    color: var(--sl-color-gray-2);
+  }
+  .text {
+    display: grid;
+    gap: 0.1rem;
+  }
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+  }
+  .arrow {
+    width: 0.8rem;
+    height: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+  .hint {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+
+  @media (max-width: 40rem) {
+    .title-row {
+      flex-direction: column;
+      gap: 0;
+    }
+    copy-page {
+      margin-top: 0.75rem;
+    }
+    .menu {
+      right: auto;
+      left: 0;
+    }
+  }
+</style>

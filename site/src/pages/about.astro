@@ -1,0 +1,291 @@
+---
+import { Image } from "astro:assets";
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import mark from "../assets/logo/tetsu-mark.svg";
+
+const refusals = [
+  {
+    title: "No decorators",
+    text: "A decorator cannot put an inferred type into a method's signature, so every handler would be annotated by hand — and the metadata it writes is a second program the compiler cannot read.",
+  },
+  {
+    title: "No container",
+    text: "Without runtime reflection, dependency injection is tokens and ceremony. One file that builds everything and hands it over is shorter, and a reader can follow it.",
+  },
+  {
+    title: "No router of its own",
+    text: "Bun already matches paths natively. A second matcher would be a second opinion on which route a request belongs to, and the two would one day disagree.",
+  },
+  {
+    title: "No plugins",
+    text: "A package is one hook in one slot. Registration at runtime would make what runs for a route something to look up instead of something to read.",
+  },
+  {
+    title: "No middleware chain",
+    text: "Around next(), when a function runs is a property of the call stack. In a fixed slot it is a name, and the compiler can check the order.",
+  },
+  {
+    title: "No dependencies",
+    text: "The core depends on nothing. Validation is Standard Schema — an interface, not a package — so the schema library is yours.",
+  },
+];
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "About",
+    description: "Why Tetsu is called iron, what its oni with an iron club means, and the ideas the framework is built on.",
+    template: "splash",
+    hero: { title: "About" },
+    pagefind: false,
+    head: [
+      { tag: "meta", attrs: { property: "og:title", content: "About Tetsu" } },
+      { tag: "meta", attrs: { property: "og:type", content: "website" } },
+    ],
+  }}
+>
+  <div class="about not-content">
+    <section class="opening">
+      <Image
+        src={mark}
+        alt="The Tetsu mark: a red oni holding an iron club"
+        class="mark"
+        width={320}
+        height={320}
+        loading="eager"
+        fetchpriority="high"
+      />
+      <div>
+        <p class="kanji" lang="ja">鉄</p>
+        <h1>Tetsu means iron.</h1>
+        <p class="lead">
+          Not a metaphor for speed or elegance — the plain material. Iron does what it looks
+          like it does. You can see how a piece of it was made and where it is joined, and it holds.
+          That is what the framework tries to be.
+        </p>
+        <p class="motto">No magic. Just iron.</p>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>The oni and the iron club</h2>
+      <div class="columns">
+        <div>
+          <p>
+            An old Japanese saying goes <span lang="ja">鬼に金棒</span> — <em>oni ni kanabō</em>,
+            “an iron club for the oni”. The oni is already the strongest creature in the story; give
+            it an iron club and nothing stands in its way. It is said of someone capable who has just
+            been handed the right tool.
+          </p>
+          <p>
+            In the mark, the oni is the developer — the one who already knows the domain, the data and
+            the users. Tetsu is the club: a tool of plain iron, made to be held, that adds weight to
+            every blow without getting in the way of the hand.
+          </p>
+        </div>
+        <ul class="details">
+          <li><strong>Red</strong> is the colour of the <em>aka-oni</em>, the red oni of Japanese folklore.</li>
+          <li><strong>The narrowed eyes</strong> watch. The compiler catches what would break before it runs.</li>
+          <li><strong>No mouth.</strong> The framework does not talk: no hidden behaviour, no conventions to guess.</li>
+          <li><strong>The club is iron, with rivets you can count.</strong> Every part is visible, and every joint is where you put it.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>What you write is what runs</h2>
+      <p class="wide">
+        Open any route and everything that happens to its request is written there: the path, the
+        schemas, the hooks by slot, the handler. Open the file that starts the server and every
+        instance the application runs on is built there, by hand. There is no registry, no file
+        scanning, no reflection and no configuration that lives somewhere else. What you read is
+        the whole program.
+      </p>
+      <p class="wide">
+        The types follow the same rule. A field is on the context exactly when it exists at that
+        point of the request — the body after it was validated, the user after the hook that found
+        them — and the compiler checks the order of hooks, what each needs and what each adds. A
+        type that says something the program does not do is a bug, whichever side it is on.
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>What it will not do, and why</h2>
+      <ul class="refusals">
+        {
+          refusals.map((refusal) => (
+            <li>
+              <h3>{refusal.title}</h3>
+              <p>{refusal.text}</p>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>What it borrows</h2>
+      <p class="wide">
+        Tetsu is not a new paradigm. It recombines ideas that proved themselves elsewhere: a request
+        lifecycle with named stages, as in Elysia, without the method chain; hooks in fixed places,
+        as in Fastify, with their types inferred; controllers and explicit composition, as in Nest,
+        without decorators or a container. The value is in the combination — and in holding each
+        piece to the same rule. The <a href="/docs/more/comparison/">comparison</a> says what it
+        costs and when another framework fits better.
+      </p>
+    </section>
+
+    <section class="block who">
+      <h2>Who makes it</h2>
+      <p class="wide">
+        Tetsu is an open-source project under the MIT license, built in the open on GitHub. Questions,
+        bugs and ideas go to the <a href="https://github.com/tetsujs/tetsu/issues">issue tracker</a>;
+        anything else to <a href="mailto:hello@tetsujs.com">hello@tetsujs.com</a>.
+      </p>
+      <div class="actions">
+        <a class="button" href="/docs/">Read the docs</a>
+        <a class="link" href="https://github.com/tetsujs/tetsu">GitHub →</a>
+      </div>
+    </section>
+  </div>
+</StarlightPage>
+
+<style is:global>
+  :root:not([data-has-sidebar]) {
+    --sl-content-width: 76rem;
+  }
+</style>
+
+<style>
+  .about {
+    padding-block: 2rem 3rem;
+  }
+  .opening {
+    display: grid;
+    gap: 2rem 4rem;
+    align-items: center;
+    padding-bottom: 3rem;
+  }
+  @media (min-width: 56rem) {
+    .opening {
+      grid-template-columns: 20rem 1fr;
+    }
+  }
+  .mark {
+    width: min(20rem, 70vw);
+    height: auto;
+    justify-self: center;
+  }
+  .kanji {
+    font-size: 3rem;
+    line-height: 1;
+    color: var(--tetsu-red);
+    margin: 0 0 0.75rem;
+  }
+  h1 {
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+    margin: 0;
+  }
+  .lead {
+    font-size: 1.15rem;
+    line-height: 1.65;
+    color: var(--sl-color-gray-2);
+    margin: 1.25rem 0;
+    max-width: 38rem;
+  }
+  .motto {
+    font-weight: 700;
+    color: var(--sl-color-white);
+    margin: 0;
+  }
+  .block {
+    padding-block: 3rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+  h2 {
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    letter-spacing: -0.02em;
+    color: var(--sl-color-white);
+    margin: 0 0 1.25rem;
+  }
+  p {
+    color: var(--sl-color-gray-2);
+    line-height: 1.7;
+  }
+  .wide {
+    max-width: 46rem;
+    margin: 0 0 1rem;
+  }
+  .columns {
+    display: grid;
+    gap: 1.5rem 3rem;
+  }
+  @media (min-width: 56rem) {
+    .columns {
+      grid-template-columns: 1.2fr 1fr;
+    }
+  }
+  .columns p {
+    margin: 0 0 1rem;
+  }
+  .details {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+  .details li {
+    padding-inline-start: 1rem;
+    border-inline-start: 2px solid var(--tetsu-red);
+    color: var(--sl-color-gray-2);
+    line-height: 1.6;
+  }
+  .details strong {
+    color: var(--sl-color-white);
+  }
+  .refusals {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.5rem 2.5rem;
+  }
+  @media (min-width: 50rem) {
+    .refusals {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .refusals h3 {
+    color: var(--sl-color-white);
+    font-size: 1.05rem;
+    margin: 0 0 0.4rem;
+  }
+  .refusals p {
+    margin: 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+  }
+  .actions {
+    display: flex;
+    gap: 1.25rem;
+    align-items: center;
+    margin-top: 1.5rem;
+  }
+  .button {
+    padding: 0.7rem 1.25rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-decoration: none;
+    background: var(--tetsu-red);
+    color: #fff;
+  }
+  .link {
+    color: var(--sl-color-white);
+    font-weight: 600;
+    text-decoration: none;
+  }
+</style>

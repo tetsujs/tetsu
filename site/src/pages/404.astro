@@ -1,0 +1,103 @@
+---
+import { Image } from "astro:assets";
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import mark from "../assets/logo/tetsu-mark.svg";
+
+const envelope = `{ "status": 404, "message": "Not Found", "error": "NOT_FOUND" }`;
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Page not found",
+    description: "There is no page at this address.",
+    template: "splash",
+    hero: { title: "Page not found" },
+    pagefind: false,
+    head: [{ tag: "meta", attrs: { name: "robots", content: "noindex" } }],
+  }}
+>
+  <section class="missing not-content">
+    <Image src={mark} alt="" class="mark" width={160} height={160} loading="eager" />
+    <p class="kicker">Error 404</p>
+    <h1>No route matches this path.</h1>
+    <p class="lead">The page may have moved, or never existed. Tetsu would have answered:</p>
+    <code class="envelope">{envelope}</code>
+    <div class="actions">
+      <a class="button primary" href="/">Home</a>
+      <a class="button" href="/docs/">Documentation</a>
+    </div>
+  </section>
+</StarlightPage>
+
+<style>
+  .missing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-block: 3rem 5rem;
+  }
+  .mark {
+    width: 10rem;
+    height: auto;
+    margin-bottom: 1.5rem;
+    translate: calc(10rem * (337 - 236) / 674) 0;
+  }
+  .kicker {
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: var(--sl-text-sm);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+    margin: 0 0 0.75rem;
+  }
+  h1 {
+    font-size: clamp(2.25rem, 5vw, 3.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+    margin: 0;
+  }
+  .lead {
+    color: var(--sl-color-gray-2);
+    font-size: 1.1rem;
+    margin: 1.25rem 0 1rem;
+  }
+  .envelope {
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+    background: var(--sl-color-gray-6);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    padding: 0.6rem 1rem;
+    max-width: 100%;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+  .button {
+    padding: 0.7rem 1.4rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--sl-color-white);
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .button:hover {
+    border-color: var(--sl-color-gray-3);
+  }
+  .primary {
+    background: var(--tetsu-red);
+    border-color: var(--tetsu-red);
+    color: #fff;
+  }
+  .primary:hover {
+    background: var(--tetsu-red-deep);
+    border-color: var(--tetsu-red-deep);
+  }
+</style>

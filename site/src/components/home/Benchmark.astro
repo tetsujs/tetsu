@@ -1,0 +1,138 @@
+---
+import data from "../../data/benchmark.json";
+
+const [bare] = data.targets;
+
+if (!bare) throw new Error("benchmark.json: no baseline");
+
+const scale = Math.ceil(
+  Math.max(...data.targets.flatMap((target) => target.values)),
+);
+---
+
+<section class="section">
+  <p class="kicker">Performance</p>
+  <h2>A fraction of a microsecond over Bun itself.</h2>
+  <p class="intro">
+    Processor time per request, lower is better. The same four routes in every framework, each
+    server and each load generator in its own process. Not the fastest on every route — close to
+    the platform on all of them.
+  </p>
+  <div class="panels">
+    {
+      data.routes.map((route, index) => (
+        <figure class="panel">
+          <figcaption>{route}</figcaption>
+          <ul>
+            {data.targets.map((target) => {
+              const value = target.values[index] ?? 0;
+              const over = value - (bare.values[index] ?? 0);
+              return (
+                <li class:list={{ self: target.self, bare: target === bare }}>
+                  <span class="name">{target.name}</span>
+                  <span class="track">
+                    <span class="bar" style={`width: ${(value / scale) * 100}%`} />
+                  </span>
+                  <span class="value">
+                    {value.toFixed(2)} µs
+                    {target !== bare && <span class="over">+{over.toFixed(2)}</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </figure>
+      ))
+    }
+  </div>
+  <p class="note">
+    Bun 1.4.2, Apple M5 Pro, 2026-09-27, medians of three interleaved rounds.
+    <a href="https://github.com/tetsujs/tetsu/tree/main/bench">Method and every number</a>
+  </p>
+</section>
+
+<style>
+  .panels {
+    display: grid;
+    gap: 1.25rem 2.5rem;
+  }
+  @media (min-width: 50rem) {
+    .panels {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .panel {
+    margin: 0;
+  }
+  figcaption {
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-white);
+    margin-bottom: 0.5rem;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+  li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "name value" "track track";
+    align-items: center;
+    gap: 0.2rem 0.75rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+  .name {
+    grid-area: name;
+  }
+  .track {
+    grid-area: track;
+    height: 0.6rem;
+  }
+  .value {
+    grid-area: value;
+  }
+  @media (min-width: 40rem) {
+    li {
+      grid-template-columns: 9rem 1fr 7.5rem;
+      grid-template-areas: "name track value";
+      gap: 0.75rem;
+    }
+  }
+  .bar {
+    display: block;
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    background: var(--sl-color-gray-5);
+  }
+  .bare .bar {
+    background: var(--sl-color-gray-4);
+  }
+  .self {
+    color: var(--sl-color-white);
+    font-weight: 600;
+  }
+  .self .bar {
+    background: var(--tetsu-red);
+  }
+  .value {
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+  }
+  .over {
+    color: var(--sl-color-gray-3);
+    margin-inline-start: 0.4rem;
+  }
+  .note {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    margin-top: 1.5rem;
+  }
+  .note a {
+    margin-inline-start: 0.5rem;
+  }
+</style>

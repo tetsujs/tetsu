@@ -1,0 +1,182 @@
+---
+import ContentPanel from "@astrojs/starlight/components/ContentPanel.astro";
+import mark from "../assets/logo/tetsu-mark.svg";
+import wordmarkDark from "../assets/logo/tetsu-wordmark-dark.svg";
+import wordmarkLight from "../assets/logo/tetsu-wordmark-light.svg";
+
+const { hasSidebar } = Astro.locals.starlightRoute;
+const repo = "https://github.com/tetsujs/tetsu";
+
+const columns = [
+  {
+    title: "Docs",
+    links: [
+      { label: "Introduction", href: "/docs/" },
+      { label: "Quick start", href: "/docs/quick-start/" },
+      { label: "Key concepts", href: "/docs/key-concepts/" },
+      { label: "Guides", href: "/docs/guides/structuring/" },
+      { label: "Reference", href: "/docs/reference/create-app/" },
+      { label: "FAQ", href: "/docs/more/faq/" },
+    ],
+  },
+  {
+    title: "Packages",
+    links: [
+      { label: "@tetsujs/core", href: "/docs/packages/core/" },
+      { label: "@tetsujs/openapi", href: "/docs/packages/openapi/" },
+      { label: "@tetsujs/typebox", href: "/docs/packages/typebox/" },
+      { label: "@tetsujs/cors", href: "/docs/packages/cors/" },
+      { label: "@tetsujs/rate-limit", href: "/docs/packages/rate-limit/" },
+      { label: "All packages", href: "/docs/installation/#other-packages" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "About", href: "/about/" },
+      { label: "GitHub", href: repo },
+      { label: "Releases", href: `${repo}/releases` },
+      { label: "Contributing", href: `${repo}/blob/main/CONTRIBUTING.md` },
+      { label: "Security", href: `${repo}/blob/main/SECURITY.md` },
+      { label: "hello@tetsujs.com", href: "mailto:hello@tetsujs.com" },
+    ],
+  },
+];
+---
+
+{
+  hasSidebar ? (
+    <footer class="not-content compact">
+      <ContentPanel>
+        <p class="legal">
+          <a href={`${repo}/blob/main/LICENSE`}>MIT License</a> · © 2026 tetsuodev
+        </p>
+      </ContentPanel>
+    </footer>
+  ) : (
+    <footer class="not-content">
+      <ContentPanel>
+        <div class="site-footer-frame">
+          <div class="site-footer">
+            <div class="brand">
+              <a href="/" class="logo" aria-label="Tetsu home">
+                <img class="mark" src={mark.src} alt="" width="96" height="96" />
+                <img class="wordmark light:sl-hidden" src={wordmarkDark.src} alt="" width="940" height="253" />
+                <img class="wordmark dark:sl-hidden" src={wordmarkLight.src} alt="" width="940" height="253" />
+              </a>
+              <p>The HTTP framework for Bun.<br />No magic. Just iron.</p>
+            </div>
+
+            {
+              columns.map((column) => (
+                <nav aria-label={column.title}>
+                  <h2>{column.title}</h2>
+                  <ul>
+                    {column.links.map((link) => (
+                      <li>
+                        <a href={link.href}>{link.label}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              ))
+            }
+
+            <p class="legal">
+              <a href={`${repo}/blob/main/LICENSE`}>MIT License</a> · © 2026 tetsuodev
+            </p>
+          </div>
+        </div>
+      </ContentPanel>
+    </footer>
+  )
+}
+
+<style>
+  .compact .legal {
+    padding-block: 1rem 0.5rem;
+  }
+  .site-footer-frame {
+    container-type: inline-size;
+  }
+  .site-footer {
+    display: grid;
+    gap: 2rem 3rem;
+    grid-template-columns: repeat(3, 1fr);
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-size: var(--sl-text-sm);
+  }
+  .brand {
+    grid-column: 1 / -1;
+  }
+  @container (max-width: 30rem) {
+    .site-footer {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  @container (min-width: 56rem) {
+    .site-footer {
+      grid-template-columns: 1.4fr repeat(3, 1fr);
+    }
+    .brand {
+      grid-column: auto;
+    }
+  }
+  .logo {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: 0.24rem;
+    margin-bottom: -1.03rem;
+    text-decoration: none;
+  }
+  .mark {
+    height: 6rem;
+    width: auto;
+    translate: 0 -0.6663rem;
+  }
+  .wordmark {
+    height: 1.95rem;
+    width: auto;
+  }
+  .brand p {
+    color: var(--sl-color-gray-3);
+    margin: 1rem 0 0;
+    line-height: 1.6;
+  }
+  h2 {
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    margin: 0 0 0.75rem;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  nav a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+  nav a:hover,
+  .legal a:hover {
+    color: var(--sl-color-white);
+  }
+  .legal a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .legal {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding-block: 1.5rem 0.5rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+</style>

@@ -1,0 +1,16 @@
+{
+  "source": "bench/README.md, snapshot of 2026-09-27: Bun 1.4.2, Apple M5 Pro, 3 rounds",
+  "unit": "processor µs per request",
+  "routes": [
+    "GET /ping",
+    "GET /users/:id + 2 hooks",
+    "POST /items, validated",
+    "404"
+  ],
+  "targets": [
+    { "name": "Bun, no framework", "values": [4.78, 4.81, 5.85, 4.82] },
+    { "name": "Tetsu", "values": [4.95, 5.09, 6.6, 5.13], "self": true },
+    { "name": "Elysia 1.4", "values": [4.89, 5.13, 6.31, 4.91] },
+    { "name": "Hono 4.13", "values": [5.16, 5.87, 6.88, 5.41] }
+  ]
+}

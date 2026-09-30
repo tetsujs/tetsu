@@ -1,0 +1,91 @@
+---
+const principles = [
+  {
+    title: "Controllers without decorators",
+    text: "A named function from its dependencies to its routes, called once where the application is wired.",
+  },
+  {
+    title: "Flat, and no magic",
+    text: "No registry, no file scanning, no reflection, no container. Any point of the application reads top to bottom.",
+  },
+  {
+    title: "Types do not lie",
+    text: "A field is on ctx exactly when it exists: the body after validation, the user after the hook that found them.",
+  },
+  {
+    title: "Explicit over DRY",
+    text: "A route lists its own hooks, so reading it shows everything that runs, and in what order.",
+  },
+  {
+    title: "The platform, not a wrapper",
+    text: "Bun's router, Headers, CookieMap, the real server. No dependencies in the core.",
+  },
+];
+---
+
+<section class="section">
+  <p class="kicker">Principles</p>
+  <h2>Iron, not magic.</h2>
+  <ol class="grid">
+    {
+      principles.map((principle) => (
+        <li>
+          <h3>{principle.title}</h3>
+          <p>{principle.text}</p>
+        </li>
+      ))
+    }
+    <li class="more">
+      <a href="/about/">Why it is built this way →</a>
+    </li>
+  </ol>
+</section>
+
+<style>
+  .grid {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 1px;
+    background: var(--sl-color-gray-5);
+    border: 1px solid var(--sl-color-gray-5);
+    counter-reset: principle;
+  }
+  @media (min-width: 50rem) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  li {
+    background: var(--sl-color-black);
+    padding: 1.5rem;
+    counter-increment: principle;
+  }
+  li:not(.more)::before {
+    content: "0" counter(principle);
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    color: var(--tetsu-red);
+    font-size: var(--sl-text-sm);
+  }
+  h3 {
+    color: var(--sl-color-white);
+    font-size: 1.05rem;
+    margin: 0.5rem 0;
+  }
+  p {
+    color: var(--sl-color-gray-2);
+    margin: 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+  }
+  .more {
+    display: grid;
+    place-items: center;
+  }
+  .more a {
+    color: var(--sl-color-white);
+    font-weight: 600;
+    text-decoration: none;
+  }
+</style>

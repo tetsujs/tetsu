@@ -1,0 +1,80 @@
+---
+const packages = [
+  {
+    name: "core",
+    text: "routes, hooks, validation, WebSockets — the framework",
+  },
+  {
+    name: "openapi",
+    text: "an OpenAPI 3.1 document and docs page from the routes",
+  },
+  { name: "typebox", text: "TypeBox schemas as DTOs, file uploads included" },
+  { name: "cors", text: "CORS" },
+  { name: "rate-limit", text: "rate limiting with a replaceable store" },
+  { name: "request-id", text: "request ids" },
+  { name: "request-log", text: "access and arrival logs" },
+  { name: "secure-headers", text: "security headers" },
+  { name: "sse", text: "server-sent events and streamed responses" },
+  { name: "lifecycle", text: "graceful shutdown" },
+];
+---
+
+<section class="section">
+  <p class="kicker">Packages</p>
+  <h2>Official, versioned together.</h2>
+  <p class="intro">Each one is a hook or a controller — mounted like your own, nothing registered.</p>
+  <ul class="grid">
+    {
+      packages.map((pkg) => (
+        <li>
+          <a href={`/docs/packages/${pkg.name}/`}>
+            <code>@tetsujs/{pkg.name}</code>
+            <span>{pkg.text}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .grid {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  @media (min-width: 40rem) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 64rem) {
+    .grid {
+      grid-template-columns: repeat(5, 1fr);
+    }
+  }
+  a {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    height: 100%;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    text-decoration: none;
+  }
+  a:hover {
+    border-color: var(--sl-color-gray-3);
+  }
+  code {
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-sm);
+  }
+  span {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    line-height: 1.5;
+  }
+</style>

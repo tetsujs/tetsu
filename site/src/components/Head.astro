@@ -1,0 +1,8 @@
+---
+import Default from "@astrojs/starlight/components/Head.astro";
+
+const { entry, hasSidebar } = Astro.locals.starlightRoute;
+---
+
+<Default />
+{hasSidebar && <link rel="alternate" type="text/markdown" href={`/${entry.id}.md`} />}

@@ -1,0 +1,114 @@
+@layer tetsu.before-starlight;
+
+:root {
+  --tetsu-red: #ce0b18;
+  --tetsu-red-deep: #9e0e1d;
+  --tetsu-bone: #f4e4c1;
+  --tetsu-iron: #8d8a95;
+  --sl-color-accent-low: #3d0a0e;
+  --sl-color-accent: #ce0b18;
+  --sl-color-accent-high: #ffb4ae;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ffdcd8;
+  --sl-color-accent: #ce0b18;
+  --sl-color-accent-high: #7a0710;
+}
+
+a[rel="me"] {
+  color: var(--sl-color-gray-2);
+}
+
+a[rel="me"]:hover {
+  color: var(--sl-color-white);
+}
+
+/*
+ * The header: the oni's head, the middle of the lowercase "tetsu" and the
+ * middle of the menu's "o" sit on one line. The club rises above the head
+ * and the chin barely below it, so the whole row is lowered until the mark
+ * is centred in the bar, and the wordmark tucks in under the club.
+ */
+:root {
+  --sl-nav-height: 4rem;
+  --logo-mark: 3.2rem;
+  --logo-word: 1.1rem;
+  --logo-gap: -0.77rem;
+  --logo-menu-gap: 1.5rem;
+  --logo-mark-shift: -0.3715rem;
+  --logo-word-shift: -0.09rem;
+  --header-row-shift: 0.4677rem;
+}
+
+@media (min-width: 50rem) {
+  :root {
+    --sl-nav-height: 5rem;
+    --logo-mark: 4rem;
+    --logo-word: 1.3rem;
+    --logo-gap: -0.96rem;
+    --logo-menu-gap: 2rem;
+    --logo-mark-shift: -0.4644rem;
+    --logo-word-shift: -0.1094rem;
+    --header-row-shift: 0.5846rem;
+  }
+}
+
+/*
+ * On a wide screen the page is laid out as if the window were no wider
+ * than --tetsu-layout, centred: the header's contents, the sidebar's links,
+ * the text and its table of contents. The header's and the sidebar's
+ * backgrounds still reach the edges.
+ */
+:root {
+  --tetsu-layout: 90rem;
+  --tetsu-gutter: max(0rem, calc((100vw - var(--tetsu-layout)) / 2));
+}
+
+@media (min-width: 50rem) {
+  header.header {
+    padding-inline: calc(var(--sl-nav-pad-x) + var(--tetsu-gutter));
+  }
+
+  .sidebar-pane {
+    width: calc(var(--sl-sidebar-width) + var(--tetsu-gutter));
+    padding-inline-start: var(--tetsu-gutter);
+  }
+
+  .main-frame {
+    padding-inline-start: calc(
+      var(--sl-content-inline-start, 0rem) +
+      var(--tetsu-gutter)
+    );
+    padding-inline-end: var(--tetsu-gutter);
+  }
+}
+
+/*
+ * An open type box (`^?`) starts under the identifier it names and is never
+ * wider than the visible code block: a long type wraps instead of running
+ * out of it. On a narrow screen the box starts at the line's beginning,
+ * where there is room to wrap.
+ */
+.expressive-code pre {
+  container-type: inline-size;
+}
+
+/*
+ * The plugin's own limits are `!important` inside Starlight's
+ * `starlight.components` layer, which beats anything unlayered. An
+ * important rule in a layer declared before Starlight's wins over it.
+ */
+@layer tetsu.before-starlight {
+  .expressive-code .twoslash-static .twoslash-popup-code {
+    /* biome-ignore lint/complexity/noImportantStyles: only an important rule outranks the plugin's */
+    max-width: min(600px, calc(100cqi - 3rem)) !important;
+  }
+}
+
+@media (max-width: 50rem) {
+  .expressive-code .twoslash-static {
+    /* biome-ignore lint/complexity/noImportantStyles: the plugin sets the margin inline */
+    margin-left: 0 !important;
+  }
+}
