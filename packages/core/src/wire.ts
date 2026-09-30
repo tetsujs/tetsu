@@ -485,18 +485,40 @@ export function signedCookie(ctx: BaseCtx, name: string): string | undefined {
  * holds its value opened, or nothing when the seal does not hold,
  * whichever way it came. So what a hook returns under a signed name is the
  * sealed value — the client's own token, passed on from another header —
- * never an opened one: `signedCookie()`'s result under `cookies` is opened
- * a second time, and is gone.
+ * or the value the context already holds there, opened: a hook passing
+ * `ctx.cookies` on keeps its session. Any other opened value —
+ * `signedCookie()`'s result put under `cookies` — is opened a second time,
+ * and is gone.
  */
-export function openedCookies(cookies: unknown, sealer: CookieSealer): unknown {
+export function openedCookies(
+  cookies: unknown,
+  sealer: CookieSealer,
+  trusted?: unknown,
+): unknown {
   if (cookies === null || typeof cookies !== "object") {
     return cookies;
   }
 
   const opened: Record<string, unknown> = Object.create(null);
+  const already =
+    trusted !== null && typeof trusted === "object"
+      ? (trusted as Record<string, unknown>)
+      : undefined;
 
   for (const [name, value] of Object.entries(cookies)) {
     if (!sealer.covers(name)) {
+      opened[name] = value;
+
+      continue;
+    }
+
+    // The value the context already held under this name was opened when
+    // it got there; handed back as it was, it stays.
+    if (
+      already !== undefined &&
+      Object.hasOwn(already, name) &&
+      already[name] === value
+    ) {
       opened[name] = value;
 
       continue;

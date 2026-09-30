@@ -68,13 +68,18 @@ const protectedKeys = new Set([
  */
 export function extendContext(ctx: PipelineCtx, extension: object): void {
   const target = ctx as unknown as Record<string, unknown>;
+  const sealer: CookieSealer | undefined = ctx[sealerKey];
+  const opening = sealer !== undefined && Object.hasOwn(extension, "cookies");
+
+  // What the context held before: opened already, by validation or by an
+  // earlier hook — a hook passing it on (`{ ...ctx.cookies, locale }`)
+  // must not have it opened a second time, and lost.
+  const trusted = opening ? target["cookies"] : undefined;
 
   copyContributed(extension as Record<string, unknown>, target);
 
-  const sealer: CookieSealer | undefined = ctx[sealerKey];
-
-  if (sealer !== undefined && Object.hasOwn(extension, "cookies")) {
-    target["cookies"] = openedCookies(target["cookies"], sealer);
+  if (opening) {
+    target["cookies"] = openedCookies(target["cookies"], sealer, trusted);
   }
 }
 

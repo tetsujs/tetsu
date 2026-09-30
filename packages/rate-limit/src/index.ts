@@ -211,10 +211,10 @@ export interface SharedCounters {
 /**
  * The hook of this package.
  *
- * Read off `rateLimit()` rather than written by hand: an annotation of
- * `AnyHook` would erase which slot the hook belongs to, and the stack
- * validation would reject it. This is the hook whose key reads the request
- * alone; one whose key demands more is `ReturnType` of that call.
+ * A limiter in `beforeParse` whose key reads the request alone. Not
+ * `AnyHook`, which would erase the slot and have the stack validation
+ * reject it. A limiter whose key demands more, or one made for another
+ * `slot`, is typed by `ReturnType` of its own `rateLimit()` call.
  */
 export type RateLimitHook = Hook<"beforeParse", BaseCtx, unknown>;
 
