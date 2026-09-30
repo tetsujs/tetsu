@@ -275,6 +275,10 @@ API.
   over `x-frame-options`; with `apiPolicy` the page stayed unframeable.
   The docs page exception compares the path the page is mounted at,
   prefix and all, and no longer only `/docs`.
+- The guide's install section says that TypeScript's `moduleResolution`
+  is `bundler`, `node16` or `nodenext`. Under the old `node` mode, which
+  does not read `exports`, `@tetsujs/core` was not found, with nothing to
+  say why.
 
 ### Moving from 0.5
 

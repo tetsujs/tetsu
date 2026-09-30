@@ -54,6 +54,10 @@ bun add @tetsujs/core
 Requires Bun 1.4 or later and TypeScript 5.7 or later with `strict` on. The
 types name Bun's own (`Bun.Server`, `CookieMap`), so the project needs
 `@types/bun` — `bun init` adds it, `bun add -d @types/bun` otherwise.
+`moduleResolution` is `bundler` — what `bun init` writes — or `node16` or
+`nodenext`: the packages declare their entry points in `exports`, which
+the old `node` mode does not read, and it reports `@tetsujs/core` as not
+found.
 
 ## Quick start
 
