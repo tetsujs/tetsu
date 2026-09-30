@@ -10,7 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 # CI only reads the code: the token gets nothing more, whatever the
-# repository's default is.
+# repository's default is. Actions are pinned to commits, as in the
+# release workflow, and Dependabot keeps them current.
 permissions:
   contents: read
 
@@ -37,9 +38,9 @@ jobs:
             experimental: true
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ matrix.bun }}
 
@@ -79,9 +80,9 @@ jobs:
         typescript: ["5.7", "5"]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.2"
 
@@ -106,9 +107,9 @@ jobs:
     # The sources and the type tests are checked; the runtime tests read
     # JSON bodies with dots, which says nothing about the API.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.2"
 
@@ -127,9 +128,9 @@ jobs:
     # so a change that doubles what the types cost fails here instead of in
     # a user's editor. bench/README.md has the numbers.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.2"
 

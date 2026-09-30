@@ -9,9 +9,10 @@
  * which an ESM-only package does not serve by design. Every tarball must
  * also carry a `LICENSE`: npm packs the one in the package's own folder,
  * not the repository's, so a new package without its copy would be
- * published unlicensed. And none may carry the core's test helpers that
- * only this repository's tests use — `@tetsujs/core/testing` does not
- * export them, so in a tarball they are weight nobody can import.
+ * published unlicensed. And the core's tarball carries only the test
+ * helpers its `files` lists by name — `@tetsujs/core/testing` and what it
+ * imports — so a helper only this repository's tests use is weight nobody
+ * can import, and is left out until someone lists it.
  *
  * Then the tarballs are installed together into a fresh project outside the
  * repository — the consumer — where neither `paths` nor the workspace can
@@ -50,11 +51,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { listedHelpers, strayHelpers } from "./testing-files.ts";
 
 type Manifest = {
   name: string;
   version: string;
   exports: Record<string, unknown>;
+  files?: string[];
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -76,15 +79,6 @@ const consumer = await mkdtemp(join(tmpdir(), "tetsu-consumer-"));
 const rootManifest: Manifest = await Bun.file(
   join(root, "package.json"),
 ).json();
-
-/**
- * The core's test helpers that `@tetsujs/core/testing` does not export:
- * type assertions, a mock schema and a socket client for this repository's
- * own tests. Their sources and declarations are left out of the package's
- * `files`; this is what notices when they are not.
- */
-const internalHelper =
-  /^package\/(dist\/)?test-utils\/(types|mock-schema|socket)\./;
 
 let failed = false;
 
@@ -117,13 +111,19 @@ try {
       failed = true;
     }
 
-    const leaked = contents
-      .split("\n")
-      .filter((file) => internalHelper.test(file));
+    const manifest = manifests.find((candidate) =>
+      tarball.startsWith(
+        `${candidate.name.replace("@", "").replace("/", "-")}-`,
+      ),
+    );
+    const leaked = strayHelpers(
+      contents.split("\n"),
+      listedHelpers(manifest?.files ?? []),
+    );
 
     if (leaked.length > 0) {
       console.error(
-        `${tarball} carries test helpers nothing exports: ${leaked.join(", ")}`,
+        `${tarball} carries test helpers its files do not list: ${leaked.join(", ")}`,
       );
 
       failed = true;

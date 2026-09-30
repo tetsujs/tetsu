@@ -1,3 +1,5 @@
+# The workflows pin every action to a commit with its version in a
+# comment; Dependabot updates both.
 version: 2
 updates:
   - package-ecosystem: github-actions
