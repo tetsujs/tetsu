@@ -12,7 +12,10 @@
  * @module
  */
 
+import type { CookieSealer } from "./cookie.ts";
+import { sealerKey } from "./cookie.ts";
 import type { PipelineCtx } from "./pipeline.ts";
+import { openedCookies } from "./wire.ts";
 
 /**
  * Keys a hook's return value can never contribute to the context.
@@ -53,14 +56,26 @@ const protectedKeys = new Set([
 /**
  * Merges a hook's returned extension into the context by mutation.
  *
+ * Cookies a hook returns are checked here, where they land, as the
+ * request's are: a signed name holds its value opened, or nothing when the
+ * seal does not hold. In any slot and on any route — checked only when a
+ * schema validated cookies, a hook's unsigned `session: "admin"` reached a
+ * handler with no `schema.cookies`, or from a `beforeHandle` hook after
+ * validation.
+ *
  * @param ctx - The context to extend, in place.
  * @param extension - What the hook returned.
  */
 export function extendContext(ctx: PipelineCtx, extension: object): void {
-  copyContributed(
-    extension as Record<string, unknown>,
-    ctx as unknown as Record<string, unknown>,
-  );
+  const target = ctx as unknown as Record<string, unknown>;
+
+  copyContributed(extension as Record<string, unknown>, target);
+
+  const sealer: CookieSealer | undefined = ctx[sealerKey];
+
+  if (sealer !== undefined && Object.hasOwn(extension, "cookies")) {
+    target["cookies"] = openedCookies(target["cookies"], sealer);
+  }
 }
 
 /**

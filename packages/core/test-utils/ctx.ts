@@ -11,6 +11,8 @@
 
 import type { Server } from "bun";
 import { OutgoingSettings } from "../src/context.ts";
+import type { CookieOptions } from "../src/cookie.ts";
+import { cookieSealer, sealerKey } from "../src/cookie.ts";
 import type { BaseCtx, RouteInfo } from "../src/index.ts";
 
 const stubServer = new Proxy(
@@ -48,15 +50,37 @@ const stubServer = new Proxy(
  */
 export function testCtx<const Parts extends object>(
   parts: Parts,
+  options: TestCtxOptions = {},
 ): Parts & BaseCtx & { readonly route: RouteInfo } {
+  const sealer = cookieSealer(options.cookies);
+
   return {
     req: new Request("http://test/"),
     server: stubServer,
-    out: new OutgoingSettings(),
+    out: new OutgoingSettings(sealer),
     route: stubRoute,
     startedAt: performance.now(),
+    [sealerKey]: sealer,
     ...parts,
   } as Parts & BaseCtx & { readonly route: RouteInfo };
+}
+
+/** How the hand-built context behaves where the application's options would decide. */
+export interface TestCtxOptions {
+  /**
+   * The application's `cookies` option: with it, a cookie the code sets
+   * on `ctx.out.cookies` is signed as it would be, and `signedCookie()`
+   * opens one the request carries.
+   *
+   * @example
+   * ```ts
+   * const ctx = testCtx(
+   *   { req: new Request("http://test/", { headers: { cookie } }) },
+   *   { cookies: { secret: "test-secret", sign: ["session"] } },
+   * );
+   * ```
+   */
+  readonly cookies?: CookieOptions;
 }
 
 /**

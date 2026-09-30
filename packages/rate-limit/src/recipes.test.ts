@@ -12,7 +12,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createApp, route } from "@tetsujs/core";
+import type { Requires } from "@tetsujs/core";
+import { createApp, HttpError, hook, route, signedCookie } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import type { RateLimitStore } from "./index.ts";
 import { rateLimit } from "./index.ts";
@@ -199,5 +200,68 @@ describe("a shared store", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("1");
     expect(((await res.json()) as { retryAfter: number }).retryAfter).toBe(1);
+  });
+});
+
+describe("a limit per user, on a signed session", () => {
+  const auth = hook.beforeParse((ctx) => {
+    const userId = signedCookie(ctx, "session");
+    if (!userId) throw new HttpError(401);
+    return { userId };
+  });
+
+  const perUser = rateLimit({
+    limit: 2,
+    windowMs: 60_000,
+    key: (ctx: Requires<{ userId: string }>) => ctx.userId,
+  });
+
+  const request = serve(
+    createApp({
+      cookies: { secret: "a-secret-for-the-test", sign: ["session"] },
+      routes: {
+        login: route({
+          method: "POST",
+          path: "/login",
+          handler: (ctx) => {
+            ctx.out.cookies.set("session", "u1");
+
+            return null;
+          },
+        }),
+        orders: route({
+          method: "POST",
+          path: "/orders",
+          hooks: { beforeParse: [auth, perUser] },
+          handler: (ctx) => ({ userId: ctx.userId }),
+        }),
+      },
+    }),
+  );
+
+  test("a junk session in front of the real one is not a new budget", async () => {
+    const login = await request("/login", { method: "POST" });
+    const session = (login.headers.getSetCookie()[0] ?? "").split(";")[0];
+    const statuses: number[] = [];
+
+    for (let index = 0; index < 5; index += 1) {
+      const res = await request("/orders", {
+        method: "POST",
+        headers: { cookie: `session=junk${index}; ${session}` },
+      });
+
+      statuses.push(res.status);
+    }
+
+    expect(statuses).toEqual([200, 200, 429, 429, 429]);
+  });
+
+  test("a forged session never reaches the limiter", async () => {
+    const res = await request("/orders", {
+      method: "POST",
+      headers: { cookie: "session=u1" },
+    });
+
+    expect(res.status).toBe(401);
   });
 });

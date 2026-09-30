@@ -468,7 +468,23 @@ createApp({ cookies: { secret: env.COOKIE_SECRET, sign: ["session"] }, routes })
 
 The secret is 32 random bytes or more — `openssl rand -base64 32`. An empty
 or missing one is refused at startup, since anyone could compute its
-signature.
+signature. A signed name is checked whichever way its value came — from
+the header, or from a hook that returned `cookies`, in any slot: what a
+hook puts there under a signed name is the sealed value, as the client
+sent it.
+
+`ctx.cookies` is filled when the request is validated, after the body is
+read. A hook that authenticates earlier — to refuse before the body, or to
+give a rate limit a user to count — reads a signed cookie with
+`signedCookie()`, which checks the seal and returns the value without it:
+
+```ts
+const auth = hook.beforeParse((ctx) => {
+  const userId = signedCookie(ctx, "session");
+  if (!userId) throw new HttpError(401);
+  return { userId };
+});
+```
 
 ### Groups and hook packages
 
@@ -630,6 +646,10 @@ const routes = usersController({ users });
 
 expect(routes.get.handler(testCtx({ params: { id: 1 } }))).toEqual(user);
 ```
+
+Code that signs cookies or reads them with `signedCookie()` is given the
+application's cookie options as the second argument:
+`testCtx(parts, { cookies: { secret, sign: ["session"] } })`.
 
 Integration tests go through a real server, because Bun's router is only
 reachable through a socket. `serve()` starts one on a free port and stops

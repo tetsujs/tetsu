@@ -78,6 +78,13 @@ API.
   the connection closed before the response was ready — the client left,
   or a forced stop cut it — with the status the server answered. It read
   as an ordinary success.
+- `@tetsujs/core`: `signedCookie(ctx, name)` reads a signed cookie with its
+  seal checked, in any hook — before the body is read, where `ctx.cookies`
+  is not filled yet. It reads the first value of the name whose seal
+  holds, as the core does. A hook that authenticated before the body had
+  nothing to check the seal with, and a rate limit keyed by the sealed
+  string gave a client a new budget for every junk value put in front of
+  the real one.
 
 ### Fixed
 
@@ -279,6 +286,13 @@ API.
   is `bundler`, `node16` or `nodenext`. Under the old `node` mode, which
   does not read `exports`, `@tetsujs/core` was not found, with nothing to
   say why.
+- `@tetsujs/core`: a signed cookie a hook returned in `cookies` is checked
+  as one from the header is, in any slot and on any route: opened, or
+  absent when its seal does not hold. It was taken as it came, and an
+  unsigned `session: "admin"` from a hook reached the handler as the
+  session. `testCtx()` takes the application's cookie options as a second
+  argument, so code that signs cookies or reads them with `signedCookie()`
+  can be unit-tested.
 
 ### Moving from 0.5
 
