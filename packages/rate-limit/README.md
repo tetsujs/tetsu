@@ -160,6 +160,44 @@ key: (ctx) => {
 A health check needs no allowance: mount the limiter on the routes or the
 group it protects, and leave `/healthz` outside it.
 
+## Limiting by account
+
+A limit by address hardly slows down guessing a password: an attacker with
+many addresses gets the whole budget on each. The measure that holds counts
+by the account being tried — and the account is in the body, which a
+limiter before the body cannot read. `slot: "beforeHandle"` runs it after
+the body is validated, where the key reads it:
+
+```ts
+const perAccount = rateLimit({
+  slot: "beforeHandle",
+  limit: 5,
+  windowMs: 15 * 60_000,
+  key: (ctx: Requires<{ body: { email: string } }>) => ctx.body.email,
+});
+
+const perAddress = rateLimit({
+  limit: 60,
+  windowMs: 60_000,
+  key: (ctx) => ctx.server.requestIP(ctx.req)?.address,
+});
+
+route({
+  method: "POST",
+  path: "/login",
+  schema: { body: Login },
+  hooks: { beforeParse: [perAddress], beforeHandle: [perAccount] },
+  handler,
+});
+```
+
+The address limit still refuses a flood before its bodies are read; the
+account limit stops the guessing across addresses. A limiter goes in the
+slot it was made for — `beforeParse`, the default, `beforeValidation` or
+`beforeHandle` — and the compiler refuses it anywhere else, or on a route
+that does not provide what its key reads. The same slot holds a limit by
+a user a `beforeHandle` hook looked up.
+
 ## Options
 
 | Option | Default | |
@@ -168,6 +206,7 @@ group it protects, and leave `/healthz` outside it.
 | `windowMs` | — | window length, in milliseconds |
 | `key` | — | what is counted; `undefined` skips the limit |
 | `perRoute` | `false` | a budget per route rather than one for the limiter |
+| `slot` | `"beforeParse"` | `"beforeValidation"` or `"beforeHandle"` to count by what the body holds |
 | `store` | `memoryStore()` | where the counters live |
 | `name` | — | required with `store`, and only with it: what tells this limiter's counters apart in it |
 | `status` | `429` | status of a refusal |

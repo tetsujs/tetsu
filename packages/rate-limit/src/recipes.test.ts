@@ -12,9 +12,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { Requires } from "@tetsujs/core";
+import type { Requires, StandardSchemaV1 } from "@tetsujs/core";
 import { createApp, HttpError, hook, route, signedCookie } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
+import { openapi } from "@tetsujs/openapi";
 import type { RateLimitStore } from "./index.ts";
 import { rateLimit } from "./index.ts";
 
@@ -263,5 +264,72 @@ describe("a limit per user, on a signed session", () => {
     });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("Limiting by account", () => {
+  const Login: StandardSchemaV1<unknown, { email: string; password: string }> =
+    {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value) => ({
+          value: value as { email: string; password: string },
+        }),
+      },
+    };
+  const handler = () => ({ ok: true });
+
+  const perAccount = rateLimit({
+    slot: "beforeHandle",
+    limit: 5,
+    windowMs: 15 * 60_000,
+    key: (ctx: Requires<{ body: { email: string } }>) => ctx.body.email,
+  });
+
+  const perAddress = rateLimit({
+    limit: 60,
+    windowMs: 60_000,
+    key: (ctx) => ctx.server.requestIP(ctx.req)?.address,
+  });
+
+  const app = createApp({
+    routes: {
+      login: route({
+        method: "POST",
+        path: "/login",
+        schema: { body: Login },
+        hooks: { beforeParse: [perAddress], beforeHandle: [perAccount] },
+        handler,
+      }),
+    },
+  });
+
+  const request = serve(app);
+
+  const guess = (email: string) =>
+    request("/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "guess" }),
+    });
+
+  test("the sixth guess at one account is refused, another account is not", async () => {
+    const statuses: number[] = [];
+
+    for (let index = 0; index < 6; index += 1) {
+      statuses.push((await guess("ada@example.com")).status);
+    }
+
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    expect((await guess("grace@example.com")).status).toBe(200);
+  });
+
+  test("the operation documents the refusal", () => {
+    const { document } = openapi(app, { info: { title: "t", version: "1" } });
+
+    expect(
+      Object.keys(document.paths["/login"]?.post?.responses ?? {}),
+    ).toContain("429");
   });
 });
