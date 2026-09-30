@@ -3,7 +3,7 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
-## Unreleased
+## 0.6.0 — 2026-09-30
 
 ### Breaking changes
 
