@@ -88,15 +88,29 @@ a client address — is read from the context, once `key` says it needs it
 with `Requires`:
 
 ```ts
+import { HttpError, hook, signedCookie } from "@tetsujs/core";
+
+// createApp({ cookies: { secret, sign: ["session"] } }) signs the session
+const auth = hook.beforeParse((ctx) => {
+  const userId = signedCookie(ctx, "session");
+  if (!userId) throw new HttpError(401);
+  return { userId };
+});
+
 const perUser = rateLimit({
   limit: 100,
   windowMs: 60_000,
   key: (ctx: Requires<{ userId: string }>) => ctx.userId,
 });
 
-// auth: a beforeParse hook that verifies the session and returns { userId }
 route({ method: "POST", path: "/orders", hooks: { beforeParse: [auth, perUser] }, handler });
 ```
+
+`signedCookie()` checks the seal before the body is read, where
+`ctx.cookies` is not filled yet; `ctx.req.cookies` holds the sealed string
+as the client sent it. Keyed by that string, a client that puts a junk
+`session` in front of the real one — which the application skips, and
+Bun's `req.cookies` reads — gets a new budget each time.
 
 The limiter then demands the field where it is mounted, like any hook
 with `Requires`: mounted before `auth`, or on a route nothing provides it

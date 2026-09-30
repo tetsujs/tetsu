@@ -16,6 +16,7 @@ import { HttpError } from "./error.ts";
 import { hook } from "./hook.ts";
 import { route } from "./route.ts";
 import type { StandardSchemaV1 } from "./schema.ts";
+import { signedCookie } from "./wire.ts";
 
 /** Passes the record through untouched, so a test can inspect it raw. */
 const AsIs: StandardSchemaV1<unknown, Record<string, string>> = {
@@ -461,6 +462,222 @@ describe("a name sent twice", () => {
     expect(await back.json()).toEqual({
       cookies: { session: "host" },
       platform: "host",
+    });
+  });
+});
+
+describe("a signed cookie read before the body", () => {
+  const seen: (string | undefined)[] = [];
+
+  const auth = hook.beforeParse((ctx) => {
+    const userId = signedCookie(ctx, "session");
+
+    seen.push(userId);
+
+    if (!userId) {
+      throw new HttpError(401);
+    }
+
+    return { userId };
+  });
+
+  const app = createApp({
+    cookies: { secret: "top-secret", sign: ["session"] },
+    routes: {
+      login: route({
+        method: "POST",
+        path: "/login",
+        handler: (ctx) => {
+          ctx.out.cookies.set("session", "u1");
+
+          return null;
+        },
+      }),
+      me: route({
+        method: "GET",
+        path: "/me",
+        hooks: { beforeParse: [auth] },
+        handler: (ctx) => ({ userId: ctx.userId }),
+      }),
+    },
+  });
+
+  const request = serve(app);
+
+  const sealedSession = async (): Promise<string> => {
+    const login = await request("/login", { method: "POST" });
+
+    return (login.headers.getSetCookie()[0] ?? "").split(";")[0] ?? "";
+  };
+
+  test("opens in a beforeParse hook, as the value without its seal", async () => {
+    const res = await request("/me", {
+      headers: { cookie: await sealedSession() },
+    });
+
+    expect(await res.json()).toEqual({ userId: "u1" });
+  });
+
+  test("a forged or missing one reads as absent", async () => {
+    seen.length = 0;
+
+    expect(
+      (await request("/me", { headers: { cookie: "session=u1" } })).status,
+    ).toBe(401);
+    expect((await request("/me")).status).toBe(401);
+    expect(seen).toEqual([undefined, undefined]);
+  });
+
+  test("of a name sent twice, it is the first value whose seal holds", async () => {
+    // A junk value in front is what Bun's own `req.cookies` reads; the
+    // application reads the one it signed, so a new junk value is not a
+    // new identity — a key built from it would be a new rate limit bucket.
+    const cookie = `session=junk1; ${await sealedSession()}`;
+
+    expect(
+      await (await request("/me", { headers: { cookie } })).json(),
+    ).toEqual({
+      userId: "u1",
+    });
+  });
+
+  test("a name the application does not sign is refused, not read unchecked", async () => {
+    const probe = hook.beforeParse((ctx) => ({
+      theme: signedCookie(ctx, "theme"),
+    }));
+    const reported: string[] = [];
+
+    const res = await serve(
+      createApp({
+        cookies: { secret: "top-secret", sign: ["session"] },
+        reportError: (report) => reported.push(String(report.error)),
+        routes: {
+          get: route({
+            method: "GET",
+            path: "/",
+            hooks: { beforeParse: [probe] },
+            handler: () => null,
+          }),
+        },
+      }),
+    )("/", { headers: { cookie: "theme=dark" } });
+
+    expect(res.status).toBe(500);
+    expect(reported.join()).toContain('does not sign "theme"');
+  });
+
+  test("an application that signs nothing refuses the question", async () => {
+    const probe = hook.beforeParse((ctx) => ({
+      s: signedCookie(ctx, "session"),
+    }));
+    const reported: string[] = [];
+
+    const res = await serve(
+      createApp({
+        reportError: (report) => reported.push(String(report.error)),
+        routes: {
+          get: route({
+            method: "GET",
+            path: "/",
+            hooks: { beforeParse: [probe] },
+            handler: () => null,
+          }),
+        },
+      }),
+    )("/");
+
+    expect(res.status).toBe(500);
+    expect(reported.join()).toContain("signs no cookies");
+  });
+});
+
+describe("cookies a hook returned, with signing on", () => {
+  const fromHeader = hook.beforeParse((ctx) => ({
+    cookies: { session: ctx.req.headers.get("x-session") ?? undefined },
+  }));
+
+  const request = serve(
+    createApp({
+      cookies: { secret: "top-secret", sign: ["session"] },
+      routes: {
+        login: route({
+          method: "POST",
+          path: "/login",
+          handler: (ctx) => {
+            ctx.out.cookies.set("session", "u1");
+
+            return null;
+          },
+        }),
+        mobile: route({
+          method: "GET",
+          path: "/mobile",
+          hooks: { beforeParse: [fromHeader] },
+          schema: { cookies: Session },
+          handler: (ctx) => ({ session: ctx.cookies.session }),
+        }),
+      },
+    }),
+  );
+
+  test("a value without a seal reads as absent, as from the header", async () => {
+    const res = await request("/mobile", { headers: { "x-session": "admin" } });
+
+    expect(res.status).toBe(422);
+  });
+
+  test("a sealed value the hook passes on is opened", async () => {
+    const login = await request("/login", { method: "POST" });
+    const sealed = (login.headers.getSetCookie()[0] ?? "")
+      .split(";")[0]
+      ?.slice("session=".length);
+
+    const res = await request("/mobile", {
+      headers: { "x-session": sealed ?? "" },
+    });
+
+    expect(await res.json()).toEqual({ session: "u1" });
+  });
+});
+
+describe("cookies a hook returned, wherever it runs", () => {
+  const forge = hook.beforeParse(() => ({
+    cookies: { session: "admin", theme: "dark" },
+  }));
+  const forgeLate = hook.beforeHandle(() => ({
+    cookies: { session: "admin", theme: "dark" },
+  }));
+
+  const request = serve(
+    createApp({
+      cookies: { secret: "top-secret", sign: ["session"] },
+      routes: {
+        bare: route({
+          method: "GET",
+          path: "/bare",
+          hooks: { beforeParse: [forge] },
+          handler: (ctx) => ({ cookies: ctx.cookies }),
+        }),
+        late: route({
+          method: "GET",
+          path: "/late",
+          schema: { cookies: AsIs },
+          hooks: { beforeHandle: [forgeLate] },
+          handler: (ctx) => ({ cookies: ctx.cookies }),
+        }),
+      },
+    }),
+  );
+
+  test("on a route without a cookie schema, a forged signed name is gone", async () => {
+    expect(await (await request("/bare")).json()).toEqual({
+      cookies: { theme: "dark" },
+    });
+  });
+
+  test("from a hook after validation, too", async () => {
+    expect(await (await request("/late")).json()).toEqual({
+      cookies: { theme: "dark" },
     });
   });
 });

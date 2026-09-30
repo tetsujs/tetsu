@@ -90,6 +90,13 @@ export interface CookieSealer {
 }
 
 /**
+ * Where a request's context carries the application's sealer, for
+ * {@link signedCookie}. A symbol, as the reporter's is: nothing a hook
+ * returns can collide with it, and nothing typed on the context shows it.
+ */
+export const sealerKey: unique symbol = Symbol("tetsu.sealer");
+
+/**
  * Builds the sealer an application runs with, or nothing when no secret
  * was configured.
  *

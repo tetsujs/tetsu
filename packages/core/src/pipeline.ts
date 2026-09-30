@@ -64,6 +64,7 @@ import type { Server } from "bun";
 import type { BodyType, RouteInfo, SchemaConfig } from "./context.ts";
 import { OutgoingSettings } from "./context.ts";
 import type { CookieSealer } from "./cookie.ts";
+import { sealerKey } from "./cookie.ts";
 import { errorBody, HttpError, serializedBody } from "./error.ts";
 import { extendContext } from "./guard.ts";
 import type { AnyHook, SlotName } from "./hook.ts";
@@ -182,6 +183,7 @@ export interface PipelineCtx {
   res?: Response;
   error?: unknown;
   readonly [reporterKey]: Reporter;
+  readonly [sealerKey]: CookieSealer | undefined;
 }
 
 type HookRunner = (ctx: unknown) => unknown;
@@ -234,6 +236,7 @@ export function runPipeline(
     startedAt: performance.now(),
     params,
     [reporterKey]: options.report,
+    [sealerKey]: options.cookieSealer,
   };
   const progress: FinalizeProgress = { ran: 0 };
 

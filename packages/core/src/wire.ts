@@ -11,6 +11,7 @@
  */
 
 import type {
+  BaseCtx,
   BodyType,
   FormBody,
   FormValue,
@@ -18,6 +19,7 @@ import type {
   OutgoingSettings,
 } from "./context.ts";
 import type { CookieSealer } from "./cookie.ts";
+import { sealerKey } from "./cookie.ts";
 import { httpError } from "./error.ts";
 
 /**
@@ -404,6 +406,110 @@ export function materializeCookies(
   }
 
   return cookies;
+}
+
+/**
+ * The value of a signed cookie, its seal checked — for a hook that runs
+ * before the request's cookies are validated.
+ *
+ * `ctx.cookies` is filled when the request's parts are validated, after
+ * the body is read; `ctx.req.cookies` before that holds the sealed string
+ * as the client sent it, with nothing to check the seal with. A hook that
+ * authenticates before the body is read — to refuse early, or to hand a
+ * rate limit a user to count — reads the session here:
+ *
+ * ```ts
+ * const auth = hook.beforeParse((ctx) => {
+ *   const userId = signedCookie(ctx, "session");
+ *   if (!userId) throw new HttpError(401);
+ *   return { userId };
+ * });
+ * ```
+ *
+ * It reads the request's `cookie` header, and nothing a hook put on the
+ * context. Of a name sent twice, it takes the first value whose seal holds,
+ * as `ctx.cookies` does: a forged value in front of the real one is
+ * skipped rather than read — Bun's `req.cookies` reads the first, and a key
+ * built from that gave a client a new identity with every junk value it put
+ * there.
+ *
+ * `undefined` when the cookie is missing or its seal does not hold, as
+ * `ctx.cookies` leaves it out. A name the application does not sign, or an
+ * application that signs nothing, is a mistake in the code rather than in
+ * the request, and throws: its value would be whatever the client sent,
+ * under a name that says it was checked.
+ */
+export function signedCookie(ctx: BaseCtx, name: string): string | undefined {
+  const sealer = (ctx as { readonly [sealerKey]?: CookieSealer })[sealerKey];
+
+  if (sealer === undefined) {
+    throw new Error(
+      `signedCookie("${name}"): the application signs no cookies — createApp({ cookies: { secret } }), or testCtx(parts, { cookies }) in a unit test`,
+    );
+  }
+
+  if (!sealer.covers(name)) {
+    throw new Error(
+      `signedCookie("${name}"): the application does not sign "${name}" — it is not in cookies.sign`,
+    );
+  }
+
+  const header = ctx.req.headers.get("cookie");
+
+  if (!header) {
+    return undefined;
+  }
+
+  // Only the name asked for is opened: one hash per value it was sent
+  // with, not one per cookie in the header.
+  for (const [sent, value] of new Bun.CookieMap(header)) {
+    if (sent === name) {
+      const opened = sealer.open(value);
+
+      if (opened !== undefined) {
+        return opened;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * The cookies a hook put on the context, their signed names checked as
+ * the request's are.
+ *
+ * A hook may supply the cookies — a mobile client's session from a header,
+ * a normalization — and they used to be taken as they were: an unsigned
+ * `session: "admin"` reached a handler as the session. A signed name now
+ * holds its value opened, or nothing when the seal does not hold,
+ * whichever way it came. So what a hook returns under a signed name is the
+ * sealed value — the client's own token, passed on from another header —
+ * never an opened one: `signedCookie()`'s result under `cookies` is opened
+ * a second time, and is gone.
+ */
+export function openedCookies(cookies: unknown, sealer: CookieSealer): unknown {
+  if (cookies === null || typeof cookies !== "object") {
+    return cookies;
+  }
+
+  const opened: Record<string, unknown> = Object.create(null);
+
+  for (const [name, value] of Object.entries(cookies)) {
+    if (!sealer.covers(name)) {
+      opened[name] = value;
+
+      continue;
+    }
+
+    const open = typeof value === "string" ? sealer.open(value) : undefined;
+
+    if (open !== undefined) {
+      opened[name] = open;
+    }
+  }
+
+  return opened;
 }
 
 /**

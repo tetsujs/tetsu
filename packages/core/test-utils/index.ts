@@ -19,6 +19,7 @@
  */
 
 export type { Client, ClientInit, ClientOptions, CookieJar } from "./client.ts";
+export type { TestCtxOptions } from "./ctx.ts";
 export { testCtx } from "./ctx.ts";
 export type { CapturedErrors } from "./logs.ts";
 export { captureErrors } from "./logs.ts";

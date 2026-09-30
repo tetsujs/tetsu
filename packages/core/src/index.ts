@@ -120,6 +120,7 @@ export type {
   RoutesOf,
   RouteTableEntry,
 } from "./table.ts";
+export { signedCookie } from "./wire.ts";
 export type {
   MessageOf,
   Socket,
