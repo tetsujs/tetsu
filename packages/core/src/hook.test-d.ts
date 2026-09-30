@@ -5,6 +5,7 @@
  */
 
 import type { Equal, Expect } from "../test-utils/types.ts";
+import { createApp } from "./app.ts";
 import type { BaseCtx, Requires } from "./context.ts";
 import {
   type AnyHook,
@@ -14,6 +15,7 @@ import {
   type SlotOf,
 } from "./hook.ts";
 import type { PipelineCtx } from "./pipeline.ts";
+import { route } from "./route.ts";
 
 declare function verifyToken(
   header: string | null,
@@ -226,4 +228,36 @@ export const clonesLate = hook.afterResponse((ctx) => {
 /** A `beforeResponse` hook still holds the whole response, and may clone it. */
 export const clonesEarly = hook.beforeResponse((ctx) => {
   void ctx.res.clone().text();
+});
+
+// A set of hooks shared between applications, spread into each slot where
+// it is mounted — the README's alternative to joining `hooks` objects. The
+// set is `as const`, so every slot stays a tuple and the order is checked.
+const sharedId = hook.beforeParse(() => ({ requestId: "r1" }));
+const sharedScope = hook.beforeParse(
+  (ctx: Requires<{ requestId: string }>) => ({ tag: ctx.requestId }),
+);
+const sharedLog = hook.afterResponse(() => undefined);
+const common = { beforeParse: [sharedId], afterResponse: [sharedLog] } as const;
+
+export const spreadInOrder = createApp({
+  hooks: {
+    beforeParse: [...common.beforeParse, sharedScope],
+    afterResponse: [...common.afterResponse],
+  },
+  routes: { get: route({ method: "GET", path: "/", handler: () => null }) },
+});
+
+export const spreadOutOfOrder = createApp({
+  // @ts-expect-error sharedScope needs requestId, which the set gives after it
+  hooks: { beforeParse: [sharedScope, ...common.beforeParse] },
+  routes: { get: route({ method: "GET", path: "/", handler: () => null }) },
+});
+
+const widened = { beforeParse: [sharedId] };
+
+export const spreadWidened = createApp({
+  // @ts-expect-error without `as const` the set is an array, and cannot be checked
+  hooks: { beforeParse: [...widened.beforeParse, sharedScope] },
+  routes: { get: route({ method: "GET", path: "/", handler: () => null }) },
 });

@@ -348,7 +348,8 @@ none, as `null` does: a value the handler returns for it is refused with a
 A route declares how its body is read with `bodyType`: `"json"` (the
 default), `"form"` (multipart and urlencoded; uploads arrive as `File`
 values inside `ctx.body`, validated like any other field — a file input
-nothing was chosen in is left out, as a field that is not there),
+nothing was chosen in is left out, as a field that is not there; a
+file's `type` is what the client declared, not what its bytes are),
 `"text"`, or `"stream"`:
 
 ```ts
@@ -486,6 +487,15 @@ const auth = hook.beforeParse((ctx) => {
 });
 ```
 
+This is also how a missing session answers `401`: a session required by
+`schema.cookies` is a request part, and one missing or forged fails
+validation with `422`.
+
+A frontend on another site that sends the session with
+`cors({ credentials: true })` needs it set `secure: true` and
+`sameSite: "none"`: the browser's default, `Lax`, keeps a cookie off a
+request from another site, and `none` is refused without `secure`.
+
 ### Groups and hook packages
 
 A group adds a path prefix and hooks to everything under it. A hook package
@@ -538,29 +548,26 @@ A few habits keep it that way:
   inside it would make a new instance every time the code around it runs.
 - **Share hooks, not `hooks` objects.** Two applications that log the same
   way import the same `id` and `log` and each lists them in its own slots.
-  If you do want to combine two `hooks` objects, join them slot by slot —
-  `Object.assign` and spreading replace a slot instead of joining it — and
-  keep every slot a tuple, or the compiler cannot check the order:
+  A set several places share is written `as const` and spread into each
+  slot where it is mounted — every slot stays a tuple, so the order is
+  still checked, and the slot still shows what runs before what:
 
   ```ts
-  import type { HooksConfig } from "@tetsujs/core";
+  const common = { beforeParse: [id, browser], afterResponse: [log] } as const;
 
-  const slots = ["beforeParse", "beforeValidation", "beforeHandle", "beforeResponse", "afterResponse", "onError"] as const;
-
-  type Slot = (typeof slots)[number];
-  type Of<S, K extends Slot> = S extends { readonly [P in K]: infer T extends readonly unknown[] } ? T : [];
-
-  export function join<const A extends HooksConfig, const B extends HooksConfig>(a: A, b: B) {
-    const joined: Record<string, unknown[]> = {};
-
-    for (const slot of slots) joined[slot] = [...(a[slot] ?? []), ...(b[slot] ?? [])];
-
-    return joined as unknown as { readonly [K in Slot]: readonly [...Of<A, K>, ...Of<B, K>] };
-  }
+  createApp({
+    hooks: {
+      beforeParse: [...common.beforeParse, auth],
+      afterResponse: [...common.afterResponse],
+    },
+    routes,
+  });
   ```
 
-  A helper that returns plain arrays or a `Record<string, …>` is refused
-  where it is mounted: nothing in it could be checked.
+  A set without `as const` is an array, and is refused where it is
+  mounted: nothing in it could be checked. `Object.assign` and spreading
+  whole `hooks` objects replace a slot instead of joining it. For every
+  route under a prefix, a group's `hooks` is the shared set.
 - **State lives in the instance.** One `rateLimit()` mounted on two groups
   shares its counters between them. For separate budgets, make two. A hook
   made inside a controller is that controller's own; one whose state is

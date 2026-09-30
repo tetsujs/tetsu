@@ -303,6 +303,13 @@ API.
   session. `testCtx()` takes the application's cookie options as a second
   argument, so code that signs cookies or reads them with `signedCookie()`
   can be unit-tested.
+- The guide shows a set of hooks several places share spread into each
+  slot, `as const`, instead of a helper joining `hooks` objects: the order
+  is checked as it was, and the slot shows what runs. The `openapi` error
+  format example imports what it uses; the `x-forwarded-for` recipe says
+  what it relies on; the guide says how to test a limiter, that an
+  upload's type is the client's word, how a missing session answers `401`,
+  and how a session cookie reaches a frontend on another site.
 
 ### Moving from 0.5
 

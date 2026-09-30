@@ -133,6 +133,12 @@ key: (ctx) => {
 },
 ```
 
+It holds only where the server is reachable through all `trustedHops`
+proxies and nothing else: each of them adds to the chain, so it is never
+shorter than that. A shorter one — `undefined` from `at()`, which skips the
+limit — means a proxy was bypassed or `trustedHops` is wrong; keep the
+server off any address but the last proxy's.
+
 Without a proxy, `ctx.server.requestIP(ctx.req)?.address` is the client's
 address — in the form the server's socket reports it. `Bun.serve` without
 a `hostname` listens on both IPv4 and IPv6, and a client that connects
@@ -261,6 +267,11 @@ then the client: `shop-login:203.0.113.7`, or
 
 ## Notes
 
+- **In tests, every request comes from one address.** `serve()` and its
+  `client()` connect from the test process, so a limiter keyed by address
+  counts one bucket across a test file, and a header does not change the
+  address. Build the application per test, or give it the limiter's `key`
+  from outside and pass one the test controls.
 - With [`@tetsujs/openapi`](../openapi), every operation the limiter
   guards is documented with a `429`, its `retryAfter` and its
   `retry-after` header, without the routes declaring it.
