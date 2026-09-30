@@ -176,6 +176,34 @@ export interface WsConfig<
   readonly pong?: (socket: Socket<Path, S, H>, data: Buffer) => unknown;
 
   /**
+   * Closes the endpoint's open sockets when it fires, with `1001` — going
+   * away — and every socket opened after it at once.
+   *
+   * What a server that is stopping closes its sockets on: `draining` from
+   * `@tetsujs/lifecycle`. `server.stop()` waits for every open socket, and
+   * a socket stays open for as long as its client wants: left open, one
+   * held every deploy for the whole grace period, and was then cut with
+   * `1006` and no reason, and the process exited as a forced stop. Closed
+   * here, its client sees a server going away and reconnects to one that
+   * stays; `close` runs for each as for any other.
+   *
+   * A signal, or a function that returns one, called as a socket opens.
+   * The function is the usual form: an endpoint is declared before the
+   * server exists, and `draining` only after — `onShutdownSignals` takes
+   * the server the endpoint is part of. A socket for which it returns
+   * nothing, or throws — reported, as `websocket` — is not closed by it.
+   *
+   * @example
+   * ```ts
+   * ws({ path: "/chat/:room", until: () => shutdown.draining, open, message });
+   *
+   * const server = Bun.serve({ ...app });
+   * const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+   * ```
+   */
+  readonly until?: AbortSignal | (() => AbortSignal | undefined);
+
+  /**
    * A frame that the `message` schema refused.
    *
    * Without one the socket is closed with `1007` — the code the protocol

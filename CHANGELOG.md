@@ -90,6 +90,11 @@ API.
   validated body — a limit by the account a login names, which holds
   against guessing a password from many addresses — or a user a
   `beforeHandle` hook looked up. The compiler keeps it in that slot.
+- `@tetsujs/core`: `ws()` takes `until` — a signal, or a function asked as
+  a socket opens — and closes the endpoint's sockets with `1001` when it
+  fires, and a socket opened after it at once. With `draining` from
+  `@tetsujs/lifecycle` a deploy no longer waits out the grace period for
+  an open socket, cuts it with `1006`, and exits as a forced stop.
 
 ### Fixed
 

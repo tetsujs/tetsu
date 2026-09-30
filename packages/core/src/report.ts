@@ -46,7 +46,7 @@ import { isThenable } from "./internal.ts";
  * | `onError` | an `onError` hook threw; the next one, or the default mapping, answered instead |
  * | `errorResponse` | the error path kept failing until nothing could answer, and the request got a bare `500` |
  * | `afterResponse` | an `afterResponse` observer threw; the response had already gone |
- * | `websocket` | a WebSocket handler threw, or a message schema failed rather than rejecting |
+ * | `websocket` | a WebSocket handler threw, a message schema failed rather than rejecting, or an endpoint's `until` function threw |
  * | `stream` | a streamed body's source threw, or its `onEnd` did (`@tetsujs/sse`) |
  * | `shutdown` | a closer threw while the process was stopping (`@tetsujs/lifecycle`) |
  */

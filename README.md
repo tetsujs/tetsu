@@ -602,6 +602,12 @@ the socket with `1007`, or goes to `invalid` when the endpoint has one.
 Frames reach `message` in the order they arrived, even when the schema
 checks asynchronously, and none after the socket has closed.
 
+`until` closes the endpoint's sockets with `1001` when a signal fires — a
+server that is stopping, with `draining` from
+[`@tetsujs/lifecycle`](packages/lifecycle#streams-and-long-polls). It takes
+a signal, or a function asked as a socket opens, since the endpoint is
+declared before the server and its signals exist.
+
 ### Streaming
 
 A handler that streams returns a `Response` carrying the stream. For

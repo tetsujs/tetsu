@@ -698,3 +698,167 @@ describe("frames through an asynchronous schema", () => {
     expect(events).toEqual(["close"]);
   });
 });
+
+describe("sockets ended from outside", () => {
+  const closed: number[] = [];
+
+  const serving = (until: AbortSignal) =>
+    serve(
+      createApp({
+        routes: {
+          feed: ws({
+            path: "/feed",
+            until,
+            open: (socket) => socket.send("ready"),
+            close: (_socket, code) => void closed.push(code),
+          }),
+        },
+      }),
+    );
+
+  test("close with 1001 when until fires, each running its close", async () => {
+    const draining = new AbortController();
+    const request = serving(draining.signal);
+
+    closed.length = 0;
+
+    const first = await connect(request, "/feed");
+    const second = await connect(request, "/feed");
+
+    await first.next();
+    await second.next();
+
+    draining.abort();
+
+    expect((await first.closed()).code).toBe(1001);
+    expect((await second.closed()).code).toBe(1001);
+
+    await Bun.sleep(20);
+
+    expect(closed).toEqual([1001, 1001]);
+  });
+
+  test("a socket opened after it fired is closed at once", async () => {
+    const draining = new AbortController();
+    const request = serving(draining.signal);
+
+    draining.abort();
+
+    const late = await connect(request, "/feed");
+
+    expect((await late.closed()).code).toBe(1001);
+  });
+
+  test("a function is asked for the signal as a socket opens", async () => {
+    const shutdown: { draining?: AbortSignal } = {};
+    const request = serve(
+      createApp({
+        routes: {
+          feed: ws({
+            path: "/feed",
+            until: () => shutdown.draining,
+            open: (socket) => socket.send("ready"),
+          }),
+        },
+      }),
+    );
+    const draining = new AbortController();
+
+    // Declared before the signal exists, as with a server that is built
+    // from the application `onShutdownSignals` then takes.
+    shutdown.draining = draining.signal;
+
+    const socket = await connect(request, "/feed");
+
+    await socket.next();
+    draining.abort();
+
+    expect((await socket.closed()).code).toBe(1001);
+  });
+
+  test("lets go of the signal once no socket waits on it", async () => {
+    const draining = new AbortController();
+    let listening = 0;
+    const add = draining.signal.addEventListener.bind(draining.signal);
+    const remove = draining.signal.removeEventListener.bind(draining.signal);
+
+    draining.signal.addEventListener = ((...args: Parameters<typeof add>) => {
+      listening += 1;
+      add(...args);
+    }) as typeof add;
+    draining.signal.removeEventListener = ((
+      ...args: Parameters<typeof remove>
+    ) => {
+      listening -= 1;
+      remove(...args);
+    }) as typeof remove;
+
+    const request = serving(draining.signal);
+
+    for (let round = 0; round < 3; round += 1) {
+      const sockets = await Promise.all([
+        connect(request, "/feed"),
+        connect(request, "/feed"),
+      ]);
+
+      for (const socket of sockets) {
+        await socket.next();
+      }
+
+      expect(listening).toBe(1);
+
+      for (const socket of sockets) {
+        socket.close();
+        await socket.closed();
+      }
+
+      await Bun.sleep(20);
+
+      expect(listening).toBe(0);
+    }
+  });
+
+  test("a function that throws is reported, and its socket stays open", async () => {
+    const reports: string[] = [];
+    const request = serve(
+      createApp({
+        reportError: (report) => reports.push(report.source),
+        routes: {
+          feed: ws({
+            path: "/feed",
+            until: () => {
+              throw new Error("no shutdown yet");
+            },
+            open: (socket) => socket.send("ready"),
+          }),
+        },
+      }),
+    );
+
+    const socket = await connect(request, "/feed");
+
+    expect(await socket.next()).toBe("ready");
+    expect(reports).toEqual(["websocket"]);
+
+    socket.close();
+  });
+
+  test("a socket that closed before is not closed again", async () => {
+    const draining = new AbortController();
+    const request = serving(draining.signal);
+
+    closed.length = 0;
+
+    const gone = await connect(request, "/feed");
+
+    await gone.next();
+    gone.close();
+    await gone.closed();
+    await Bun.sleep(20);
+
+    draining.abort();
+    await Bun.sleep(20);
+
+    expect(closed).toEqual([1000]);
+  });
+});
