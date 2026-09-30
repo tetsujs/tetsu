@@ -85,6 +85,11 @@ API.
   nothing to check the seal with, and a rate limit keyed by the sealed
   string gave a client a new budget for every junk value put in front of
   the real one.
+- `@tetsujs/rate-limit`: `slot` runs a limiter in `beforeValidation` or
+  `beforeHandle` rather than `beforeParse`, so its key can read the
+  validated body — a limit by the account a login names, which holds
+  against guessing a password from many addresses — or a user a
+  `beforeHandle` hook looked up. The compiler keeps it in that slot.
 
 ### Fixed
 

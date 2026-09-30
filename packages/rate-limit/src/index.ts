@@ -26,7 +26,7 @@
  * @module
  */
 
-import type { BaseCtx } from "@tetsujs/core";
+import type { BaseCtx, Hook } from "@tetsujs/core";
 import { errorBody, HttpError, hook } from "@tetsujs/core";
 import { documented } from "@tetsujs/openapi";
 import type { RateLimitStore } from "./store.ts";
@@ -137,6 +137,35 @@ interface LimitOptions<Ctx extends BaseCtx = BaseCtx> {
    */
   readonly perRoute?: boolean;
 
+  /**
+   * The slot the limiter runs in: `"beforeParse"`, the default,
+   * `"beforeValidation"` or `"beforeHandle"`.
+   *
+   * Before the body is read, a refusal costs nothing, and the key reads
+   * the request and what earlier hooks returned — an address, a user a
+   * hook verified. Some limits need more: the one that stops guessing a
+   * password across many addresses counts by the account the body names,
+   * and that is there once the body is validated. `"beforeHandle"` gives
+   * the key the validated parts and what `beforeHandle` hooks before it
+   * returned:
+   *
+   * ```ts
+   * const perAccount = rateLimit({
+   *   slot: "beforeHandle",
+   *   limit: 5,
+   *   windowMs: 15 * 60_000,
+   *   key: (ctx: Requires<{ body: { email: string } }>) => ctx.body.email,
+   * });
+   *
+   * route({ method: "POST", path: "/login", schema: { body: Login }, hooks: { beforeHandle: [perAccount] }, handler });
+   * ```
+   *
+   * The limiter goes in the slot it was made for, and nowhere else: the
+   * compiler refuses one mounted in another. A slot after the handler is
+   * not one of these — by then there is nothing left to protect.
+   */
+  readonly slot?: LimitSlot;
+
   /** Status of a refusal. `429` by default. */
   readonly status?: number;
 
@@ -187,7 +216,10 @@ export interface SharedCounters {
  * validation would reject it. This is the hook whose key reads the request
  * alone; one whose key demands more is `ReturnType` of that call.
  */
-export type RateLimitHook = ReturnType<typeof rateLimit<BaseCtx>>;
+export type RateLimitHook = Hook<"beforeParse", BaseCtx, unknown>;
+
+/** The slots a limiter may run in: those before the handler. */
+export type LimitSlot = "beforeParse" | "beforeValidation" | "beforeHandle";
 
 /**
  * Builds the rate-limiting hook.
@@ -202,8 +234,17 @@ export type RateLimitHook = ReturnType<typeof rateLimit<BaseCtx>>;
  * ```
  */
 export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
+  options: RateLimitOptions<Ctx> & { readonly slot?: "beforeParse" },
+): Hook<"beforeParse", Ctx, unknown>;
+export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
+  options: RateLimitOptions<Ctx> & { readonly slot: "beforeValidation" },
+): Hook<"beforeValidation", Ctx, unknown>;
+export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
+  options: RateLimitOptions<Ctx> & { readonly slot: "beforeHandle" },
+): Hook<"beforeHandle", Ctx, unknown>;
+export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
   options: RateLimitOptions<Ctx>,
-) {
+): Hook<LimitSlot, Ctx, unknown> {
   assertOptions(options);
 
   const store = options.store ?? memoryStore();
@@ -211,7 +252,13 @@ export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
   const withHeaders = options.headers ?? true;
   const prefix = options.name === undefined ? "" : `${options.name}:`;
 
-  const guard = hook.beforeParse(async (ctx: Ctx) => {
+  // One body for every slot: the factories differ only in the context
+  // they promise, and the key's own parameter says what it reads.
+  const factory = hook[options.slot ?? "beforeParse"] as unknown as (
+    fn: (ctx: Ctx) => Promise<undefined>,
+  ) => Hook<LimitSlot, Ctx, unknown>;
+
+  const guard = factory(async (ctx: Ctx) => {
     const client = options.key(ctx);
 
     if (client === undefined) {
@@ -281,6 +328,12 @@ export function rateLimit<Ctx extends BaseCtx = BaseCtx>(
  */
 const claimed = new WeakMap<RateLimitStore, Map<string, string>>();
 
+const limitSlots: ReadonlySet<string> = new Set<LimitSlot>([
+  "beforeParse",
+  "beforeValidation",
+  "beforeHandle",
+]);
+
 /**
  * Refuses a limiter that would not limit, or would count into another's
  * counters. Typed loosely on purpose: it is what holds for a caller the
@@ -295,6 +348,12 @@ function assertOptions(
   if (!(Number.isFinite(options.windowMs) && options.windowMs > 0)) {
     throw new Error(
       `rateLimit: windowMs must be a positive number of milliseconds, got ${options.windowMs} — Number() of a variable that is not set is NaN, and a window of NaN or 0 refuses nothing`,
+    );
+  }
+
+  if (options.slot !== undefined && !limitSlots.has(options.slot)) {
+    throw new Error(
+      `rateLimit: slot must be beforeParse, beforeValidation or beforeHandle, got ${String(options.slot)} — after the handler there is nothing left to protect`,
     );
   }
 
@@ -320,7 +379,7 @@ function assertOptions(
     );
   }
 
-  const settings = `limit ${options.limit}, windowMs ${options.windowMs}, perRoute ${options.perRoute === true}`;
+  const settings = `limit ${options.limit}, windowMs ${options.windowMs}, perRoute ${options.perRoute === true}, slot ${options.slot ?? "beforeParse"}`;
   const names = claimed.get(options.store) ?? new Map<string, string>();
   const earlier = names.get(options.name);
 

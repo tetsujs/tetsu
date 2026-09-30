@@ -9,6 +9,7 @@ import type { Requires } from "@tetsujs/core";
 import { createApp, HttpError, hook, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import { openapi } from "@tetsujs/openapi";
+import type { RateLimitOptions } from "./index.ts";
 import { rateLimit } from "./index.ts";
 import type { RateLimitStore, WindowState } from "./store.ts";
 import { memoryStore } from "./store.ts";
@@ -30,7 +31,9 @@ function scriptedStore(states: WindowState[]): RateLimitStore {
   };
 }
 
-const serveWith = (options: Parameters<typeof rateLimit>[0]) => {
+const serveWith = (
+  options: RateLimitOptions & { readonly slot?: "beforeParse" },
+) => {
   const limit = rateLimit(options);
 
   return serve(

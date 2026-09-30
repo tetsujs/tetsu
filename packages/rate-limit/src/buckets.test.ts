@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import type { Requires, StandardSchemaV1 } from "@tetsujs/core";
 import { createApp, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import { rateLimit } from "./index.ts";
@@ -280,5 +281,93 @@ describe("a budget per route", () => {
       "endpoints:GET:/orders/:id:c",
       "endpoints:unrouted:c",
     ]);
+  });
+});
+
+describe("a limit after the body is read", () => {
+  type Credentials = { email: string; password: string };
+
+  const Login: StandardSchemaV1<unknown, Credentials> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value: unknown) => ({ value: value as Credentials }),
+    },
+  };
+
+  const perAccount = rateLimit({
+    slot: "beforeHandle",
+    limit: 2,
+    windowMs: 60_000,
+    key: (ctx: Requires<{ body: { email: string } }>) => ctx.body.email,
+  });
+
+  const request = serve(
+    createApp({
+      routes: {
+        login: route({
+          method: "POST",
+          path: "/login",
+          schema: { body: Login },
+          hooks: { beforeHandle: [perAccount] },
+          handler: () => ({ ok: true }),
+        }),
+      },
+    }),
+  );
+
+  const attempt = (email: string) =>
+    request("/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "guess" }),
+    });
+
+  test("counts by the account the body names", async () => {
+    const statuses = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      statuses.push((await attempt("ada@example.com")).status);
+    }
+
+    expect(statuses).toEqual([200, 200, 429]);
+    expect((await attempt("grace@example.com")).status).toBe(200);
+  });
+
+  test("refuses as the limiter always does", async () => {
+    const res = await attempt("ada@example.com");
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ error: "RATE_LIMITED" });
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+
+  test("a slot a limit cannot protect from is refused", () => {
+    expect(() =>
+      rateLimit({
+        slot: "afterResponse" as "beforeHandle",
+        limit: 1,
+        windowMs: 1_000,
+        key: () => "k",
+      }),
+    ).toThrow(/slot/);
+  });
+
+  test("one name on one store in two slots is two limiters, refused", () => {
+    const store = memoryStore();
+    const key = () => "k";
+
+    rateLimit({ name: "login", store, limit: 5, windowMs: 60_000, key });
+
+    expect(() =>
+      rateLimit({
+        slot: "beforeHandle",
+        name: "login",
+        store,
+        limit: 5,
+        windowMs: 60_000,
+        key,
+      }),
+    ).toThrow(/login/);
   });
 });
