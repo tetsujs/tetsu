@@ -229,6 +229,9 @@ refusal, and an error nothing expected — so one hook answers all of them in
 your format:
 
 ```ts
+import type { ErrorBody } from "@tetsujs/core";
+import { hook, HttpError, reportFailure } from "@tetsujs/core";
+
 const inOurFormat = hook.onError((ctx) => {
   const { error } = ctx;
 

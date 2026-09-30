@@ -101,7 +101,7 @@ route({
 | --- | --- | --- |
 | `maxSize` | `5242880`, `"512k"`, `"5m"` | the largest file size |
 | `minSize` | the same | the smallest — `1` rejects a file with nothing in it |
-| `type` | `"image"`, `"image/png"`, `["image", "application/pdf"]` | the MIME type; `"image"` matches every image type |
+| `type` | `"image"`, `"image/png"`, `["image", "application/pdf"]` | the MIME type the client declared — not the bytes; `"image"` matches every image type |
 
 `files()` gives an array whenever the field is there, even for a single
 file. A file input nothing was chosen in is left out of the body, so
