@@ -12,6 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import { serve } from "../test-utils/server.ts";
 import { createApp } from "./app.ts";
+import type { Requires } from "./context.ts";
 import { HttpError } from "./error.ts";
 import { hook } from "./hook.ts";
 import { route } from "./route.ts";
@@ -679,5 +680,73 @@ describe("cookies a hook returned, wherever it runs", () => {
     expect(await (await request("/late")).json()).toEqual({
       cookies: { theme: "dark" },
     });
+  });
+});
+
+describe("cookies a hook passes on after validation", () => {
+  const withLocale = hook.beforeHandle(
+    (ctx: Requires<{ cookies: Record<string, string> }>) => ({
+      cookies: { ...ctx.cookies, locale: "en" },
+    }),
+  );
+  const withForgery = hook.beforeHandle(
+    (ctx: Requires<{ cookies: Record<string, string> }>) => ({
+      cookies: { ...ctx.cookies, session: "admin" },
+    }),
+  );
+
+  const request = serve(
+    createApp({
+      cookies: { secret: "top-secret", sign: ["session"] },
+      routes: {
+        login: route({
+          method: "POST",
+          path: "/login",
+          handler: (ctx) => {
+            ctx.out.cookies.set("session", "u1");
+
+            return null;
+          },
+        }),
+        kept: route({
+          method: "GET",
+          path: "/kept",
+          schema: { cookies: AsIs },
+          hooks: { beforeHandle: [withLocale] },
+          handler: (ctx) => ({ cookies: ctx.cookies }),
+        }),
+        forged: route({
+          method: "GET",
+          path: "/forged",
+          schema: { cookies: AsIs },
+          hooks: { beforeHandle: [withForgery] },
+          handler: (ctx) => ({ cookies: ctx.cookies }),
+        }),
+      },
+    }),
+  );
+
+  const session = async (): Promise<string> =>
+    (
+      (await request("/login", { method: "POST" })).headers.getSetCookie()[0] ??
+      ""
+    ).split(";")[0] ?? "";
+
+  test("a signed value already opened stays as it was", async () => {
+    const res = await request("/kept", {
+      headers: { cookie: await session() },
+    });
+
+    expect(await res.json()).toEqual({
+      cookies: { session: "u1", locale: "en" },
+    });
+  });
+
+  test("a signed value the hook changed is checked, and a forged one is gone", async () => {
+    const res = await request("/forged", {
+      headers: { cookie: await session() },
+    });
+
+    expect(await res.json()).toEqual({ cookies: {} });
   });
 });

@@ -51,6 +51,12 @@ API.
   extension scheme — `capacitor://localhost` — is taken as written.
   So is `"null"` together with `credentials`, which let any site make
   credentialed requests: a sandboxed frame sends it.
+- `@tetsujs/core`: a value the handler returns under a status its map
+  declares without a body — `null`, or an entry without `body` — is
+  refused with a `500` when responses are validated. It was sent past
+  every schema: in a map with `200: User`, a `user` returned under `303`
+  went out whole, the fields `User` strips included. The compiler catches
+  it only when no status of the map has a body.
 
 ### Added
 
@@ -85,11 +91,12 @@ API.
   nothing to check the seal with, and a rate limit keyed by the sealed
   string gave a client a new budget for every junk value put in front of
   the real one.
-- `@tetsujs/rate-limit`: `slot` runs a limiter in `beforeValidation` or
-  `beforeHandle` rather than `beforeParse`, so its key can read the
-  validated body — a limit by the account a login names, which holds
-  against guessing a password from many addresses — or a user a
-  `beforeHandle` hook looked up. The compiler keeps it in that slot.
+- `@tetsujs/rate-limit`: `slot` runs a limiter in `beforeValidation` —
+  the body parsed, not yet validated — or `beforeHandle` rather than
+  `beforeParse`. In `beforeHandle` its key reads the validated body — a
+  limit by the account a login names, which holds against guessing a
+  password from many addresses — or a user a hook looked up. The compiler
+  keeps it in that slot.
 - `@tetsujs/core`: `ws()` takes `until` — a signal, or a function asked as
   a socket opens — and closes the endpoint's sockets with `1001` when it
   fires, and a socket opened after it at once. With `draining` from
@@ -141,12 +148,6 @@ API.
   what parsing produced, or what a `beforeValidation` hook made of it. A
   body a `beforeParse` hook returned stayed in the type, and parsing
   replaced it at runtime.
-- `@tetsujs/core`: a value the handler returns under a status its map
-  declares without a body — `null`, or an entry without `body` — is
-  refused with a `500` when responses are validated. It was sent past
-  every schema: in a map with `200: User`, a `user` returned under `303`
-  went out whole, the fields `User` strips included. The compiler catches
-  it only when no status of the map has a body.
 - `@tetsujs/openapi`: a route whose map declares no `2xx` — only a
   redirect, say — is documented with the statuses it declares. A `200`
   nobody declared was added, and a client generated from the document
@@ -283,7 +284,10 @@ API.
 - `@tetsujs/core`: a file input nothing was chosen in — sent by a browser
   as a file with no name and no bytes — is left out of a form body, as a
   field that is not there. An optional file was refused for the type of a
-  file nobody chose, on every ordinary HTML form.
+  file nobody chose, on every ordinary HTML form. Two inputs of one name
+  with one left empty now give one file rather than two, as a key sent
+  once gives one value: a schema takes a single value for a list, as the
+  guide's "Validation" shows.
 - `@tetsujs/typebox`: the documentation of `files()` says it is `undefined`
   under `Type.Optional` when nothing was chosen, as its type does. It said
   the value was always an array.
@@ -335,6 +339,19 @@ An `afterResponse` observer that relied on the one before it having
 finished its async part — a value it left in a shared variable — takes
 that result in the same hook, or awaits a promise the other left: the
 observers of a request no longer wait for each other.
+
+A handler that returns a value under a status its map declares without a
+body — `303: null` next to `201: Order` — returns nothing there: with
+responses validated, as they are by default, that value is now a `500`.
+
+A test that reads an `sse()` body whole finds `: open` and a blank line
+first, and `onEnd` counts them in `bytes`, though not in `events`.
+
+Code that extends `RateLimitOptions` with an `interface` uses a type
+alias and an intersection instead: the options are a union now, since
+`name` comes with `store` and without it. `RateLimitHook` is the type of
+a limiter in `beforeParse`; one made for another slot is
+`ReturnType` of its own `rateLimit()` call.
 
 A `rateLimit()` given a `store` is given a `name` too. A shared store's
 keys change from the client to the name and the client, so its counters
