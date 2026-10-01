@@ -156,7 +156,7 @@ At compile time, where the hooks are mounted:
 
 | Error | When |
 | --- | --- |
-| `HookSlotError` | a hook sits in a slot other than its own, or a function is not wrapped by a `hook.*` factory |
+| `HookSlotError` | a hook sits in a slot other than its own, its type was widened to `AnyHook`, or a function is not wrapped by a `hook.*` factory |
 | `HookRequirementError` | a hook requires a field nothing before it provides; the message names it |
 | `HookStackError` | a slot holds a widened array instead of a tuple, such as `const shared = [auth]` without `as const` |
 | `HooksIndexError` | `hooks` is typed with an index signature, so its slots cannot be checked |

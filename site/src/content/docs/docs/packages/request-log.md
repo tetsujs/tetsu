@@ -52,7 +52,7 @@ included, produces one record:
 | `route` | the route as declared, `/items/:id` where `path` is `/items/42`; absent when no route matched |
 | `status` | the status of the response |
 | `durationMs` | milliseconds from `ctx.startedAt` to the response, rounded to the microsecond |
-| `thrown` | the `name` of what was thrown, if anything was, or its `typeof` when it is not an `Error` |
+| `thrown` | what was thrown, if anything was: an error's own `name`, its class when it sets none, or the `typeof` of a value that is not an `Error` |
 | `aborted` | `true` when the connection closed before the response was ready; absent otherwise |
 | `requestId` | the id from [`requestId()`](/docs/packages/request-id/), when it ran before this hook |
 
@@ -113,8 +113,9 @@ the fields as they are. The package exports the types `AccessRecord`,
 ## Notes
 
 - **No headers, bodies or query strings** go into a record, and there is no
-  option to add them. `thrown` is the error's name, never its message. `path`
-  carries what the client sent, so keep secrets out of URLs.
+  option to add them. `thrown` names the error, never quotes its message;
+  a minified build renames classes, and `thrown` with them. `path` carries
+  what the client sent, so keep secrets out of URLs.
 - **For the full error,** pass `reportError` to `createApp` and join its
   reports to the records by `ctx?.requestId`. See [Logging](/docs/guides/logging/).
 - **Records are written on the request's path,** so a `write` that blocks

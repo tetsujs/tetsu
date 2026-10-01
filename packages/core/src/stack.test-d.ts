@@ -14,6 +14,7 @@ import type {
   SchemaConfig,
   ValidatedCtx,
 } from "./context.ts";
+import type { AnyHook, Hook } from "./hook.ts";
 import { hook } from "./hook.ts";
 import { route } from "./route.ts";
 import type {
@@ -55,6 +56,23 @@ type RequirementMessage =
 
 type SlotMessage =
   "Hook of slot 'beforeHandle' cannot be placed into 'beforeParse'";
+
+const widened: AnyHook = auth;
+
+const widenedGuard: AnyHook = withOrder;
+
+declare const twoSlots: Hook<"beforeParse" | "onError", BaseCtx, unknown>;
+
+route({
+  method: "GET",
+  path: "/widened",
+  // @ts-expect-error a widened slot cannot be checked
+  hooks: { beforeParse: [widened] },
+  handler: () => ({ ok: true }),
+});
+
+type WidenedSlotMessage =
+  "A hook whose slot type was widened cannot be checked — keep the exact type its factory returns, such as ReturnType<typeof cors>, not AnyHook";
 
 export type cases = [
   Expect<
@@ -107,6 +125,40 @@ export type cases = [
     Equal<
       ValidateStack<readonly [typeof withOrder], "beforeParse", EarlyCancel>,
       readonly [HookSlotError<SlotMessage>]
+    >
+  >,
+  Expect<
+    Equal<
+      ValidateStack<readonly [typeof widened], "beforeParse", EarlyCancel>,
+      readonly [HookSlotError<WidenedSlotMessage>]
+    >
+  >,
+  Expect<
+    Equal<
+      ValidateGroupStack<readonly [typeof widened], "beforeParse">,
+      readonly [HookSlotError<WidenedSlotMessage>]
+    >
+  >,
+  Expect<
+    Equal<
+      ValidateStack<readonly [typeof widenedGuard], "beforeParse", EarlyCancel>,
+      readonly [HookSlotError<WidenedSlotMessage>]
+    >
+  >,
+  Expect<
+    Equal<
+      ValidateStack<readonly [typeof twoSlots], "beforeParse", EarlyCancel>,
+      readonly [HookSlotError<WidenedSlotMessage>]
+    >
+  >,
+  Expect<
+    Equal<
+      ValidateStaticStack<
+        readonly [typeof widened],
+        "onError",
+        ErrorWithSchema
+      >,
+      readonly [HookSlotError<WidenedSlotMessage>]
     >
   >,
   Expect<
