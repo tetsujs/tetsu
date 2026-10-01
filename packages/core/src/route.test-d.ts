@@ -753,11 +753,32 @@ route({
 
 route({ method: "GET", path: "/opaque", handler: (): unknown => "anything" });
 
+// biome-ignore lint/suspicious/noExplicitAny: untyped data is the case.
+declare const parsed: any;
+
+route({ method: "GET", path: "/parsed", handler: () => parsed });
+
+route({ method: "GET", path: "/parsed-async", handler: async () => parsed });
+
+route({
+  method: "GET",
+  path: "/parsed-later",
+  handler: () => Promise.resolve(parsed),
+});
+
 export type resultCases = [
   Expect<Equal<ValidateResult<{ id: number }>, unknown>>,
   Expect<Equal<ValidateResult<Response>, unknown>>,
   Expect<Equal<ValidateResult<readonly number[]>, unknown>>,
   Expect<Equal<ValidateResult<unknown>, unknown>>,
+  Expect<Equal<ValidateResult<typeof parsed>, unknown>>,
+  Expect<Equal<ValidateResult<Promise<typeof parsed>>, unknown>>,
+  Expect<
+    Equal<
+      ValidateResult<Promise<typeof parsed> | ReadableStream>,
+      ResultError<StreamRefusal>
+    >
+  >,
   Expect<Equal<ValidateResult<ReadableStream>, ResultError<StreamRefusal>>>,
   Expect<
     Equal<
