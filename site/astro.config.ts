@@ -39,6 +39,22 @@ export default defineConfig({
           tag: "meta",
           attrs: { name: "twitter:card", content: "summary_large_image" },
         },
+        // Slack shows the large image only when it has a `twitter:image`;
+        // with `og:image` alone it crops it into a square thumbnail.
+        {
+          tag: "meta",
+          attrs: {
+            name: "twitter:image",
+            content: "https://tetsujs.com/og.png",
+          },
+        },
+        {
+          tag: "meta",
+          attrs: {
+            name: "twitter:image:alt",
+            content: "Tetsu — No magic. Just iron. HTTP framework for Bun.",
+          },
+        },
       ],
       plugins: [
         starlightLlmsTxt({
