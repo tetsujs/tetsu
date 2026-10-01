@@ -22,6 +22,9 @@ const written: AccessRecord[] = [];
 const tracing = requestId({ generate: () => "generated-id" });
 const log = accessLog({ write: (record) => written.push(record) });
 
+/** Sets no `name` of its own, so it inherits `"Error"`. */
+class NotFound extends Error {}
+
 class ApiController {
   read = route({
     method: "GET",
@@ -60,6 +63,36 @@ class ApiController {
     path: "/leaks",
     handler: () => {
       throw new TypeError("authorization=Bearer super-secret-token");
+    },
+  });
+
+  missing = route({
+    method: "GET",
+    path: "/missing",
+    handler: () => {
+      throw new NotFound("order 42");
+    },
+  });
+
+  orphan = route({
+    method: "GET",
+    path: "/orphan",
+    handler: () => {
+      const error = new Error("no class to read");
+      Object.defineProperty(error, "constructor", {
+        get() {
+          throw new Error("unreadable");
+        },
+      });
+      throw error;
+    },
+  });
+
+  aborted = route({
+    method: "GET",
+    path: "/aborted",
+    handler: () => {
+      throw new DOMException("the client went away", "AbortError");
     },
   });
 
@@ -228,6 +261,33 @@ describe("what failed", () => {
     await Bun.sleep(20);
 
     expect(written[0]).toMatchObject({ status: 500, thrown: "TypeError" });
+  });
+
+  test("names the class of an error that sets no name of its own", async () => {
+    written.length = 0;
+
+    await request("/missing");
+    await Bun.sleep(20);
+
+    expect(written[0]).toMatchObject({ status: 500, thrown: "NotFound" });
+  });
+
+  test("keeps a name the error sets, over its class", async () => {
+    written.length = 0;
+
+    await request("/aborted");
+    await Bun.sleep(20);
+
+    expect(written[0]).toMatchObject({ thrown: "AbortError" });
+  });
+
+  test("falls back to Error when the class cannot be read", async () => {
+    written.length = 0;
+
+    await request("/orphan");
+    await Bun.sleep(20);
+
+    expect(written[0]).toMatchObject({ status: 500, thrown: "Error" });
   });
 
   test("says nothing about a request that did not fail", async () => {

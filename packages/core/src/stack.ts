@@ -89,6 +89,28 @@ type MissingKeys<Req, Ctx> = {
  */
 export type BareFunction = (ctx: never) => unknown;
 
+/** `true` for a union, `false` for a single type. */
+type IsUnion<T, U = T> = T extends unknown
+  ? [U] extends [T]
+    ? false
+    : true
+  : never;
+
+/**
+ * The error for a hook in a slot that is not its own.
+ *
+ * A hook whose type was widened — annotated as `AnyHook`, say — carries
+ * several slots at once, and naming each of them would read as several
+ * errors, one of them claiming a `beforeParse` hook cannot go into
+ * `beforeParse`. Such a hook gets one error that says what happened to its
+ * type. It cannot name the factory to keep: the slot the hook came from is
+ * exactly what the widening lost.
+ */
+type MisplacedHook<H, Slot extends SlotName> =
+  true extends IsUnion<SlotOf<H>>
+    ? HookSlotError<"A hook whose slot type was widened cannot be checked — keep the exact type its factory returns, such as ReturnType<typeof cors>, not AnyHook">
+    : HookSlotError<`Hook of slot '${SlotOf<H> & string}' cannot be placed into '${Slot}'`>;
+
 type SlotInput = readonly (AnyHook | BareFunction)[];
 
 /**
@@ -131,10 +153,7 @@ export type ValidateStack<
           ...ValidateStack<Rest, Slot, Merge<Ctx, Ext>>,
         ]
     : H extends AnyHook
-      ? readonly [
-          HookSlotError<`Hook of slot '${SlotOf<H> & string}' cannot be placed into '${Slot}'`>,
-          ...ValidateStack<Rest, Slot, Ctx>,
-        ]
+      ? readonly [MisplacedHook<H, Slot>, ...ValidateStack<Rest, Slot, Ctx>]
       : readonly [
           HookSlotError<`A bare function is not a hook — wrap it with hook.${Slot}(...)`>,
           ...ValidateStack<Rest, Slot, Ctx>,
@@ -170,7 +189,7 @@ export type ValidateStaticStack<
         ]
     : H extends AnyHook
       ? readonly [
-          HookSlotError<`Hook of slot '${SlotOf<H> & string}' cannot be placed into '${Slot}'`>,
+          MisplacedHook<H, Slot>,
           ...ValidateStaticStack<Rest, Slot, Ctx>,
         ]
       : readonly [
@@ -225,7 +244,7 @@ export type ValidateGroupStack<
         ]
     : H extends AnyHook
       ? readonly [
-          HookSlotError<`Hook of slot '${SlotOf<H> & string}' cannot be placed into '${Slot}'`>,
+          MisplacedHook<H, Slot>,
           ...ValidateGroupStack<Rest, Slot, Ctx>,
         ]
       : readonly [

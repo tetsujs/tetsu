@@ -7,6 +7,14 @@ API.
 
 ### Fixed
 
+- `@tetsujs/request-log`: `thrown` is the class of an error that sets no
+  `name` of its own, as documented. `class NotFound extends Error {}` was
+  logged as `"Error"`. A name the error does set, such as a
+  `DOMException`'s `"AbortError"`, is kept.
+- `@tetsujs/core`: a hook whose slot type was widened, by an `AnyHook`
+  annotation for one, fails with a message that says so. The message
+  listed every slot instead, one of them saying the slot the hook was put
+  in cannot hold it.
 - `@tetsujs/core`: `ws()` refuses a malformed path where it is declared,
   as `route()` does. A path the compiler did not see as a literal, such
   as `"/chat/{id}"` or `"/a//b"`, was registered as it was, and a client

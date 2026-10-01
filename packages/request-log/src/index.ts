@@ -139,8 +139,9 @@ export interface AccessRecord {
   /**
    * The name of whatever was thrown, when something was.
    *
-   * `"ValidationError"`, `"HttpError"`, `"TypeError"` — the class, never
-   * the message. A message is written by the application and routinely
+   * `"ValidationError"`, `"AbortError"`, `"NotFound"` — the error's own
+   * `name` when it sets one, its class when it does not, never the
+   * message. A message is written by the application and routinely
    * carries the very thing that must not reach a log store: the token that
    * failed to verify, the address that was not found. The whole error,
    * stack and all, goes to the application's `reportError` with the
@@ -230,13 +231,38 @@ function elapsed(startedAt: number): number {
 /**
  * Names a thrown value without quoting it.
  *
- * An `Error` answers with its class. Anything else — a thrown string, a
- * rejected object — answers with its type alone, because the value itself
+ * An `Error` answers with its `name`, or with its class when the name is
+ * `"Error"`: `class NotFound extends Error {}` sets no name, and `"Error"`
+ * would hide what failed. Any other name is kept over the class — an
+ * `AbortError` is a `DOMException`, and the name is what tells it from a
+ * timeout. A name or class that cannot be read, or is not a string,
+ * leaves `"Error"`: this runs after the response, and must not throw over
+ * a strange error. Anything else — a thrown string, a rejected object — answers with its type alone, because the value itself
  * is the part that may carry a secret, and this field says what kind of
  * failure happened rather than reproducing it.
  */
 function nameOf(thrown: unknown): string {
-  return thrown instanceof Error ? thrown.name : typeof thrown;
+  if (!(thrown instanceof Error)) {
+    return typeof thrown;
+  }
+
+  try {
+    const own: unknown = thrown.name;
+
+    if (typeof own === "string" && own !== "" && own !== "Error") {
+      return own;
+    }
+
+    const ctor: unknown = thrown.constructor;
+    const name =
+      typeof ctor === "function"
+        ? (ctor as { name?: unknown }).name
+        : undefined;
+
+    return typeof name === "string" && name !== "" ? name : "Error";
+  } catch {
+    return "Error";
+  }
 }
 
 /**
