@@ -139,3 +139,33 @@ jobs:
 
       - name: Type cost
         run: bun run --cwd bench types --check
+
+  site:
+    name: site
+    runs-on: ubuntu-latest
+
+    # Every TypeScript example on the site is compiled while it is built,
+    # against the packages of the same commit: a change that breaks an
+    # example fails here, in the pull request that made it. The site is a
+    # project of its own, with its own lockfile, so the framework's jobs do
+    # not install it.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.2"
+
+      # Astro runs on Node, and the site's config loads a TypeScript file
+      # without a bundler, which needs Node's own type stripping.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install
+        run: |
+          bun install --frozen-lockfile
+          bun install --frozen-lockfile --cwd site
+
+      - name: Build
+        run: bun run --cwd site build

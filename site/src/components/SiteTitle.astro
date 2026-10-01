@@ -1,0 +1,45 @@
+---
+import mark from "../assets/logo/tetsu-mark.svg";
+import wordmarkDark from "../assets/logo/tetsu-wordmark-dark.svg";
+import wordmarkLight from "../assets/logo/tetsu-wordmark-light.svg";
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title">
+  <img class="mark" src={mark.src} alt="" width={mark.width} height={mark.height} />
+  <img
+    class="wordmark light:sl-hidden"
+    src={wordmarkDark.src}
+    alt="Tetsu"
+    width={wordmarkDark.width}
+    height={wordmarkDark.height}
+  />
+  <img
+    class="wordmark dark:sl-hidden"
+    src={wordmarkLight.src}
+    alt="Tetsu"
+    width={wordmarkLight.width}
+    height={wordmarkLight.height}
+  />
+</a>
+
+<style>
+  .site-title {
+    display: flex;
+    align-items: center;
+    gap: var(--logo-gap);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .mark {
+    height: var(--logo-mark);
+    width: auto;
+    translate: 0 var(--logo-mark-shift);
+  }
+  .wordmark {
+    height: var(--logo-word);
+    width: auto;
+    translate: 0 var(--logo-word-shift);
+  }
+</style>

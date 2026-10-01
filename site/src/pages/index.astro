@@ -1,0 +1,179 @@
+---
+import { Code } from "@astrojs/starlight/components";
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import Benchmark from "../components/home/Benchmark.astro";
+import Caught from "../components/home/Caught.astro";
+import Closing from "../components/home/Closing.astro";
+import Features from "../components/home/Features.astro";
+import { heroCode, install } from "../components/home/hero-code";
+import Packages from "../components/home/Packages.astro";
+import Principles from "../components/home/Principles.astro";
+
+const title = "Tetsu — HTTP framework for Bun";
+const description =
+  "Tetsu is an HTTP framework for Bun: controllers, lifecycle hooks in fixed slots and types inferred from end to end — no decorators, no container, no dependencies.";
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://tetsujs.com/#website",
+      url: "https://tetsujs.com/",
+      name: "Tetsu",
+      description,
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": "https://tetsujs.com/#code",
+      name: "Tetsu",
+      description,
+      url: "https://tetsujs.com/",
+      codeRepository: "https://github.com/tetsujs/tetsu",
+      programmingLanguage: "TypeScript",
+      runtimePlatform: "Bun",
+      license: "https://opensource.org/licenses/MIT",
+    },
+  ],
+};
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Tetsu",
+    description,
+    template: "splash",
+    hero: { title: "Tetsu" },
+    pagefind: false,
+    head: [
+      { tag: "title", content: title },
+      { tag: "meta", attrs: { property: "og:title", content: title } },
+      { tag: "meta", attrs: { property: "og:type", content: "website" } },
+      { tag: "script", attrs: { type: "application/ld+json" }, content: JSON.stringify(structuredData) },
+    ],
+  }}
+>
+  <section class="hero not-content">
+    <div class="copy">
+      <p class="eyebrow">HTTP framework for Bun</p>
+      <h1 id="_top">What you write<br />is what runs.</h1>
+      <p class="lead">
+        Lifecycle hooks in fixed slots, controllers that take their dependencies as arguments, and
+        types inferred from the schema to the handler. No decorators, no container, no dependencies.
+      </p>
+      <div class="actions">
+        <a class="button primary" href="/docs/">Get started</a>
+        <code class="install">{install}</code>
+      </div>
+    </div>
+    <div class="code">
+      <Code code={heroCode} lang="ts" meta="twoslash" title="app.ts" />
+    </div>
+  </section>
+  <div class="not-content">
+    <Caught />
+    <Features />
+    <Benchmark />
+    <Principles />
+    <Packages />
+    <Closing />
+  </div>
+</StarlightPage>
+
+<style>
+  .hero {
+    display: grid;
+    gap: 3rem;
+    align-items: center;
+    padding-block: 3rem 4rem;
+  }
+  @media (min-width: 72rem) {
+    .hero {
+      grid-template-columns: 0.8fr 1.2fr;
+    }
+  }
+  .eyebrow {
+    color: var(--sl-color-accent-high);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 800;
+    color: var(--sl-color-white);
+    margin: 0;
+  }
+  .lead {
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
+    margin: 1.25rem 0 2rem;
+    max-width: 34rem;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .button {
+    display: inline-flex;
+    padding: 0.7rem 1.25rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .primary {
+    background: var(--tetsu-red);
+    color: #fff;
+  }
+  .primary:hover {
+    background: var(--tetsu-red-deep);
+  }
+  .install {
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.95rem;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    color: var(--sl-color-gray-2);
+  }
+  .install::before {
+    content: "$ ";
+    color: var(--sl-color-gray-3);
+  }
+  .code {
+    min-width: 0;
+  }
+</style>
+
+<style is:global>
+  :root:not([data-has-sidebar]) {
+    --sl-content-width: 76rem;
+  }
+  .section {
+    padding-block: 4rem;
+  }
+  .section .kicker {
+    color: var(--sl-color-accent-high);
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+  }
+  .section h2 {
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+    margin: 0 0 1rem;
+  }
+  .section .intro {
+    color: var(--sl-color-gray-2);
+    font-size: 1.05rem;
+    line-height: 1.6;
+    max-width: 44rem;
+    margin: 0 0 2rem;
+  }
+</style>

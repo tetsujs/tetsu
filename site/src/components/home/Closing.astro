@@ -1,0 +1,57 @@
+---
+import { install } from "./hero-code";
+---
+
+<section class="closing">
+  <h2>Start with one route.</h2>
+  <p>Bun 1.4 and TypeScript 5.7 or later. Nothing else.</p>
+  <div class="actions">
+    <a class="button" href="/docs/">Get started</a>
+    <code class="install">{install}</code>
+  </div>
+</section>
+
+<style>
+  .closing {
+    text-align: center;
+    padding-block: 5rem 3rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+  h2 {
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+    margin: 0;
+  }
+  p {
+    color: var(--sl-color-gray-2);
+    margin: 0.75rem 0 2rem;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+    align-items: center;
+  }
+  .button {
+    padding: 0.7rem 1.25rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-decoration: none;
+    background: var(--tetsu-red);
+    color: #fff;
+  }
+  .install {
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.95rem;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    color: var(--sl-color-gray-2);
+  }
+  .install::before {
+    content: "$ ";
+    color: var(--sl-color-gray-3);
+  }
+</style>

@@ -1,0 +1,27 @@
+---
+import { Code, TabItem, Tabs } from "@astrojs/starlight/components";
+import { tabs } from "./samples";
+---
+
+<section class="section">
+  <p class="kicker">How it reads</p>
+  <h2>Plain objects, wired by hand.</h2>
+  <Tabs>
+    {
+      tabs.map((tab) => (
+        <TabItem label={tab.label}>
+          <p class="caption">{tab.text}</p>
+          <Code code={tab.code} lang="ts" meta="twoslash" />
+        </TabItem>
+      ))
+    }
+  </Tabs>
+</section>
+
+<style>
+  .caption {
+    color: var(--sl-color-gray-2);
+    margin: 1rem 0;
+    max-width: 44rem;
+  }
+</style>
