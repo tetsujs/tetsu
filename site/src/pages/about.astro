@@ -1,5 +1,4 @@
 ---
-import { Image } from "astro:assets";
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import mark from "../assets/logo/tetsu-mark.svg";
 
@@ -46,13 +45,12 @@ const refusals = [
 >
   <div class="about not-content">
     <section class="opening">
-      <Image
-        src={mark}
+      <img
+        src={mark.src}
         alt="The Tetsu mark: a red oni holding an iron club"
         class="mark"
-        width={320}
-        height={320}
-        loading="eager"
+        width="320"
+        height="320"
         fetchpriority="high"
       />
       <div>

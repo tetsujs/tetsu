@@ -258,7 +258,7 @@ describe("one route that needs an exception", () => {
 });
 
 describe("one path that serves a document", () => {
-  // The recipe the README gives for an application that mounts a policy
+  // The recipe the docs give for an application that mounts a policy
   // application-wide and still serves HTML somewhere — a documentation
   // page, a health dashboard. The exemption is keyed on `ctx.route`, so it
   // names the endpoint rather than matching the URL that arrived.
@@ -314,8 +314,8 @@ describe("one path that serves a document", () => {
   });
 });
 
-describe("the README's recipes, with the API policy", () => {
-  // The exception for one route, as the README writes it: with a policy
+describe("the docs' recipes, with the API policy", () => {
+  // The exception for one route, as the docs write it: with a policy
   // that says `frame-ancestors 'none'`, a browser reads that and ignores
   // `x-frame-options`, so both have to allow the frame.
   const allowFraming = hook.beforeResponse((ctx) => {

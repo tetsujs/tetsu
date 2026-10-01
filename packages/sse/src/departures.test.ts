@@ -1,7 +1,7 @@
 /**
  * Tests for how a stream starts and how it takes a client leaving.
  *
- * A client that leaves is the ordinary end of a feed, and the README asks
+ * A client that leaves is the ordinary end of a feed, and the docs ask
  * the source to take the signal and its `finally` to clean up. Both used
  * to turn that ordinary end into a failure: a source rejecting with the
  * signal's `AbortError` was reported as a broken stream, and a `finally`

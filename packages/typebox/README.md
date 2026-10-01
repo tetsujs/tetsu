@@ -1,200 +1,32 @@
 # @tetsujs/typebox
 
-TypeBox schemas as DTOs: compiled validation, full type inference, and the
-same schema in the OpenAPI document.
+TypeBox schemas as [Tetsu](https://tetsujs.com) DTOs: compiled validation, type inference and
+OpenAPI.
 
 ```bash
-bun add typebox @tetsujs/typebox
+bun add @tetsujs/typebox
 ```
-
-## Usage
-
-Wrap a TypeBox schema with `tb()` where the DTO is declared, and use it in
-any part of a route's `schema`:
 
 ```ts
 import { tb, Type } from "@tetsujs/typebox";
 
-export const CreateUser = tb(
+const CreateUser = tb(
   Type.Object({
     name: Type.String({ minLength: 1 }),
     email: Type.String({ format: "email" }),
   }),
 );
 
-export const UserParams = tb(Type.Object({ id: Type.Integer() }), { convert: true });
-
-update = route({
-  method: "PUT",
-  path: "/users/:id",
-  schema: { params: UserParams, body: CreateUser },
-  handler: (ctx) => this.users.update(ctx.params.id, ctx.body),
-  //                                   ^? number     ^? { name: string; email: string }
-});
-```
-
-The schema is compiled once, when `tb()` runs, and every request uses the
-compiled check. `Type` is TypeBox's own, re-exported, so TypeBox's
-documentation applies as it is; `typebox` stays a peer dependency, so the
-application picks its version.
-
-## Options
-
-| Option | Effect | Use for |
-| --- | --- | --- |
-| `convert` | converts before checking: `"42"` → `42`, a single `"a"` → `["a"]` | `params`, `query`, `headers` and form fields, which arrive as strings |
-| `clean` | drops properties the schema does not declare | `response` DTOs, so nothing undeclared leaks |
-| `defaults` | fills in a declared `default` when a value is missing | queries with optional parameters, configuration |
-| `issues` | `"detailed"` (default) or `"summary"` | `"summary"` gives one issue per failed value — much cheaper on large bodies |
-| `vendor` | the vendor name reported to the core | custom tooling |
-
-All are off by default, and none of them modifies the value it was given.
-Wrapping a DTO again replaces its options rather than adding to them:
-`tb(CreateOrder, { convert: true, issues: "summary" })` keeps `convert`
-only because it says so.
-
-A property with a `default` and `defaults: true` is documented as optional
-on input, since the client does not have to send it.
-
-A DTO nested in another is checked with the options of the outer one, not
-its own. A nested DTO declared with an option the outer one does not have
-is refused where the outer one is made — a `clean` that no longer strips
-is a field leaking out of a response:
-
-```ts
-const PublicUser = tb(Type.Object({ id: Type.String() }), { clean: true });
-
-tb(Type.Object({ users: Type.Array(PublicUser) }));                  // throws: clean
-tb(Type.Object({ users: Type.Array(PublicUser) }), { clean: true }); // strips every user
-```
-
-A schema derived from a DTO — `Type.Pick(PublicUser, ["id"])`,
-`Type.Omit`, `Type.Partial` — is a new schema, and carries none of the
-DTO's options: give the `tb()` around it the options it needs.
-
-## Files
-
-`file()` and `files()` validate uploads in a `bodyType: "form"` body:
-
-```ts
-import { file, files, tb, Type } from "@tetsujs/typebox";
-
-const Upload = tb(
-  Type.Object({
-    title: Type.String({ minLength: 1 }),
-    avatar: file({ maxSize: "5m", type: "image" }),
-    gallery: files({ maxSize: "1m" }),
-  }),
-);
-
 route({
   method: "POST",
-  path: "/uploads",
-  bodyType: "form",
-  schema: { body: Upload },
-  handler: (ctx) => store(ctx.body.title, ctx.body.avatar, ctx.body.gallery),
-  //                                      ^? File          ^? File[]
+  path: "/users",
+  schema: { body: CreateUser },
+  handler: (ctx) => users.create(ctx.body),
 });
 ```
 
-| Option | Accepts | Checks |
-| --- | --- | --- |
-| `maxSize` | `5242880`, `"512k"`, `"5m"` | the largest file size |
-| `minSize` | the same | the smallest — `1` rejects a file with nothing in it |
-| `type` | `"image"`, `"image/png"`, `["image", "application/pdf"]` | the MIME type the client declared — not the bytes; `"image"` matches every image type |
+Options, details and recipes: **[tetsujs.com/docs/packages/typebox](https://tetsujs.com/docs/packages/typebox/)**
 
-`files()` gives an array whenever the field is there, even for a single
-file. A file input nothing was chosen in is left out of the body, so
-under `Type.Optional` an untouched one is absent: `file()` is `undefined`
-rather than refused for its type, and `files()` is `undefined` rather than
-`[]` — `ctx.body.gallery ?? []`, as the type already asks. These checks run
-after the body was read; the limit on what is read at all is `maxBodySize`,
-and it counts the multipart framing too, which is larger than it looks.
+## License
 
-## Error messages
-
-Set your own message on a schema with `errorMessage` — one string for any
-failure, or one per keyword:
-
-```ts
-const CreateUser = tb(
-  Type.Object({
-    email: Type.String({
-      format: "email",
-      errorMessage: { format: "Not an email address", required: "Email is required" },
-    }),
-    password: Type.String({ minLength: 8, errorMessage: "At least 8 characters" }),
-  }),
-);
-```
-
-`errorMessage` is not included in the JSON Schema or the OpenAPI document.
-For several languages, keep schemas without messages and translate in an
-`onError` hook, keyed by each issue's path.
-
-Every issue points at the field itself — a missing `password` is reported
-at `["body", "password"]`, not at `body` — and a union of literals fails
-with one issue listing the allowed values.
-
-## Codecs
-
-A `Type.Codec` is validated as it arrives and handed over decoded:
-
-```ts
-const Instant = Type.Codec(Type.String({ format: "date-time" }))
-  .Decode((value) => new Date(value))
-  .Encode((value: Date) => value.toISOString());
-
-const Stored = tb(Type.Object({ code: Type.String(), expiresAt: Instant }));
-
-parse(Stored, await redis.hgetall(key)); // { code: string; expiresAt: Date }
-```
-
-A `Decode` that throws fails the value, as the check does: a `422`, with
-the error's message, rather than a `500` any client could cause with a
-string `BigInt` cannot read. Throw a message meant for the client.
-
-## Validating outside a request
-
-`parse()` validates any value and returns it, or throws a
-`ValidationError` with every issue. It is synchronous, so it works at
-module level — for example, for the environment:
-
-```ts
-import { parse, tb, Type } from "@tetsujs/typebox";
-
-const Env = tb(
-  Type.Object({
-    PORT: Type.Integer({ minimum: 1, maximum: 65_535, default: 3000 }),
-    DATABASE_URL: Type.String({ format: "uri" }),
-  }),
-  { convert: true, defaults: true, clean: true },
-);
-
-export const env = parse(Env, Bun.env);
-```
-
-Inside a handler, a thrown `ValidationError` becomes the same `422` a
-rejected request gets.
-
-## Performance
-
-TypeBox compiles each schema into a checking function, so valid bodies are
-checked several times faster than with other Standard Schema libraries —
-the bigger the body, the bigger the gain. From
-`bun run --cwd bench validators`, in nanoseconds per check:
-
-| | Zod 4.6 | ArkType 2.2 | Valibot 1.5 | TypeBox via `tb()` |
-| --- | --- | --- | --- | --- |
-| small body, valid | 23 | 24 | 21 | **6.7** |
-| 20-item body, valid | 922 | 168 | 784 | **52** |
-| 20-item body, one item invalid | 1,020 | 3,260 | 936 | 21,090 |
-| memory to import | +21 MB | +57 MB | +3 MB | +36 MB |
-
-Describing a failure in detail is TypeBox's slow path; `issues: "summary"`
-answers the invalid body above in 76 ns. TypeBox fits large bodies, mostly
-valid traffic and schemas that double as documentation; a lighter library
-fits when memory and startup matter more.
-
-OpenAPI 3.1 and JSON Schema 2020-12 are emitted as they are; older
-dialects throw rather than being converted approximately.
+[MIT](https://github.com/tetsujs/tetsu/blob/main/LICENSE)

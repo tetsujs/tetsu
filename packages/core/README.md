@@ -1,25 +1,42 @@
 <!-- Generated from the repository's README.md by scripts/readme.ts: edit that one. -->
 
-# Tetsu
+<p align="center">
+  <a href="https://tetsujs.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://tetsujs.com/logo-dark.svg">
+      <img src="https://tetsujs.com/logo-light.svg" alt="Tetsu" width="360">
+    </picture>
+  </a>
+</p>
 
-Tetsu (鉄, "iron") is an HTTP framework for Bun: controllers declared with
-the dependencies they need, lifecycle hooks in fixed slots instead of
-middleware, and types inferred from end to end — down to the order of the
-hooks, checked by the compiler — without decorators, a DI container or
-dependencies in the core.
+<p align="center">
+  <b>No magic. Just iron.</b><br>
+  HTTP framework for Bun
+</p>
+
+<p align="center">
+  <a href="https://tetsujs.com/docs/">Documentation</a> ·
+  <a href="https://tetsujs.com/docs/quick-start/">Quick start</a> ·
+  <a href="https://tetsujs.com/docs/packages/core/">Packages</a>
+</p>
+
+Tetsu (鉄, "iron") is an HTTP framework for Bun. Controllers get their
+dependencies as function arguments, hooks run in fixed slots instead of a
+middleware chain, and the compiler infers every type from the path to the
+handler. There are no decorators, no DI container and no dependencies in
+the core.
 
 ```ts
 import { controller, createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 
-const usersController = controller("Users", ({ users }: { users: UserRepository }) => ({
+const users = controller("Users", ({ repo }: { repo: UserRepository }) => ({
   get: route({
     method: "GET",
     path: "/users/:id",
     schema: { params: z.object({ id: z.coerce.number() }) },
     handler: (ctx) => {
-      const user = users.find(ctx.params.id);
-      //                             ^? number — from the schema
+      const user = repo.find(ctx.params.id); // ctx.params.id is a number
 
       if (!user) throw httpError(404, "USER_NOT_FOUND");
 
@@ -28,24 +45,11 @@ const usersController = controller("Users", ({ users }: { users: UserRepository 
   }),
 }));
 
-const app = createApp({ routes: usersController({ users }) });
-
-Bun.serve({ ...app, port: 3000 });
+Bun.serve({ ...createApp({ routes: users({ repo }) }) });
 ```
 
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Philosophy](#philosophy)
-- [Guide](#guide): [routes](#routes-and-controllers) ·
-  [hooks](#lifecycle-hooks) · [validation](#validation) ·
-  [request bodies](#request-bodies) · [responses and errors](#responses-and-errors) ·
-  [cookies](#cookies) · [groups and hook packages](#groups-and-hook-packages) ·
-  [WebSockets](#websockets) · [streaming](#streaming) ·
-  [cancellation](#cancellation-and-timeouts) · [testing](#testing) ·
-  [logging](#logging)
-- [Packages](#packages)
-- [FAQ](#faq)
-- [Performance](#performance)
+Nothing here is annotated. A request with a bad id gets a `422` and never
+reaches the handler.
 
 ## Install
 
@@ -53,781 +57,37 @@ Bun.serve({ ...app, port: 3000 });
 bun add @tetsujs/core
 ```
 
-Requires Bun 1.4 or later and TypeScript 5.7 or later with `strict` on. The
-types name Bun's own (`Bun.Server`, `CookieMap`), so the project needs
-`@types/bun` — `bun init` adds it, `bun add -d @types/bun` otherwise.
-`moduleResolution` is `bundler` — what `bun init` writes — or `node16` or
-`nodenext`: the packages declare their entry points in `exports`, which
-the old `node` mode does not read, and it reports `@tetsujs/core` as not
-found.
-
-## Quick start
-
-```ts
-// server.ts
-import { controller, createApp, route } from "@tetsujs/core";
-
-const helloController = controller("Hello", () => ({
-  greet: route({
-    method: "GET",
-    path: "/hello/:name",
-    handler: (ctx) => ({ hello: ctx.params.name }),
-  }),
-}));
-
-const app = createApp({ routes: helloController() });
-
-Bun.serve({ ...app, port: 3000 });
-```
-
-```bash
-bun server.ts
-curl localhost:3000/hello/ada   # {"hello":"ada"}
-```
-
-`createApp` returns plain data — routes, a fallback, a WebSocket handler —
-and `Bun.serve` takes it as it is. There is no server object of our own.
-
-## Philosophy
-
-1. **Controllers without decorators.** A controller is a named function
-   from its dependencies to its routes, called once where the application
-   is wired. The framework reads the routes it returns and nothing else —
-   not the file name, not a class, not metadata.
-2. **Flat, and no magic.** No global registry, no file scanning, no
-   reflection, no container. The application is a tree of objects wired by
-   hand in one place, and any point of it reads top to bottom.
-3. **Types do not lie.** `ctx` is never annotated. A field is in it exactly
-   when it exists at that point of the request: path parameters from the
-   path literal, the body only after it was validated, `ctx.user` only after
-   the hook that returned it.
-4. **Explicit over DRY.** A route lists its own hooks, so reading a route
-   shows everything that runs for it, and in what order.
-5. **The platform, not a wrapper.** Routing is Bun's native router, headers
-   are `Headers`, cookies are Bun's `CookieMap`, `ctx.server` is the real
-   server. The core has no dependencies: validation goes through
-   [Standard Schema](https://standardschema.dev), so you bring Zod, Valibot,
-   ArkType or TypeBox.
-
-## Guide
-
-### Routes and controllers
-
-A route is created by `route()`. A controller is a name and a function from
-its dependencies to its routes, and each half has a job: the name is the
-contract a generated client sees, and the function gives every route its
-dependencies where the route is declared.
-
-```ts
-import { controller, route } from "@tetsujs/core";
-
-export interface OrdersDeps {
-  readonly orders: OrderService;
-}
-
-export const ordersController = controller("Orders", ({ orders }: OrdersDeps) => ({
-  list: route({ method: "GET", path: "/orders", handler: () => orders.all() }),
-  get: route({ method: "GET", path: "/orders/:id", handler: (ctx) => orders.find(ctx.params.id) }),
-}));
-
-export const healthController = controller("Health", () => ({
-  live: route({ method: "GET", path: "/live", handler: () => "ok" }),
-}));
-
-// main.ts — the one place the application is wired
-const app = createApp({
-  routes: [ordersController({ orders }), healthController()],
-});
-```
-
-The name is a contract: `@tetsujs/openapi` builds every `operationId` from
-it (`ordersList`), and a generated client names its methods after those.
-Renaming the variable changes nothing a client sees; changing the name
-does, where a reviewer sees it. Two controllers of one application cannot
-share a name — it is refused at startup — so two versions of an API are two
-names over one body:
-
-```ts
-const users = ({ users }: UsersDeps) => ({ list: route({ … }) });
-
-export const usersV1 = controller("UsersV1", users);
-export const usersV2 = controller("UsersV2", users);
-```
-
-It is a function, and not a class, because a route reads what it declares
-— its hooks, its schemas, its body limit — when it is declared. A function
-has its dependencies from its first line; a class's fields are initialized
-before its constructor's parameters are assigned, so a hook built from a
-constructor argument in a field is built from `undefined`. Services stay
-classes: a service is behaviour other code calls, a controller is a
-declaration made once.
-
-A hook that needs a service is built inside the controller, next to the
-routes that mount it. A hook whose state several controllers must share —
-one rate limit budget — is made once in `main.ts` and passed in like a
-service.
-
-Paths are checked at compile time: `:id` is a parameter, `*` is allowed
-only as the whole last segment, and syntax that looks like a parameter but
-is not one — `{id}`, `:id?` — is refused rather than matched literally.
-
-`ctx.route` is the route that matched, as declared, which is what a log
-line or a metric should be labelled with:
-
-```ts
-handler: (ctx) => {
-  ctx.route.path;       // "/api/users/:id" — the template, not the URL
-  ctx.route.method;     // "GET"
-  ctx.route.controller; // "Users"
-  ctx.route.name;       // "get"
-},
-```
-
-### Lifecycle hooks
-
-A request passes through fixed slots. There is no `next()` and no onion to
-reason about:
-
-```
-beforeParse → parse → beforeValidation → validate → beforeHandle
-  → handler → beforeResponse → afterResponse      (onError on failure)
-```
-
-A hook extends the context by returning an object, and what it returned is
-typed in every later hook and in the handler. It stops the request by
-throwing or by returning a `Response`:
-
-```ts
-import { hook, HttpError, route } from "@tetsujs/core";
-
-export const auth = hook.beforeParse(async (ctx) => {
-  const user = await sessions.verify(ctx.req.headers.get("authorization"));
-
-  if (!user) throw new HttpError(401);
-
-  return { user };
-});
-
-route({
-  method: "GET",
-  path: "/orders",
-  hooks: { beforeParse: [auth] },
-  handler: (ctx) => orders.listFor(ctx.user.id),
-  //                                    ^? User
-});
-```
-
-A hook can also state what it needs instead of where it sits. Mounting it
-where nothing provides that is a compile error naming the missing field:
-
-```ts
-import type { Requires } from "@tetsujs/core";
-
-export const withOrder = hook.beforeHandle(
-  async (ctx: Requires<{ params: { id: string }; user: User }>) => ({
-    order: await orders.find(ctx.params.id),
-  }),
-);
-```
-
-`beforeResponse` hooks see the response and may replace it; `afterResponse`
-hooks observe it on every outcome, which makes them the place for logs and
-metrics. `onError` hooks turn an error into a response.
-
-An `afterResponse` hook starts as the response goes to Bun, with the whole
-request in reach — its headers, the client's address. Its synchronous part
-is part of the response's latency; the promise it returns is not waited
-for. Two things follow. The body is not an observer's to read, and
-`ctx.res` offers no way to it: to audit a body, clone the response in
-`beforeResponse`, where it is still yours. And what an observer needs of
-the request or the response it reads before its first `await` — by then
-the response may be sent, and a URL, a header or the address nobody read
-is gone, without an error. The observers of a request start in order,
-each without waiting for the one before, so each gets there in time; one
-that needs another's result does both in one hook, or awaits a promise
-the other left:
-
-```ts
-const shipped = hook.afterResponse(async (ctx) => {
-  const line = {
-    status: ctx.res.status,
-    agent: ctx.req.headers.get("user-agent"),
-    ip: ctx.server.requestIP(ctx.req)?.address,
-  };
-
-  await shipper.send(line);
-});
-
-const audited = hook.beforeResponse((ctx) => {
-  void ctx.res.clone().text().then((body) => audit.write(ctx.req.url, body));
-});
-```
-
-A clone of a streamed body keeps every chunk until it is read, so a
-stream is audited where it is produced.
-
-Hooks are mounted by slot, the same way on a route, a group and the
-application: `hooks: { beforeParse: [auth], afterResponse: [log] }`. The key
-says where a hook runs, and the compiler checks it against the slot the
-hook was made for. Inside a slot the array is the order; the slots
-themselves always run in lifecycle order, whatever order they are written
-in. Every hook and handler also sees `ctx.startedAt`, the monotonic time the
-request was taken, before any hook ran.
-
-### Validation
-
-Any schema implementing Standard Schema validates any part of the request.
-All parts are checked at once, and a failure answers `422` with every issue:
-
-```ts
-const Page = z.object({ page: z.coerce.number().int().min(1).default(1) });
-const NewItem = z.object({ name: z.string().min(1), qty: z.number().int() });
-
-create = route({
-  method: "POST",
-  path: "/items",
-  schema: { query: Page, body: NewItem, response: { 201: Item } },
-  handler: (ctx) => {
-    ctx.out.status = 201;
-
-    return this.items.add(ctx.body); // ctx.body is NewItem's output type
-  },
-});
-```
-
-A query and a form body arrive as strings, so the schema converts them — a
-number with `z.coerce.number()`, as above. An array too: a key sent once is
-a string, and only a repeated key becomes an array, `?tag=a` being `"a"`
-and `?tag=a&tag=b` `["a", "b"]`. A plain `z.array()` refuses a single tag
-with `422`, which a test sending two does not notice, so the schema wraps
-one value in an array itself:
-
-```ts
-const one = (value: unknown) => (typeof value === "string" ? [value] : value);
-const Filter = z.object({ tag: z.preprocess(one, z.array(z.string())) });
-```
-
-`tb()` from `@tetsujs/typebox` does it with `convert: true`.
-
-The parts are `params`, `query`, `headers`, `cookies` and `body`, and
-`response` checks what leaves. The value the response schema returns is
-what gets serialized, so a schema that strips unknown keys keeps fields
-like `passwordHash` out of the JSON.
-
-A response map is also the list of statuses the route answers with: the
-handler may only set a declared status and return a declared shape, and a
-response with any other status is refused with a `500`. A status without a
-body is declared `null`:
-
-```ts
-schema: { response: { 200: Session, 204: null } },
-```
-
-A status that leaves with headers or cookies says so in place of its body's
-schema, the way a request declares its parts. They are checked with the
-body, and documented with it:
-
-```ts
-schema: {
-  response: {
-    201: { body: Order, headers: Created }, // Created: { location: string }
-    204: { cookies: SignedIn },             // SignedIn: { session: string }
-  },
-},
-```
-
-`headers` sees the headers on `ctx.out` once the handler returned — those a
-hook set before it too, so it should not refuse keys it does not name.
-`cookies` sees each cookie the response sets as the handler wrote it:
-opened when signed, `""` when deleted. A status without `body` carries
-none, as `null` does: a value the handler returns for it is refused with a
-`500`, not sent unchecked.
-
-`validateResponses: false` on `createApp` turns response checks off.
-
-### Request bodies
-
-A route declares how its body is read with `bodyType`: `"json"` (the
-default), `"form"` (multipart and urlencoded; uploads arrive as `File`
-values inside `ctx.body`, validated like any other field — a file input
-nothing was chosen in is left out, as a field that is not there; a
-file's `type` is what the client declared, not what its bytes are),
-`"text"`, or `"stream"`:
-
-```ts
-route({
-  method: "POST",
-  path: "/uploads",
-  bodyType: "stream",
-  maxBodySize: 5 * 1024 ** 3,
-  handler: async (ctx) => {
-    await storage.put(ctx.body); // ^? ReadableStream<Uint8Array>
-  },
-});
-```
-
-`maxBodySize` — 1 MiB by default, per application or per route — is counted
-while the body is read, so an oversized request is refused with `413`
-without buffering the rest of it. A streamed body is counted too, chunk by
-chunk, without being buffered.
-
-A webhook is signed over the bytes it was sent as and handled as the payload
-they carry. `rawBody: true` keeps both: the bytes in `ctx.rawBody`, the body
-parsed and validated in `ctx.body`, and a `beforeValidation` hook between
-them to check the signature before anything is validated:
-
-```ts
-const signed = hook.beforeValidation((ctx: Requires<{ rawBody: Uint8Array }>) => {
-  if (!verify(ctx.rawBody, ctx.req.headers.get("x-signature"))) {
-    throw httpError(401, "BAD_SIGNATURE");
-  }
-});
-
-route({
-  method: "POST",
-  path: "/webhooks/payments",
-  rawBody: true,
-  schema: { body: PaymentEvent },
-  hooks: { beforeValidation: [signed] },
-  handler: (ctx) => payments.record(ctx.body),
-});
-```
-
-`ctx.rawBody` is typed only on a route that asks, so a hook that needs it
-cannot be mounted on one that does not. It goes with a `json` or `text`
-body: a form is parsed natively, and a stream is the raw body already.
-
-### Responses and errors
-
-What the handler returns becomes the response: `undefined` is `204` with
-no body, anything else is JSON with `200`, and a `Response` is sent as it
-is. Everything else the response will carry goes on `ctx.out`:
-
-```ts
-ctx.out.status = 201;
-ctx.out.headers.set("location", `/orders/${order.id}`);
-```
-
-A redirect is a response like any other: the platform's `Response.redirect`,
-from a handler or from a hook that turns a request away. Cookies set on
-`ctx.out` go with it:
-
-```ts
-handler: (ctx) => {
-  ctx.out.cookies.set("session", token, { httpOnly: true });
-
-  return Response.redirect("/orders", 303);
-},
-```
-
-A `Response` the handler builds is sent as it is, unchecked and absent from
-the document. A redirect the response map declares is checked and
-documented like any status, its `location` included — set it on `ctx.out`:
-
-```ts
-schema: { response: { 303: { headers: SeeOther } } }, // SeeOther: { location: string }
-handler: (ctx) => {
-  ctx.out.status = 303;
-  ctx.out.headers.set("location", `/orders/${order.id}`);
-},
-```
-
-Every error the framework produces has one shape, and so do the ones you
-throw:
-
-```ts
-throw new HttpError(404);
-// { "status": 404, "message": "Not Found", "error": "NOT_FOUND" }
-
-throw httpError(409, "ALREADY_SHIPPED", "Order already shipped");
-// { "status": 409, "message": "Order already shipped", "error": "ALREADY_SHIPPED" }
-```
-
-`error` is the code to branch on; `message` is for people and may change.
-A validation failure adds `issues`. An `onError` hook on the application
-replaces the format for the whole application: every failure reaches it —
-a thrown `HttpError`, a validation or body failure, an unmatched path
-(`404`) or method (`405`), a rate limit's refusal. The document describes
-the same format when told it — `errors` in
-[`@tetsujs/openapi`](https://github.com/tetsujs/tetsu/tree/main/packages/openapi#an-error-format-of-your-own).
-
-### Cookies
-
-Incoming cookies are `ctx.cookies`, validated by `schema.cookies` like any
-other part. Outgoing ones are written on `ctx.out.cookies`:
-
-```ts
-ctx.out.cookies.set("session", token, { httpOnly: true, maxAge: 3600 });
-ctx.out.cookies.delete("theme");
-```
-
-Give the application a secret and the named cookies are signed on the way
-out and verified on the way in; a cookie whose signature does not hold is
-treated as absent:
-
-```ts
-createApp({ cookies: { secret: env.COOKIE_SECRET, sign: ["session"] }, routes });
-```
-
-The secret is 32 random bytes or more — `openssl rand -base64 32`. An empty
-or missing one is refused at startup, since anyone could compute its
-signature. A signed name is checked whichever way its value came — from
-the header, or from a hook that returned `cookies`, in any slot: what a
-hook puts there under a signed name is the sealed value, as the client
-sent it.
-
-`ctx.cookies` is filled when the request is validated, after the body is
-read. A hook that authenticates earlier — to refuse before the body, or to
-give a rate limit a user to count — reads a signed cookie with
-`signedCookie()`, which checks the seal and returns the value without it:
-
-```ts
-const auth = hook.beforeParse((ctx) => {
-  const userId = signedCookie(ctx, "session");
-  if (!userId) throw new HttpError(401);
-  return { userId };
-});
-```
-
-This is also how a missing session answers `401`: a session required by
-`schema.cookies` is a request part, and one missing or forged fails
-validation with `422`.
-
-A frontend on another site that sends the session with
-`cors({ credentials: true })` needs it set `secure: true` and
-`sameSite: "none"`: the browser's default, `Lax`, keeps a cookie off a
-request from another site, and `none` is refused without `secure`.
-
-### Groups and hook packages
-
-A group adds a path prefix and hooks to everything under it. A hook package
-is a function that takes options and returns one hook, mounted in its slot
-like any other — there is no plugin system:
-
-```ts
-import { cors } from "@tetsujs/cors";
-import { requestId } from "@tetsujs/request-id";
-import { accessLog } from "@tetsujs/request-log";
-
-const browser = cors({ origin: "https://app.example.com" });
-const id = requestId();
-const log = accessLog();
-
-createApp({
-  hooks: {
-    beforeParse: [browser, id],
-    afterResponse: [log],
-  },
-  routes: group("/api", {
-    children: [
-      statusController(),
-      group("/admin", {
-        hooks: { beforeParse: [adminOnly] },
-        children: [adminController()],
-      }),
-    ],
-  }),
-});
-```
-
-A group's hooks run for its routes but do not add to their types — see the
-[FAQ](#why-does-ctxuser-from-a-group-hook-not-show-up-in-the-handlers-type).
-Among themselves they do: a hook of a group or of the application sees
-what the hooks before it at the same level contributed — earlier in its
-slot, or in any slot that runs before its own. `beforeParse: [id, scope]`
-gives `scope` a typed `ctx.requestId`; in `beforeResponse`, `afterResponse`
-and `onError` such fields are optional, since the hook that adds them may
-never have run. Unmatched paths (`404`, `405`) and CORS preflights run only
-the application's hooks.
-
-### Mounting hooks
-
-Everything that runs for a request is written out where it is mounted.
-A few habits keep it that way:
-
-- **Make a hook once, in a named constant, and mount it by name.** A
-  package's options stay out of the `hooks` object, and a factory called
-  inside it would make a new instance every time the code around it runs.
-- **Share hooks, not `hooks` objects.** Two applications that log the same
-  way import the same `id` and `log` and each lists them in its own slots.
-  A set several places share is written `as const` and spread into each
-  slot where it is mounted — every slot stays a tuple, so the order is
-  still checked, and the slot still shows what runs before what:
-
-  ```ts
-  const common = { beforeParse: [id, browser], afterResponse: [log] } as const;
-
-  createApp({
-    hooks: {
-      beforeParse: [...common.beforeParse, auth],
-      afterResponse: [...common.afterResponse],
-    },
-    routes,
-  });
-  ```
-
-  A set without `as const` is an array, and is refused where it is
-  mounted: nothing in it could be checked. `Object.assign` and spreading
-  whole `hooks` objects replace a slot instead of joining it. For every
-  route under a prefix, a group's `hooks` is the shared set.
-- **State lives in the instance.** One `rateLimit()` mounted on two groups
-  shares its counters between them. For separate budgets, make two. A hook
-  made inside a controller is that controller's own; one whose state is
-  shared is made in `main.ts` and passed in.
-- **An instance runs once per request.** The same hook mounted twice in one
-  route's chain — on a group and on a route under it — is refused at
-  startup.
-- **Order within a slot is yours.** The compiler checks what a hook needs
-  (`scope` after `id`), not what should come first. The rule to keep:
-  `cors()` goes before every hook that can refuse, so that the refusal
-  carries the headers a browser needs to read it. A hook that never
-  refuses — `requestId()`, `arrivalLog()` — may go before it, and then a
-  preflight gets its id and its log line too.
-- **A package is one hook.** Writing your own, return the hook from a
-  function that takes the options. A package that seems to need two slots
-  is usually missing something the core should provide — say so in an
-  issue.
-
-### WebSockets
-
-A WebSocket endpoint is declared like a route. The handshake goes through
-the same hooks, so a refused one is an ordinary `401`, and what the hooks
-returned becomes `socket.data`:
-
-```ts
-import { ws } from "@tetsujs/core";
-
-room = ws({
-  path: "/chat/:room",
-  hooks: { beforeParse: [auth] },
-  schema: { message: ChatMessage },
-  open: (socket) => socket.subscribe(socket.data.params.room),
-  message: (socket, message) => socket.publish(socket.data.params.room, message.text),
-});
-```
-
-A frame that is not valid JSON, or not valid against `schema.message`, closes
-the socket with `1007`, or goes to `invalid` when the endpoint has one.
-Frames reach `message` in the order they arrived, even when the schema
-checks asynchronously, and none after the socket has closed.
-
-`until` closes the endpoint's sockets with `1001` when a signal fires — a
-server that is stopping, with `draining` from
-[`@tetsujs/lifecycle`](https://github.com/tetsujs/tetsu/tree/main/packages/lifecycle#streams-and-long-polls). It takes
-a signal, or a function asked as a socket opens, since the endpoint is
-declared before the server and its signals exist.
-
-### Streaming
-
-A handler that streams returns a `Response` carrying the stream. For
-server-sent events and other streamed formats,
-[`@tetsujs/sse`](https://github.com/tetsujs/tetsu/tree/main/packages/sse) turns an async generator into one, with
-backpressure, cleanup when the client leaves, and keep-alives:
-
-```ts
-import { sse } from "@tetsujs/sse";
-
-handler: (ctx) =>
-  sse(ctx, async function* () {
-    for await (const price of prices.watch()) yield { event: "price", data: price };
-  }),
-```
-
-### Cancellation and timeouts
-
-`ctx.req.signal` aborts when the client disconnects. A deadline comes from
-the platform, and the two combine:
-
-```ts
-handler: async (ctx) => {
-  const signal = AbortSignal.any([ctx.req.signal, AbortSignal.timeout(5_000)]);
-
-  return await upstream.fetch({ signal });
-},
-```
-
-A signal stops only the work it was passed to — a query started without
-one runs to completion however long it takes.
-
-### Testing
-
-A handler keeps its types, so a unit test calls it directly with a
-context built by `testCtx()`:
-
-```ts
-import { testCtx } from "@tetsujs/core/testing";
-
-const routes = usersController({ users });
-
-expect(routes.get.handler(testCtx({ params: { id: 1 } }))).toEqual(user);
-```
-
-Code that signs cookies or reads them with `signedCookie()` is given the
-application's cookie options as the second argument:
-`testCtx(parts, { cookies: { secret, sign: ["session"] } })`.
-
-Integration tests go through a real server, because Bun's router is only
-reachable through a socket. `serve()` starts one on a free port and stops
-it when the test file finishes:
-
-```ts
-import { serve } from "@tetsujs/core/testing";
-
-const request = serve(createApp({ routes: usersController({ users }) }));
-
-expect((await request("/users/1")).status).toBe(200);
-```
-
-A test that signs in and then acts as that user needs the session carried
-from one request to the next. `request.client()` is a client with its own
-headers and a cookie jar:
-
-```ts
-const client = request.client({ headers: { "x-real-ip": "10.0.0.7" } });
-
-await client("/session", { method: "POST", json: { email } });
-
-expect((await client("/me")).status).toBe(200);
-expect(client.cookies.get("session")).toBeDefined();
-```
-
-The jar keeps every cookie a response sets, sends each back where its
-`Path` matches, and forgets it when a response deletes or expires it. A
-signed cookie is held as it arrived, signature included. `json` sends a
-value as JSON; `body` sends what it is given, a malformed body included. A
-header set to `null` is not sent at all — `{ cookie: null }` is a request
-without the jar. A redirect is returned, not followed, so the cookie it
-sets is kept.
-
-The server listens where Bun listens by default — on both IPv4 and IPv6,
-where a client over IPv4 is reported as `::ffff:127.0.0.1`. To test what
-compares an address against `127.0.0.1`, listen on IPv4:
-`serve(app, { hostname: "127.0.0.1" })`.
-
-### Logging
-
-The framework has no logger of its own, and writes no lines of its own
-except the failures it cannot return to a client: an error no `onError`
-hook answered, a handler breaking its response contract, an `afterResponse`
-hook, a WebSocket handler, a stream. By default they go
-to `console.error`. Pass `reportError`, and they go to you instead:
-
-```ts
-createApp({
-  hooks: {
-    beforeParse: [requestId()],
-    afterResponse: [accessLog({ write: (r) => logger.info(r) })],
-  },
-  reportError: ({ source, error, ctx }) =>
-    logger.error({ err: error, source, requestId: ctx?.requestId }, "tetsu"),
-  routes,
-});
-```
-
-`error` is what was thrown, untouched, so the logger's redaction applies to
-it. `source` says what failed — `"unhandled"`, `"response"`,
-`"afterResponse"` and so on — and `ctx` is the request's context, typed from
-the application's own hooks, absent where there was no request. The
-receiver is not awaited.
-
-For request logs, see [`@tetsujs/request-log`](https://github.com/tetsujs/tetsu/tree/main/packages/request-log): a
-line when a request is done, and one when it arrives.
+Tetsu needs Bun 1.4 or later and TypeScript 5.7 or later. See
+[Installation](https://tetsujs.com/docs/installation/).
+
+## Documentation
+
+Everything is on **[tetsujs.com](https://tetsujs.com/docs/)**: a
+[quick start](https://tetsujs.com/docs/quick-start/), the
+[key concepts](https://tetsujs.com/docs/key-concepts/), guides for
+testing, authentication, deploying and more, and a reference for every
+export. For AI tools, the whole documentation is in
+[llms.txt](https://tetsujs.com/llms.txt).
 
 ## Packages
 
-| Package | What it does |
+| Package | |
 | --- | --- |
-| [`@tetsujs/core`](https://github.com/tetsujs/tetsu/tree/main/packages/core) | routes, hooks, validation, WebSockets — the framework |
-| [`@tetsujs/typebox`](https://github.com/tetsujs/tetsu/tree/main/packages/typebox) | TypeBox schemas as DTOs, file uploads included |
-| [`@tetsujs/openapi`](https://github.com/tetsujs/tetsu/tree/main/packages/openapi) | an OpenAPI 3.1 document and docs page generated from the routes |
-| [`@tetsujs/cors`](https://github.com/tetsujs/tetsu/tree/main/packages/cors) | CORS |
-| [`@tetsujs/rate-limit`](https://github.com/tetsujs/tetsu/tree/main/packages/rate-limit) | rate limiting with a replaceable store |
-| [`@tetsujs/request-id`](https://github.com/tetsujs/tetsu/tree/main/packages/request-id) | request ids |
-| [`@tetsujs/request-log`](https://github.com/tetsujs/tetsu/tree/main/packages/request-log) | access and arrival logs |
-| [`@tetsujs/secure-headers`](https://github.com/tetsujs/tetsu/tree/main/packages/secure-headers) | security headers |
-| [`@tetsujs/sse`](https://github.com/tetsujs/tetsu/tree/main/packages/sse) | server-sent events and streamed responses |
-| [`@tetsujs/lifecycle`](https://github.com/tetsujs/tetsu/tree/main/packages/lifecycle) | graceful shutdown |
-
-[`examples/`](https://github.com/tetsujs/tetsu/tree/main/examples) has a runnable file per feature, and
-[`examples/app`](https://github.com/tetsujs/tetsu/tree/main/examples/app) is a small notes API on `bun:sqlite` showing
-how the pieces sit in a project.
-
-## FAQ
-
-#### Why no decorators or DI container?
-
-Decorators and a container add a second, hidden layer — metadata,
-registration, resolution order — that the compiler cannot check and a
-reader cannot follow. Here a controller receives its dependencies as the
-argument of a function, and the wiring is ordinary code in one file.
-
-#### Can a controller be a class?
-
-The framework reads routes from any object, so an instance works, and is
-named after its class. But a route declared as a field is built before the
-constructor has assigned its parameters: a hook made from a constructor
-argument there is made from `undefined` (the compiler reports it as
-TS2729). A hook whose body reads `this.service` only when it runs avoids
-that; `controller()` avoids the question.
-
-#### Why only Bun?
-
-Because the framework uses Bun rather than abstracting it: the native
-router, `CookieMap`, `Bun.serve`. Supporting other runtimes would mean a
-second router and wrappers around everything else.
-
-#### How is it different from Nest, Hono or Elysia?
-
-From Nest: controllers and explicit composition, without decorators,
-reflection or a container, and with request types inferred rather than
-declared. From Hono: named controllers and a fixed lifecycle instead of
-middleware, and Bun only. From Elysia: controllers instead of a method
-chain, and explicit wiring instead of plugins. From all three: the order of
-hooks, what each one needs and what it adds, checked by the compiler.
-
-#### Why does `ctx.user` from a group hook not show up in the handler's type?
-
-A controller is typed where it is written, not where it is mounted, and a
-group does not know which routes it will hold. The hook still runs. To use
-its field in a handler, mount the hook on the route, or have the code that
-reads it declare `Requires<{ user: User }>` — the compiler then checks that
-something provides it.
-
-#### Can I call the app without starting a server?
-
-Not through routing: routing is Bun's, and only a socket reaches it. Call
-handlers directly with `testCtx()`, or use `serve()` from
-`@tetsujs/core/testing` — see [Testing](#testing).
-
-#### Is there a plugin system?
-
-No. A package is a function returning a hook, mounted in its slot like any
-other, so everything that runs for a route is visible where it is mounted.
-
-## Performance
-
-Measured against raw `Bun.serve` handlers, each in a process of its own —
-processor time per request and the share of raw Bun's throughput:
-
-| Route | raw Bun, µs | Tetsu, µs | share of raw |
-| --- | --- | --- | --- |
-| `GET`, no hooks | 4.78 | 4.95 | 97.0% |
-| `GET` + 2 hooks | 4.81 | 5.09 | 95.3% |
-| `POST`, parsed and validated | 5.85 | 6.60 | 90.1% |
-| `404` | 4.82 | 5.13 | 94.9% |
-
-Hono, Elysia, memory, startup and the cost of types are in
-[`bench/`](https://github.com/tetsujs/tetsu/tree/main/bench).
-
-## Status
-
-`0.x` — usable, and the API may still change between minor versions until
-`1.0`; [`CHANGELOG.md`](https://github.com/tetsujs/tetsu/blob/main/CHANGELOG.md) says what changed and how to move.
-All packages share one version.
+| [`@tetsujs/core`](https://tetsujs.com/docs/packages/core/) | the framework |
+| [`@tetsujs/cors`](https://tetsujs.com/docs/packages/cors/) | CORS headers and preflight responses |
+| [`@tetsujs/lifecycle`](https://tetsujs.com/docs/packages/lifecycle/) | graceful shutdown |
+| [`@tetsujs/openapi`](https://tetsujs.com/docs/packages/openapi/) | an OpenAPI 3.1 document and docs page from the routes |
+| [`@tetsujs/rate-limit`](https://tetsujs.com/docs/packages/rate-limit/) | fixed-window rate limiting |
+| [`@tetsujs/request-id`](https://tetsujs.com/docs/packages/request-id/) | request ids |
+| [`@tetsujs/request-log`](https://tetsujs.com/docs/packages/request-log/) | request logs |
+| [`@tetsujs/secure-headers`](https://tetsujs.com/docs/packages/secure-headers/) | security headers |
+| [`@tetsujs/sse`](https://tetsujs.com/docs/packages/sse/) | server-sent events and streamed responses |
+| [`@tetsujs/typebox`](https://tetsujs.com/docs/packages/typebox/) | TypeBox schemas with compiled validation |
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/tetsujs/tetsu/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/tetsujs/tetsu/blob/main/CONTRIBUTING.md). Report a vulnerability privately,
+as [SECURITY.md](https://github.com/tetsujs/tetsu/blob/main/SECURITY.md) describes.
 
 ## License
 
