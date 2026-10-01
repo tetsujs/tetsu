@@ -9,6 +9,7 @@
  * @module
  */
 
+import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const width = 1200;
@@ -33,11 +34,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${
   <svg x="90" y="135" width="340" height="340" viewBox="${mark.viewBox}">${mark.body}</svg>
   <svg x="490" y="190" width="560" height="150" viewBox="${wordmark.viewBox}" preserveAspectRatio="xMinYMid meet">${wordmark.body}</svg>
   <text x="496" y="410" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" fill="#F0F3F6">No magic. Just iron.</text>
-  <text x="498" y="470" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="30" fill="#9AA0AA">The HTTP framework for Bun</text>
+  <text x="498" y="470" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="30" fill="#9AA0AA">HTTP framework for Bun</text>
 </svg>`;
 
 await sharp(Buffer.from(svg))
   .png()
-  .toFile(new URL("../public/og.png", import.meta.url).pathname);
+  .toFile(fileURLToPath(new URL("../public/og.png", import.meta.url)));
 
 console.log("public/og.png");

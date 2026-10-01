@@ -1,3 +1,11 @@
+# Every response: no MIME sniffing, no framing by other sites, the path kept
+# to this origin in the referrer, and HTTPS remembered for a year.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
+
 # File names under /_astro/ carry a hash of their content: a change is a new
 # name, so a copy never goes stale.
 /_astro/*

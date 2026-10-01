@@ -1,15 +1,28 @@
 /**
- * Checks every link inside the built site: the page it points at exists,
- * and so does the heading its anchor names. Runs after `astro build`.
+ * Checks every link inside the built site: the page or file it points at
+ * exists, and so does the heading its anchor names — on another page or on
+ * the same one. Runs after `astro build`.
  *
  * @module
  */
 
+import { fileURLToPath } from "node:url";
 import { Glob } from "bun";
 
-const dist = new URL("../dist/", import.meta.url).pathname;
+const dist = fileURLToPath(new URL("../dist/", import.meta.url));
+// The site's own address: an absolute link to it, like the canonical one, is
+// checked as well.
+const origin = "https://tetsujs.com";
 
-const pages = new Map<string, Set<string>>();
+const decode = (text: string) => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+};
+
+const pages = new Map<string, { html: string; ids: Set<string> }>();
 
 for await (const file of new Glob("**/*.html").scan(dist)) {
   const html = await Bun.file(dist + file).text();
@@ -18,7 +31,12 @@ for await (const file of new Glob("**/*.html").scan(dist)) {
   );
   const path = `/${file.replace(/index\.html$/, "").replace(/\.html$/, "/")}`;
 
-  pages.set(path, ids);
+  pages.set(path, { html, ids });
+}
+
+if (!pages.size) {
+  console.log(`no pages in ${dist}: build the site first`);
+  process.exit(1);
 }
 
 const exists = async (path: string) =>
@@ -26,24 +44,21 @@ const exists = async (path: string) =>
 
 const broken: string[] = [];
 
-for (const page of pages.keys()) {
-  const file = page === "/404/" ? "404.html" : `${page.slice(1)}index.html`;
-  const html = await Bun.file(dist + file).text();
+for (const [page, { html }] of pages) {
+  for (const [, attribute, link = ""] of html.matchAll(
+    /\s(href|src)="([^"]+)"/g,
+  )) {
+    const url = new URL(link.replaceAll("&amp;", "&"), origin + page);
 
-  for (const [, href = ""] of html.matchAll(/\shref="([^"]+)"/g)) {
-    if (!href.startsWith("/") || href.startsWith("//")) continue;
+    if (url.origin !== origin) continue;
 
-    const [target = "", anchor] = href.split("#");
-    const path = target.split("?")[0] ?? "";
+    const path = decode(url.pathname);
+    const anchor = attribute === "href" ? decode(url.hash.slice(1)) : "";
 
     if (!(await exists(path))) {
-      broken.push(`${page} → ${href} (no page)`);
-    } else if (
-      anchor &&
-      pages.has(path) &&
-      !pages.get(path)?.has(decodeURIComponent(anchor))
-    ) {
-      broken.push(`${page} → ${href} (no heading)`);
+      broken.push(`${page} → ${link} (no page)`);
+    } else if (anchor && pages.has(path) && !pages.get(path)?.ids.has(anchor)) {
+      broken.push(`${page} → ${link} (no heading)`);
     }
   }
 }

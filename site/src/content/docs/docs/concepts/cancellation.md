@@ -6,16 +6,14 @@ sidebar:
 ---
 
 Work started for a request can outlive the reason for it: the client
-disconnects, or an upstream call takes longer than anyone will wait. This
-page covers the request's own signal, deadlines built from the platform's
-signals, and why the framework does not answer a slow request with a
-timeout of its own.
+disconnects, or an upstream call takes longer than anyone will wait. The
+platform's `AbortSignal` handles both.
 
 ## The request's signal
 
-`ctx.req.signal` is the platform's `AbortSignal` for the request, and it
-aborts when the client disconnects. Passed to the work the handler starts,
-it stops that work when nobody is left to receive the answer:
+`ctx.req.signal` aborts when the client disconnects. Pass it to the work
+the handler starts, and that work stops when nobody is left to receive the
+answer:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -34,15 +32,14 @@ route({
 ```
 
 `fetch`, Bun's own APIs, `node:timers/promises` and most database drivers
-take a signal. A stream that stops producing when the client leaves is the
-same idea, and `@tetsujs/sse` passes the signal to its generator for you —
-see [Streaming](/docs/concepts/streaming/).
+take a signal. `@tetsujs/sse` passes one to its generator for you; see
+[Streaming](/docs/concepts/streaming/).
 
 ## Deadlines
 
-A deadline comes from the platform too. `AbortSignal.timeout()` aborts
-after a delay, and `AbortSignal.any()` combines it with the request's
-signal, so the work stops at whichever comes first:
+`AbortSignal.timeout()` aborts after a delay, and `AbortSignal.any()`
+combines it with the request's signal, so the work stops at whichever comes
+first:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -59,11 +56,9 @@ route({
 });
 ```
 
-An aborted call rejects, and the rejection travels the error path like any
-error the handler throws. A deadline that expired rejects with a
-`DOMException` named `TimeoutError`; left as it is, it answers `500` and is
-reported as `unhandled`. An `onError` hook turns it into the answer you
-mean:
+An expired deadline rejects with a `DOMException` named `TimeoutError`.
+Left alone, it answers `500` and is reported as `unhandled`. An `onError`
+hook turns it into the answer you mean:
 
 ```ts twoslash
 import { errorBody, hook } from "@tetsujs/core";
@@ -78,37 +73,31 @@ const upstreamTimeout = hook.onError((ctx) => {
 ## A signal stops only the work it was passed to
 
 Aborting a signal does not stop the handler. It stops the calls that were
-handed the signal and are watching it; everything else runs on. A query
-started without one runs to completion however long it takes, and a loop
-that never looks at the signal keeps looping.
+given the signal; everything else runs on. A query started without one
+runs to completion, and a loop that never checks the signal keeps looping.
 
-So the signal goes to every call that may take long, and a loop of your
-own checks `signal.aborted`, or calls `signal.throwIfAborted()`, between
-steps. A step that cannot be interrupted is at least not followed by the
-next one.
+So pass the signal to every call that may take long, and in a loop of your
+own call `signal.throwIfAborted()` between steps.
 
 ## Why there is no framework timeout
 
-A framework timeout would answer `503` once a request takes too long, and
-the framework does not offer one, because it could not keep the promise
-that answer makes.
+A framework timeout would answer `503` once a request takes too long. The
+framework does not offer one, because JavaScript cannot interrupt a
+running function: the handler would keep running, mid-query or
+mid-payment, after the client was told the request failed. A client that
+retries on `503` would then run the operation twice.
 
-JavaScript cannot interrupt a running function. When the timeout fires,
-the handler is still running — mid-query, mid-payment — and it goes on
-after the client has been told the request failed. The client, reading
-`503` as "nothing happened, try again", retries, and the second attempt
-runs next to the first. For a payment that is a double charge.
+A deadline that really stops the work has to be passed to the work, and
+only the handler knows which calls are safe to abandon.
+`AbortSignal.any()` with `AbortSignal.timeout()` is that deadline, in one
+line. For a retry that must not repeat its effect, the client sends an
+idempotency key and the handler remembers what it answered.
 
-A deadline that stops the work has to be passed to the work, which only the
-handler can do: it knows which calls are safe to abandon and what a
-half-done operation leaves behind. `AbortSignal.any()` with
-`AbortSignal.timeout()` is that deadline, in one line, where the handler
-can see it.
+## Connection timeouts
 
-What the framework does leave to the platform is the connection. Bun
-closes a connection that sends nothing for its `idleTimeout`, set where the
-application is served, and `ctx.server.timeout(ctx.req, seconds)` changes
-it for one request — a long upload, a slow report:
+Bun closes a connection that sends nothing for its `idleTimeout`, set where
+the application is served. `ctx.server.timeout(ctx.req, seconds)` changes
+it for one request, such as a long upload or a slow report:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -124,7 +113,3 @@ route({
   },
 });
 ```
-
-For a retry that must not repeat its effect, the client sends an
-idempotency key and the handler remembers what it answered — a decision
-about the domain, and the handler's to make.

@@ -6,9 +6,9 @@ sidebar:
 ---
 
 An error thrown anywhere in a request becomes a response. This page covers
-the errors you throw, the one shape every error response has, the
-`onError` hooks that turn errors into responses of your own, and
-`reportError`, which receives the failures no response can carry.
+the errors you throw, the shape every error response has, `onError` hooks
+that answer errors your own way, and `reportError`, which receives the
+failures no response can carry.
 
 ## Throwing an error
 
@@ -37,106 +37,71 @@ route({
 });
 ```
 
-The status is always yours to choose: the framework never picks a business
-status for you. The same `throw` works from every hook slot that runs
-before the response, from the handler, and from a `beforeResponse` hook.
+The status is always yours to choose. `httpError(status, error, message)`
+is the usual way to throw. With `new HttpError(status, body)`, the second
+argument decides the body:
 
-What reaches the client depends on the second argument of `HttpError`:
-
-| `new HttpError(status, body)` | The response body |
+| `body` | The response body |
 | --- | --- |
-| no `body` | the envelope for the status |
+| none | the envelope for the status |
 | a string | the envelope, with the string as its `message` |
 | anything else | the value itself, as JSON |
 
-A body you wrote is a contract of your own, so the framework does not
-rewrite it. `httpError(status, error, message)` is the envelope with both
-halves stated, and the usual way to throw.
-
-Anything thrown that is not an `HttpError` — a `TypeError`, a driver's
-error — answers `500` with the envelope and nothing of the error itself,
-and goes to [`reportError`](#failures-that-cannot-become-a-response).
+Anything thrown that is not an `HttpError`, such as a `TypeError` or a
+driver's error, answers `500` with the envelope and nothing of the error
+itself, and goes to [`reportError`](#failures-that-cannot-become-a-response).
 
 ## The envelope
 
 Every error the framework produces, and every `HttpError` without a body of
-its own, leaves in one shape:
+its own, has one shape:
 
 ```json
 { "status": 404, "message": "Not Found", "error": "NOT_FOUND" }
 ```
 
-- `status` repeats the HTTP status inside the body, so a client that kept
-  only the payload — a log line, a queued retry, a rejected promise passed
-  up a call stack — still knows what happened.
-- `error` is the machine-readable code in `UPPER_SNAKE_CASE`, and the field
-  to branch on.
-- `message` is for people and may be reworded at any time. Never match on
-  it.
+- `status` repeats the HTTP status, for a client that kept only the
+  payload.
+- `error` is the machine-readable code in `UPPER_SNAKE_CASE`. Branch on it.
+- `message` is for people and may change. Never match on it.
 
-Both default to the status. The message is the reason phrase, and the code
-is that phrase in upper snake case: `Unprocessable Content` is
-`UNPROCESSABLE_CONTENT`. A status without a phrase — a private `499` —
-gets `HTTP 499` and `HTTP_499`.
+By default the message is the status's reason phrase, and the code is that
+phrase in upper snake case: `Unprocessable Content` is
+`UNPROCESSABLE_CONTENT`.
 
 A validation failure adds `issues`, one per rejected value, with a `path`
-that starts at the request part it came from:
-
-```json
-{
-  "status": 422,
-  "message": "Validation failed",
-  "error": "VALIDATION_FAILED",
-  "issues": [{ "message": "Too small: expected number to be >=1", "path": ["body", "qty"] }]
-}
-```
-
-The `message` of an issue is the validator's own wording, and it differs
-between Zod, Valibot, TypeBox and the rest; clients should branch on
-`path`. The status is `422` by default, or `400` with
-`createApp({ validation: { status: 400 } })`.
+that starts at the request part; see
+[Validation errors](/docs/concepts/validation/#validation-errors).
 
 `errorBody(status, error, message)` builds the same envelope as a plain
-object, for a hook that answers with a `Response` of its own rather than
-throwing:
+object, to add fields of your own or to answer with a `Response` of your
+own:
 
 ```ts twoslash
-import { errorBody, hook } from "@tetsujs/core";
+import { errorBody, hook, HttpError } from "@tetsujs/core";
 declare const maintenance: { on: boolean; until: string };
 // ---cut---
 const closed = hook.beforeParse(() => {
   if (maintenance.on) {
-    return Response.json(
-      { ...errorBody(503, "MAINTENANCE"), until: maintenance.until },
-      { status: 503 },
-    );
+    throw new HttpError(503, { ...errorBody(503, "MAINTENANCE"), until: maintenance.until });
   }
 });
 ```
 
+Thrown, it still reaches the `onError` hooks; a returned `Response` does
+not.
+
 ## The framework's own failures
 
-The framework raises its own failures as `HttpError`s in the same envelope:
-
-| Status | `error` | When |
-| --- | --- | --- |
-| `400` | `MALFORMED_JSON` | a JSON body does not parse |
-| `400` | `MALFORMED_FORM` | a form body does not parse |
-| `404` | `NOT_FOUND` | no route matches the path |
-| `405` | `METHOD_NOT_ALLOWED` | the path exists, the method does not; `Allow` lists the methods |
-| `413` | `BODY_TOO_LARGE` | the body is larger than `maxBodySize` |
-| `422` | `VALIDATION_FAILED` | a request part failed its schema |
-| `426` | `UPGRADE_REQUIRED` | a WebSocket path was requested without a handshake |
-| `500` | `INTERNAL_SERVER_ERROR` | anything unexpected |
-
-`@tetsujs/rate-limit` refuses with `429` and `RATE_LIMITED`, plus a
-`retryAfter` field. [Framework error codes](/docs/reference/error-codes/)
-lists every one with its message.
-
-All of them reach the application's `onError` hooks, exactly as an error
-you throw does. A `404` for an unmatched path and a `405` for an
-unmatched method included: they are failures like any other, so one hook
-decides the format of every error the application answers with.
+The framework raises its own failures as `HttpError`s in the same
+envelope: `MALFORMED_JSON` or `MALFORMED_FORM` for a body that does not
+parse, `NOT_FOUND`,
+`METHOD_NOT_ALLOWED`, `BODY_TOO_LARGE`, `VALIDATION_FAILED`, and
+`INTERNAL_SERVER_ERROR` for anything unexpected.
+[Framework error codes](/docs/reference/error-codes/) lists every one,
+those of the packages included. All of them reach the application's
+`onError` hooks, the `404` and `405` too, so one hook can decide the format
+of every error.
 
 ## `onError` hooks
 
@@ -158,40 +123,34 @@ const domainErrors = hook.onError((ctx) => {
 ```
 
 This is how a domain error becomes a response without the domain knowing
-about HTTP. The service throws `OrderNotFound`; the hook, mounted where
-the services are used, decides that it is a `404`.
+about HTTP: the service throws `OrderNotFound`, and the hook decides it is
+a `404`.
 
-`onError` hooks are mounted on a route, a group or the application, like
-every other hook. They run innermost first — the route's, then each
-group's from the nearest outwards, then the application's — so the most
-specific hook gets to answer before a general one. The first `Response`
-wins. When none answers, the default mapping does: the status and body of
-an `HttpError`, or a `500`.
+`onError` hooks mount on a route, a group or the application, and run
+from the route outwards, the opposite of the other slots (see
+[Groups and mounting](/docs/concepts/groups-and-mounting/#application-hooks)).
+The first `Response` wins. When none answers, an `HttpError` gets its own
+status and body, and anything else a `500`.
 
-Some things to know about the slot:
-
-- **It returns a `Response` or nothing.** An object is a compile error
-  rather than a body: `{ status: 409 }` returned from here would otherwise
-  become a `500` without a word.
-- **The context is optional past the early fields.** The error may have
-  come before validation or before the hook that contributes a field, so
-  those fields are optional and the hook narrows before it reads them.
-- **A hook that throws is passed over.** Its own error goes to
-  `reportError` with `source: "onError"`, and the next hook — or the
-  default mapping — answers the original error instead.
+- **It returns a `Response` or nothing.** Returning an object is a compile
+  error.
+- **Validated parts and fields added by hooks are optional.** The error
+  may have come before validation or before the hook that adds a field
+  ran, so narrow before reading them.
+- **A hook that throws is skipped.** Its error goes to `reportError` with
+  `source: "onError"`, and the next hook, or the default mapping, answers
+  the original error.
 - **Its response goes the rest of the way out.** It passes the
   `beforeResponse` hooks that have not run yet, gets `ctx.out.headers`, and
-  is seen by the `afterResponse` observers.
-- **Only the application's hooks see protocol failures.** A `404`, a `405`
-  and a preflight have no route behind them, so they run with the
-  application's hooks alone — a group's `onError` never sees them.
+  is seen by `afterResponse`.
+- **Only the application's hooks see `404`, `405` and preflights.** No
+  route is behind them, so a group's `onError` never runs for them.
 
 ## An error format of your own
 
-An `onError` hook on the application replaces the format for the whole
-application. Every failure reaches it: an `HttpError` you threw, a
-validation or body failure, an unmatched path or method, a rate limit's
-refusal, and an error nothing expected.
+An `onError` hook on the application replaces the format for every
+failure: an `HttpError` you threw, a validation or body failure, an
+unmatched path or method, a rate limit's refusal, and an unexpected error.
 
 ```ts twoslash
 import type { ErrorBody } from "@tetsujs/core";
@@ -215,72 +174,25 @@ export const inOurFormat = hook.onError((ctx) => {
 });
 ```
 
-An error a hook answers is one nothing else reports: `reportError` hears
-of a failure only when no `onError` hook answered it. So the hook that
-answers the unexpected ones reports them itself, with `reportFailure`.
-Left out, a lost database connection answers in your format and never
-reaches the error tracker.
+`reportError` only hears of a failure no `onError` hook answered. So a hook
+that answers unexpected errors reports them itself, with `reportFailure`.
+Without that line, a lost database connection answers in your format and
+never reaches the error tracker.
 
-The generated document is built from the routes, not from that hook, so
+The generated document does not read that hook. Tell
 [`@tetsujs/openapi`](/docs/packages/openapi/#an-error-format-of-your-own)
-is told the same format with its `errors` option. The hook and `errors`
-describe one format in two places, and a function cannot be read for the
-shape it returns. A test holds them together: provoke each kind of
-failure, the unexpected one included, and check the response against the
-document with `assertDescribed`:
-
-```ts twoslash
-import { hook, HttpError, reportFailure } from "@tetsujs/core";
-import type { ErrorBody } from "@tetsujs/core";
-const inOurFormat = hook.onError((ctx) => {
-  const { error } = ctx;
-  if (error instanceof HttpError) {
-    const { status, error: code, ...rest } = error.body as ErrorBody;
-    return Response.json({ code, ...rest }, { status });
-  }
-  reportFailure(ctx, "unhandled", error);
-  return Response.json({ code: "INTERNAL_SERVER_ERROR", message: "Internal Server Error" }, { status: 500 });
-});
-declare const api: object;
-// ---cut---
-import { createApp, route } from "@tetsujs/core";
-import { serve } from "@tetsujs/core/testing";
-import { openapi, type ErrorFormat } from "@tetsujs/openapi";
-import { assertDescribed } from "@tetsujs/openapi/testing";
-import { test } from "bun:test";
-
-const errors: ErrorFormat = {
-  schema: ({ error, message, fields }) => ({
-    type: "object",
-    required: ["code", "message", ...Object.keys(fields)],
-    properties: {
-      code: error ? { type: "string", const: error } : { type: "string" },
-      message: { type: "string", ...(message ? { examples: [message] } : {}) },
-      ...fields,
-    },
-  }),
-  discriminator: "code",
-};
-
-const boom = route({ method: "GET", path: "/boom", handler: () => { throw new Error("boom"); } });
-const app = createApp({ hooks: { onError: [inOurFormat] }, routes: [api, boom] });
-const request = serve(app);
-const { document } = openapi(app, { info: { title: "Orders", version: "1.0.0" }, errors });
-
-test("failures are what the document says", async () => {
-  await assertDescribed(document, "POST /orders", await request("/orders", { method: "POST", body: "{}" }));
-  await assertDescribed(document, "GET /boom", await request("/boom"));
-});
-```
+the same format with its `errors` option, and test the two against each
+other with
+[`assertDescribed`](/docs/packages/openapi/#testing-against-the-document).
 
 ## Failures that cannot become a response
 
 Some failures have no response to become: an `afterResponse` observer that
 throws after the response has gone, a WebSocket handler, a stream whose
-generator breaks mid-body, an error no `onError` hook answered. The
-framework writes no log lines of its own except these, and by default they
-go to `console.error`. Pass `reportError` to `createApp`, and they go to
-you instead:
+generator breaks mid-body, an error no `onError` hook answered. These are
+the only things the framework logs, and by default they go to
+`console.error`. Pass `reportError` to `createApp` to receive them
+yourself:
 
 ```ts twoslash
 import { createApp } from "@tetsujs/core";
@@ -298,39 +210,35 @@ const app = createApp({
 });
 ```
 
-A report carries three things:
+A report carries:
 
-- `error` — what was thrown, untouched: not formatted, not truncated, so
-  the logger's redaction sees the fields it knows.
-- `ctx` — the request's context, typed from the application's own hooks
-  with each field optional, since the failure may have come before the hook
-  that adds it ran. Absent where there was no request: a WebSocket event, a
+- `error`: what was thrown, untouched, so the logger's redaction still
+  applies.
+- `ctx`: the request's context, with the fields your hooks add typed as
+  optional. Absent where there was no request: a WebSocket event, a
   shutdown.
-- `source` — what failed:
+- `source`: what failed.
 
 | `source` | What failed |
 | --- | --- |
 | `unhandled` | an error no `onError` hook answered, and not an `HttpError`; the request got a `500` |
-| `response` | a handler broke its response contract — an undeclared status, a body its schema rejects |
+| `response` | a handler broke its response contract: an undeclared status, a body its schema rejects |
 | `onError` | an `onError` hook threw; the next one, or the default mapping, answered instead |
-| `errorResponse` | the error path kept failing until nothing could answer, and the request got a bare `500` |
+| `errorResponse` | the error path kept failing, and the request got a plain `500` |
 | `afterResponse` | an `afterResponse` observer threw; the response had already gone |
-| `websocket` | a WebSocket handler threw, a message schema failed rather than rejected, or an endpoint's `until` function threw |
+| `websocket` | a WebSocket handler threw, a message schema threw instead of reporting issues, or an endpoint's `until` function threw |
 | `stream` | a streamed body's generator threw, or its `onEnd` did (`@tetsujs/sse`) |
 | `shutdown` | a closer threw while the process was stopping (`@tetsujs/lifecycle`) |
 
-An `HttpError` that no hook answered is not reported: it is an answer, not
-a failure, and it goes to the client as it is.
+An `HttpError` no hook answered is not reported: it is an answer, not a
+failure.
 
-The receiver is called in place and never awaited — the error path must
-not wait on a log shipper. A receiver that throws, or returns a promise
-that rejects, is itself printed to `console.error` together with the
-report it was handed.
+The receiver is called in place and never awaited, so the error path never
+waits on a log shipper. If it throws or its promise rejects, that error is
+printed to `console.error` with the original report.
 
 `reportFailure(ctx, source, error)` sends a report the way the framework
-does, for code of your own that meets a failure it cannot answer: a hook
-package, a background task started from a handler, or an `onError` hook
-that answers the unexpected errors, as above. `source` is any string, so a
-package names its own. A context built outside a request, such as
-`testCtx()` in a unit test, has no application behind it, and the report
-is printed.
+does, for code that meets a failure it cannot answer: a hook package, a
+background task started from a handler, or the `onError` hook above.
+`source` can be any string. With a context from `testCtx()`, which has no
+application behind it, the report is printed.

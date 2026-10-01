@@ -4,8 +4,7 @@ description: A first Tetsu application — a controller with three routes, valid
 ---
 
 This page builds a small users API from an empty folder: three routes, a
-validated body, an error of its own and a test that goes through a real
-server. It takes a few minutes and needs only Bun.
+validated body, an error of your own and a test. It needs only Bun.
 
 ## Create the project
 
@@ -15,14 +14,13 @@ bun init -y
 bun add @tetsujs/core zod
 ```
 
-`bun init` writes a `tsconfig.json` that already has what the types need —
-`strict`, `moduleResolution: "bundler"` and Bun's types. See
-[Installation](/docs/installation/) if you add Tetsu to an existing project.
+`bun init` already sets up TypeScript the way Tetsu needs. To add Tetsu to an
+existing project, see [Installation](/docs/installation/).
 
 ## Declare the routes
 
 A controller is a name and a function from its dependencies to its routes.
-This one depends on a `Map` that stands in for a database:
+Here a `Map` stands in for a database:
 
 ```ts twoslash title="src/users.ts"
 import { controller, httpError, route } from "@tetsujs/core";
@@ -69,20 +67,17 @@ export const usersController = controller("Users", (users: Map<number, User>) =>
 }));
 ```
 
-Three things are worth noticing:
-
-- `ctx.params.id` is a number. The path declares `:id`, and the schema turns
-  the segment into a positive integer before the handler runs; a request for
-  `/users/abc` never reaches it.
-- `ctx.body` exists only on `create`, the route that declares a body schema,
-  and its type is what the schema returns.
-- `httpError(404, "USER_NOT_FOUND", …)` is an error of your own, in the same
-  shape as the framework's.
+- `ctx.params.id` is a number: the schema converts the `:id` segment before
+  the handler runs, and `/users/abc` never reaches it.
+- `ctx.body` exists only on `create`, the route with a body schema, and has
+  the schema's type.
+- `httpError(404, "USER_NOT_FOUND", …)` is your own error, in the same shape
+  as the framework's.
 
 ## Serve it
 
-`createApp` collects the routes into plain data, and `Bun.serve` takes it as
-it is:
+`createApp` turns the routes into plain data that `Bun.serve` takes as it
+is:
 
 ```ts twoslash title="index.ts"
 // @filename: src/users.ts
@@ -157,9 +152,9 @@ curl -X POST localhost:3000/users -d '{"name":"Ada","email":"ada@example.com"}'
 { "id": 1, "name": "Ada", "email": "ada@example.com" }
 ```
 
-The body is read as JSON because the route says so; the `content-type` the
-client sent does not change how it is parsed. A request the schemas refuse
-is answered with `422` and every issue at once:
+The body is parsed as JSON, the route's default, whatever `content-type`
+the client sends (curl's `-d` sends a form type). A request the schema
+refuses gets a `422` with every issue at once:
 
 ```bash
 curl -X POST localhost:3000/users -d '{"name":"","email":"nope"}'
@@ -177,7 +172,7 @@ curl -X POST localhost:3000/users -d '{"name":"","email":"nope"}'
 }
 ```
 
-And the error of your own keeps the same shape:
+Your own error has the same shape:
 
 ```bash
 curl localhost:3000/users/7
@@ -189,10 +184,9 @@ curl localhost:3000/users/7
 
 ## Test it
 
-Routing is Bun's native router, which only a socket reaches, so an
-integration test starts a real server. `serve()` from
-`@tetsujs/core/testing` listens on a free port and stops the server when the
-test file finishes:
+Routing is Bun's, and only a real socket reaches it. `serve()` from
+`@tetsujs/core/testing` starts the application on a free port and stops it
+when the test file finishes:
 
 ```ts twoslash title="src/users.test.ts"
 // @filename: src/users.ts
@@ -260,15 +254,6 @@ test("creates a user and reads it back", async () => {
     email: "ada@example.com",
   });
 });
-
-test("refuses an invalid email", async () => {
-  const response = await request("/users", {
-    method: "POST",
-    body: JSON.stringify({ name: "Ada", email: "not-an-email" }),
-  });
-
-  expect(response.status).toBe(422);
-});
 ```
 
 ```bash
@@ -279,6 +264,6 @@ bun test
 
 - [Key concepts](/docs/key-concepts/) — the whole model on one page.
 - [Lifecycle hooks](/docs/concepts/lifecycle-hooks/) — authentication,
-  logging and everything else that runs around a handler.
+  logging and whatever else runs around a handler.
 - [Structuring an application](/docs/guides/structuring/) — where things go
   once there is more than one controller.

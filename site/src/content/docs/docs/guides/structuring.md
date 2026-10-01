@@ -1,13 +1,12 @@
 ---
 title: Structuring an application
-description: A simple layout to start from. Tetsu does not care where files live, so change it as the application asks.
+description: A simple layout to start from, and two habits worth keeping whatever the layout.
 sidebar:
   order: 1
 ---
 
 Tetsu reads the routes it is given, not files or folders, so any layout
-works. Here is a simple one to start from; change it when the application
-asks for something else.
+works. Here is a simple one to start from:
 
 ```text
 src/
@@ -53,8 +52,8 @@ export function buildApp(db: Database) {
 }
 ```
 
-`main.ts` only serves it, and a test builds the same application from a
-database in memory — so the test runs what the server runs:
+`main.ts` serves it, and a test builds the same application on a
+database in memory, so the test runs what the server runs:
 
 ```ts twoslash title="src/main.ts"
 // @filename: src/app.ts
@@ -91,10 +90,9 @@ test("lists notes", async () => {
 
 ## Keep HTTP out of services
 
-A service takes values, returns values and throws errors of its own; routes
+A service takes values, returns values and throws its own errors; routes
 and hooks deal with requests. Then a service is tested without a server,
-and anything else — a scheduled job, a script — can use it too.
+and a scheduled job or a script can use it too.
 
-Everything beyond that is yours to decide. A small runnable application
-laid out this way is
-[`examples/app`](https://github.com/tetsujs/tetsu/blob/main/examples/app).
+A small runnable application laid out much this way is
+[`examples/app`](https://github.com/tetsujs/tetsu/tree/main/examples/app).

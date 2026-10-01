@@ -170,7 +170,7 @@ export const tabs = [
   },
   {
     label: "Errors",
-    text: "Every error has one shape — yours, a failed validation, a 404, a 405. An onError hook on the application replaces it everywhere.",
+    text: "Your errors, failed validation, 404 and 405 all leave in one envelope. An onError hook on the application can replace it everywhere.",
     code: code(
       [
         'import { httpError, HttpError, route } from "@tetsujs/core";',
@@ -197,7 +197,7 @@ export const tabs = [
   },
   {
     label: "OpenAPI",
-    text: "The document is built from the routes you already declared — schemas, responses, hooks that guard them — once, at startup.",
+    text: "The document is built once, at startup, from the routes you already declared: their schemas, their responses and the guards you annotated.",
     code: code(
       [
         'import { controller, createApp, route } from "@tetsujs/core";',

@@ -5,16 +5,14 @@ sidebar:
   order: 2
 ---
 
-A controller groups the routes of one part of an API and gives them what
-they depend on. This page covers `controller()`, why its name matters, why
-it is a function rather than a class, and where the application is wired.
+A controller groups the routes of one part of an API and gives them the
+services they depend on.
 
 ## Declaring a controller
 
 `controller(name, build)` takes a name and a function from dependencies to
-routes, and returns that function, named. The dependencies are whatever the
-function declares for its parameter — an interface is the usual way to
-write it:
+routes, and returns a function that takes the same dependencies. Declare
+the dependencies as the function's parameter, usually with an interface:
 
 ```ts twoslash
 interface Order { id: string; total: number }
@@ -46,121 +44,35 @@ export const ordersController = controller("Orders", ({ orders }: OrdersDeps) =>
 }));
 ```
 
-Calling it with the dependencies gives an ordinary object whose fields are
-the routes. The application reads those fields and nothing else — not the
-file name, not a class, not metadata. A controller without dependencies
-takes none, and is called with none:
+Calling it with the dependencies gives a plain object whose fields are the
+routes, tagged with the controller's name. The application reads those
+fields and nothing else. A controller without dependencies is called with
+no arguments.
 
-```ts twoslash
-import { controller, route } from "@tetsujs/core";
-// ---cut---
-export const healthController = controller("Health", () => ({
-  live: route({ method: "GET", path: "/live", handler: () => "ok" }),
-}));
-
-healthController();
-```
-
-Because the result is plain data, a handler is unit-tested by calling it:
-`ordersController(fakes).get.handler(testCtx({ params: { id: "1" } }))`.
+Because the result is plain data, you can unit-test a handler by calling
+it: `ordersController(fakes).get.handler(testCtx({ params: { id: "1" } }))`.
 [Testing](/docs/guides/testing/) covers `testCtx()`.
 
 ## The name is a contract
 
-The name is not a label for logs. [`@tetsujs/openapi`](/docs/packages/openapi/)
-builds every `operationId` from it and the route's field — `list` in
-`"Orders"` becomes `ordersList` — and a client generated from the document
-names its methods after those. Renaming the variable that holds the
-controller changes nothing a client sees; changing the name does, and it
-is written where a reviewer sees it change. A route that needs an id of its
-own states it with `docs: { operationId }`.
+[`@tetsujs/openapi`](/docs/packages/openapi/) builds every `operationId`
+from the controller's name and the route's field: `list` in `"Orders"`
+becomes `ordersList`. A generated client names its methods after these, so
+changing the name changes the client. Renaming the variable does not. To
+set an id by hand, use `docs: { operationId }` on the route.
 
-The name is also what `ctx.route.controller` reports, so a log line and a
-metric name the same controller the document does.
+The name is also what `ctx.route.controller` reports in logs and metrics.
 
-Two controllers of one application cannot share a name: their
-`operationId`s would collide, so `createApp()` refuses it at startup. Two
-versions of an API are therefore two names over one body:
-
-```ts twoslash
-interface User { id: string; name: string }
-interface UserService { all(): User[] }
-// ---cut---
-import { controller, createApp, group, route } from "@tetsujs/core";
-
-interface UsersDeps {
-  readonly users: UserService;
-}
-
-const users = ({ users }: UsersDeps) => ({
-  list: route({ method: "GET", path: "/users", handler: () => users.all() }),
-});
-
-export const usersV1 = controller("UsersV1", users);
-export const usersV2 = controller("UsersV2", users);
-
-declare const service: UserService;
-
-createApp({
-  routes: [
-    group("/v1", { children: [usersV1({ users: service })] }),
-    group("/v2", { children: [usersV2({ users: service })] }),
-  ],
-});
-```
-
-An empty name is refused when `controller()` is called.
-
-## Why a function and not a class
-
-A route reads what it declares — its hooks, its schemas, its body limit —
-at the moment it is declared. A function has its dependencies from its
-first line, so a hook built from one of them is built from the real thing.
-
-A class does not. Its fields are initialized before the constructor's
-parameters are assigned, so a route declared as a field that builds a hook
-from a constructor argument builds it from `undefined`. The compiler
-catches the direct case and reports it as TS2729:
-
-```ts twoslash
-interface User { id: string }
-interface Sessions { find(token: string): User | undefined }
-import { hook, HttpError, route } from "@tetsujs/core";
-const authenticate = (sessions: Sessions) =>
-  hook.beforeParse((ctx) => {
-    const user = sessions.find(ctx.req.headers.get("authorization") ?? "");
-    if (!user) throw new HttpError(401);
-    return { user };
-  });
-// ---cut---
-// @errors: 2729
-class NotesController {
-  constructor(private readonly sessions: Sessions) {}
-
-  list = route({
-    method: "GET",
-    path: "/notes",
-    hooks: { beforeParse: [authenticate(this.sessions)] },
-    handler: (ctx) => ctx.user.id,
-  });
-}
-```
-
-The framework still reads routes from any object, so a class instance can
-be mounted, and it is named after its class. A hook whose body reads
-`this.sessions` only when it runs avoids the trap. `controller()` avoids
-the question.
-
-Services stay classes. A service is behaviour other code calls — a store,
-a mailer, a payment client — and a class is a good way to write one. A
-controller is a declaration, made once at startup.
+Two controllers in one application cannot share a name, and `createApp()`
+refuses it at startup. To serve two versions of an API from one function,
+declare it twice under two names: `controller("UsersV1", users)` and
+`controller("UsersV2", users)`, each mounted under its own group.
 
 ## The composition root
 
-The application is wired by hand, in one place: every service is built
-there once and handed to the controllers that need it. There is no
-container and no registration; the file that does the wiring is the whole
-of it.
+Wire the application by hand, in one place. Build every service there once
+and pass it to the controllers that need it. There is no container and no
+registration.
 
 ```ts twoslash
 interface User { readonly id: string }
@@ -187,20 +99,18 @@ export function buildApp(db: Database, tokens: ReadonlyMap<string, User>) {
 }
 ```
 
-`buildApp` takes the database instead of opening it, so `main.ts` opens a
-file and the tests open one in memory. The whole example is
+`buildApp` takes the database instead of opening it, so `main.ts` can open
+a file and the tests an in-memory one. The full example is
 [`examples/app`](https://github.com/tetsujs/tetsu/blob/main/examples/app/app.ts),
 a small notes API on `bun:sqlite`.
 
-The code that wires a controller can read its dependencies' type back
-instead of importing the interface: `Parameters<typeof notesController>[0]`.
+To get a controller's dependency type without importing the interface,
+use `Parameters<typeof notesController>[0]`.
 
 ## Hooks and dependencies
 
 A hook that needs a service is built inside the controller, from the
-dependency it was given, next to the routes that mount it. In the notes
-example the authentication hook is made from `sessions`; `main.ts` wires
-services, not hooks:
+dependency it received:
 
 ```ts twoslash
 interface User { readonly id: string }
@@ -238,9 +148,9 @@ export const notesController = controller(
 ```
 
 A hook whose state several controllers must share is different. One rate
-limit budget for the whole API is one `rateLimit()` instance; made inside
-each controller, it would be one budget per controller. Such a hook is made
-once in the composition root and passed in like a service:
+limit for the whole API is one `rateLimit()` instance; made inside each
+controller, it would be a separate limit per controller. Make such a hook
+once in the composition root and pass it in like a service:
 
 ```ts twoslash
 interface Note { id: number; title: string }
@@ -269,17 +179,31 @@ const limit = rateLimit({
 createApp({ routes: notesController({ notes: store, limit }) });
 ```
 
-[Groups and mounting](/docs/concepts/groups-and-mounting/#mounting-hooks)
-has the rest of the habits that keep shared state where it is meant to be.
+See [Groups and mounting](/docs/concepts/groups-and-mounting/#mounting-hooks)
+for more on where hooks and their state live.
+
+## Why a function and not a class
+
+A route reads its hooks and schemas when it is declared. A function has
+its dependencies from its first line, so a hook built from one of them
+gets the real service.
+
+In a class, fields are initialized before the constructor's parameters are
+assigned. A route declared as a field that builds a hook from a
+constructor argument gets `undefined`. TypeScript reports the direct case
+as error TS2729. A class instance can still be mounted, and it is named
+after its class, but `controller()` avoids the problem.
+
+Services can stay classes. A service is called by other code; a controller
+is a declaration made once at startup.
 
 ## Handing a controller the application
 
-A controller is data, and the application is built from that data, so a
-controller that wants to describe the application — list its routes,
-document it, register them with a metrics system — cannot receive it as a
-dependency: it does not exist yet. `onMount` closes the loop. A controller
-that has a method under this symbol is handed the built application once,
-after the route table is compiled and before `createApp()` returns:
+A controller that needs the built application, for example to list or
+document its routes, cannot get it as a dependency: the application does
+not exist yet. Give the controller a method under the `onMount` symbol.
+`createApp()` calls it once with the application, after the route table is
+built and before it returns:
 
 ```ts twoslash
 import type { App } from "@tetsujs/core";
@@ -301,8 +225,5 @@ export const routesController = controller("Routes", () => {
 });
 ```
 
-It is a symbol rather than a method name such as `init`, so it cannot
-collide with a method a controller already has. It runs at startup: a
-controller that throws there takes the process down instead of failing on
-a request. This is how `docs()` from `@tetsujs/openapi` builds the document
-from the application it is mounted in.
+It runs at startup, so an error thrown there stops the process. This is
+how `docs()` from `@tetsujs/openapi` builds its document.

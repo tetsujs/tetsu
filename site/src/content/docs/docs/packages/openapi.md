@@ -7,9 +7,9 @@ sidebar:
 ---
 
 `@tetsujs/openapi` reads an application's routes and produces an OpenAPI 3.1
-document, and a page that renders it. Nothing is written twice: the paths, the
-parameters, the bodies and the responses come from the schemas and the response
-maps the routes already have. To turn the document into a typed client, see
+document and a page that renders it. Paths, parameters, bodies and responses
+come from the schemas and response maps the routes already have, so nothing
+is written twice. To turn the document into a typed client, see
 [Typed client from OpenAPI](/docs/guides/typed-client/).
 
 ```bash
@@ -37,62 +37,33 @@ createApp({
 });
 ```
 
-`/openapi.json` serves the document and `/docs` renders it. The document is
-built once, at startup, so anything that cannot be described is reported before
-the first request.
+`/openapi.json` serves the document and `/docs` renders it. The document
+covers the whole application `docs()` is mounted in, except its own two
+routes. It is built once, at startup, so anything that cannot be described
+is reported before the first request.
 
-`docs()` is an ordinary controller: put it in a group to move it under a prefix,
-guard it with hooks, or leave it out in production. Its own two routes are left
-out of the document. A `docs()` documents the application it is mounted in, all
-of it.
+`docs()` is an ordinary controller: put it in a group to move it under a
+prefix, guard it with hooks, or leave it out in production. A group does not
+narrow the document, so two documents, such as a public API and an admin
+one, need two applications, each with its own `docs()`.
 
-### The page runs someone else's code on your origin
-
-The page loads its renderer, Scalar, Swagger UI or Redoc, from jsDelivr and runs
-it on the application's origin, with that origin's cookies. If a session cookie
-lives there, a renderer that is not what it should be acts as the signed-in
-user. The defaults are pinned to an exact version with a Subresource Integrity
-hash, so a file the CDN changes is refused by the browser. That does not make the
-renderer yours, and what it loads in turn is not covered.
-
-Where the origin carries a session, serve the document alone:
+A route adds what the schemas cannot say in `docs`:
 
 ```ts twoslash
-import { docs } from "@tetsujs/openapi";
-
-const info = { title: "Users API", version: "1.0.0" };
+import { route } from "@tetsujs/core";
 // ---cut---
-const documentOnly = docs({ info, ui: false });
-```
-
-`/openapi.json` is served and there is no page. For a page anyway, host the
-renderer yourself or pin your own copy, with its hash:
-
-```ts twoslash
-import { docs } from "@tetsujs/openapi";
-
-const info = { title: "Users API", version: "1.0.0" };
-// ---cut---
-const pinned = docs({
-  info,
-  assets: {
-    script: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.1/dist/browser/standalone.js",
-    integrity: { script: "sha384-…" },
-  },
+const list = route({
+  method: "GET",
+  path: "/users",
+  docs: { summary: "List users", tags: ["users"], operationId: "listUsers" },
+  handler: () => [],
 });
 ```
 
-```bash
-curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A
-```
-
-prints the hash, to be prefixed with `sha384-`. `assets` also takes a `style`
-URL and an `integrity.style` hash, which Swagger UI needs.
-
-The page also meets a `content-security-policy` that denies everything, such as
-`apiPolicy` of [`@tetsujs/secure-headers`](/docs/packages/secure-headers/#content-security-policy):
-it loads its renderer from a CDN, so the page is blank. That page shows how to
-remove the policy for this route.
+`docs` also takes `description`, `deprecated`, and `hidden: true`, which
+leaves the route out of the document while it is still served. WebSocket
+endpoints are never in the document: OpenAPI cannot describe what happens
+after the handshake.
 
 ## Options
 
@@ -104,56 +75,67 @@ remove the policy for this route.
 | `uiPath` | `/docs` | where the page is served |
 | `ui` | `"scalar"` | `"scalar"`, `"swagger-ui"`, `"redoc"`, or `false` for no page |
 | `title` | the document's title | the page's title |
-| `assets` | the renderer on jsDelivr, pinned | your own renderer URLs, with `integrity` hashes |
-| `documentSelf` | `false` | include `/openapi.json` and `/docs` in the document |
-| `onWarning` | `console.warn` | receives what could not be described |
+| `assets` | the renderer on jsDelivr, pinned | your own renderer URLs, with `integrity` hashes, see [The page and your origin](#the-page-and-your-origin) |
+| `documentSelf` | `false` | include the two docs routes in the document, under the tag `docs` |
+| `onWarning` | `console.warn` | receives what could not be described, see [Warnings](#warnings) |
 | `errors` | the framework's envelope | an error format of your own, see [below](#an-error-format-of-your-own) |
-| `tags` | none | what each tag is, in the order the sidebar lists them, see [below](#tags) |
+| `tags` | none | a description for each tag, in sidebar order, see [Tags](#tags) |
 
-`path` and `uiPath` are checked like a route's path, and they are where the two
-routes are served, under the prefix of any group `docs()` is mounted in. The page
-finds the document wherever that puts it. With `documentSelf`, the two
-routes are documented under the tag `docs`, which is described for you unless
-you describe it in `tags`. With `ui: false`, `uiPath`, `title` and `assets` are
-not used.
-
-`openapi()`, described [below](#using-the-document-directly), takes `info`,
-`servers`, `errors` and `tags`.
+`path` and `uiPath` go under the prefix of any group `docs()` is mounted in,
+and the page finds the document there.
 
 ## How a route becomes an operation
 
-Every part of an operation comes from somewhere the application already wrote,
-by a rule:
+| In the document | Comes from |
+| --- | --- |
+| the path | the route's `path` under its groups' prefixes: `/users/:id` becomes `/users/{id}` |
+| `operationId` | `docs.operationId`, or the controller and field name, see [Operation ids](#operation-ids) |
+| `summary`, `description`, `tags`, `deprecated` | the route's `docs` |
+| parameters | `schema.params`, `query`, `headers` and `cookies`, required as the schema says |
+| the request body | `schema.body` and `bodyType`; required unless `bodyType` is `text` or `stream` |
+| responses | `schema.response`, hooks annotated with [`documented()` and `secured()`](#documenting-hooks), and the [failures the framework adds](#responses-the-framework-adds) |
+| `security` | `secured()` hooks on the route, its groups and the application |
 
-| In the document | Comes from | Rule |
-| --- | --- | --- |
-| the path | the route's `path`, under its groups' prefixes | `/users/:id` becomes `/users/{id}` |
-| `operationId` | `docs.operationId`, or the controller's name and the field | `setAvatar` in `controller("Users", …)` becomes `usersSetAvatar`; see [Operation ids](#operation-ids) |
-| `summary`, `description`, `tags`, `deprecated` | the route's `docs` | as written |
-| parameters | `schema.params`, `query`, `headers`, `cookies` | required as the schema says |
-| the request body | `schema.body` and `bodyType` | media types from `bodyType`; required unless `text` or `stream` |
-| `security` | `secured()` hooks, of every level the route runs under | every hook required together; `anyOf` inside one hook is the alternatives |
-| the statuses | the route's `schema.response`, the hooks' `documented()` and `secured()`, the framework | one schema is `200`, a map its statuses, `null` or an entry without `body` a status without a body; with no `schema.response` at all, `200`; the framework's `422`, `400`, `413`, `500` where they can happen, see [Responses the framework adds](#responses-the-framework-adds) |
-| a status's body | everything answering with that status | one flat `anyOf`, the route's own first, the same body once |
-| an error envelope | any of them | one definition per status and code in `components`, named after the code; the route's own kept |
-| `discriminator` | the envelopes of a status | on `error`, or the format's field, when every alternative is an envelope |
-| a status's description | the schemas' `description`, the hooks', the framework's | one is the description, several a list led by code, none the reason phrase |
-| a status's headers | the route's entry, `{ body, headers, cookies }`, and the hooks' `documented()` headers | the route's required as its schema says, a property's `description` the header's; its cookies one `set-cookie` header listing them; a hook's possible, not required; the route's wins a name both give |
-| the document's `tags` | the `tags` option | in its order, then the tags routes use and it leaves out |
+Schemas are converted through Standard Schema's JSON Schema support, which
+Zod, ArkType and [`@tetsujs/typebox`](/docs/packages/typebox/) provide;
+Valibot needs `toStandardJsonSchema` from `@valibot/to-json-schema`.
 
-`docs: { hidden: true }` leaves a route out of the document; it is served as
-before. Socket endpoints are left out as well: a handshake is a `GET`, but
-OpenAPI has no way to describe what happens after it. A route with no
-`schema.response` is documented as `200`. Its handler may still answer `204` by
-returning nothing, which only a declared `204: null` says.
+Responses follow the route's response map (see
+[Responses](/docs/concepts/responses/)):
 
-Schemas are described through Standard Schema's JSON Schema support: Zod,
-Valibot, ArkType and [`@tetsujs/typebox`](/docs/packages/typebox/) provide it.
-See [Responses](/docs/concepts/responses/) for the response map.
+- One schema is a `200`. A map gives its statuses. `null`, or an entry
+  without `body`, is a status without a body.
+- A route with no `schema.response` is documented as `200`. If its handler
+  can answer `204`, declare `204: null`.
+- An entry `{ body, headers, cookies }` documents its headers, required as
+  its schema says, and its cookies as one `set-cookie` header.
+- When several sources answer with one status, the body is one flat
+  `anyOf`, the route's own schema first.
+
+## Operation ids
+
+A generated client names its methods after the `operationId`s, so every one
+comes from a name you wrote:
+
+| Route | `operationId` |
+| --- | --- |
+| with `docs: { operationId }` | as written |
+| in `controller("Users", …)` as `setAvatar` | `usersSetAvatar` |
+| in a class `UsersController` as `setAvatar` | `usersSetAvatar` |
+| in an object literal as `setAvatar` | `setAvatar` |
+| mounted on its own, `POST /auth/code` | `postAuthCode` |
+
+Two routes with the same id are refused when the document is built, naming
+both: `docs()` stops the application at startup, and `openapi()` throws.
+Nothing is renamed for you, since that would change a method in a generated
+client the day a route is added. Give one of them `docs.operationId`, or its
+controller another name. On a public API, write the id on every route, so a
+change to it shows up in review.
 
 ## Tags
 
-A route names its tags in `docs: { tags }`; the document says what each one is:
+A route names its tags in `docs: { tags }`. The `tags` option says what each
+one is:
 
 ```ts twoslash
 import { docs } from "@tetsujs/openapi";
@@ -169,155 +151,145 @@ const documentation = docs({
 });
 ```
 
-The order of the keys is the order of the sections a renderer lists. A tag the
-routes use and `tags` leaves out is listed after them, in the order the routes
-first use it, and reported: it is usually one tag spelled two ways, `sign_in`
-next to `sign-in`. So is a tag described and used by no operation. Without
-`tags` the document lists none, and nothing is reported.
-
-Several surfaces with a document each, such as a public API and an admin one,
-are several applications, each with its own `docs()` and only the tags of its
-own routes:
-
-```ts twoslash
-import { controller, createApp, route } from "@tetsujs/core";
-import { docs } from "@tetsujs/openapi";
-
-const info = { title: "Shop API", version: "1.0.0" };
-const adminInfo = { title: "Shop admin API", version: "1.0.0" };
-const orders = controller("Orders", () => ({
-  list: route({ method: "GET", path: "/orders", docs: { tags: ["orders"] }, handler: () => [] }),
-}));
-const users = controller("Users", () => ({
-  list: route({ method: "GET", path: "/users", docs: { tags: ["users"] }, handler: () => [] }),
-}));
-// ---cut---
-const api = Bun.serve({
-  ...createApp({ routes: [orders(), docs({ info, tags: { orders: "Orders" } })] }),
-  port: 3000,
-});
-
-const admin = Bun.serve({
-  ...createApp({ routes: [users(), docs({ info: adminInfo, tags: { users: "Users" } })] }),
-  port: 3001,
-});
-```
-
-## Operation ids
-
-A generated client names its methods after the `operationId`s, so they are a
-contract, and every one comes from a name you wrote:
-
-| Route | `operationId` |
-| --- | --- |
-| with `docs: { operationId }` | as written |
-| in `controller("Users", …)` as `setAvatar` | `usersSetAvatar` |
-| in a class `UsersController` as `setAvatar` | `usersSetAvatar` |
-| in an object literal as `setAvatar` | `setAvatar` |
-| mounted on its own, `POST /auth/code` | `postAuthCode` |
-
-Two routes arriving at the same id stop the application at startup, naming both.
-Nothing is renamed behind your back, which would change a method in someone's SDK
-the day a route is added. Give one of them `docs.operationId`, or its controller
-a name of its own. On a public API, state the id on every route: it is then
-visible, and a change to it is a change a reviewer sees.
-
-```ts twoslash
-import { route } from "@tetsujs/core";
-
-declare const queue: { drain(): Promise<void> };
-// ---cut---
-const drain = route({
-  method: "POST",
-  path: "/internal/drain",
-  docs: { summary: "Drain the queue", operationId: "drainQueue", hidden: true },
-  handler: () => queue.drain(),
-});
-```
+Renderers list the sections in the order of the keys. A tag the routes use
+but `tags` leaves out comes after them and is reported as a warning. It is
+usually one tag spelled two ways, `sign_in` next to `sign-in`. A tag
+described but never used is reported too. Without `tags`, the document lists
+none and nothing is reported.
 
 ## Responses the framework adds
 
-Failures the framework answers by itself are documented on every route where they
-can happen, in the same error envelope the server sends:
+The framework answers some failures by itself. They are documented on every
+route where they can happen, in the envelope the server sends:
 
 | Status | `error` | When |
 | --- | --- | --- |
-| `422` (or the configured validation status) | `VALIDATION_FAILED` | a request part failed its schema |
-| `400` | `MALFORMED_JSON` / `MALFORMED_FORM` | the body could not be parsed |
-| `413` | `BODY_TOO_LARGE` | the body exceeded `maxBodySize` |
-| `500` | `INTERNAL_SERVER_ERROR` | any unhandled failure |
+| `422`, or `validation.status` of `createApp` | `VALIDATION_FAILED` | the route has a request schema, and a part failed it |
+| `400` | `MALFORMED_JSON` / `MALFORMED_FORM` | the route reads a JSON or form body, and it could not be parsed |
+| `413` | `BODY_TOO_LARGE` | the route reads a body, and it exceeded `maxBodySize` |
+| `500` | `INTERNAL_SERVER_ERROR` | every route: an unhandled failure |
 
-The statuses are filled in from the options the application actually runs with,
-so the document states the status configured. The `error` code is a constant in
-each schema, so a generated client can tell failures apart by it. A status the
-route declares itself is kept, and the framework's failures for the same status
-are listed next to it. See [Framework error codes](/docs/reference/error-codes/).
+See [Framework error codes](/docs/reference/error-codes/). A status the route
+declares itself is kept, and the framework's failures for that status are
+listed next to it.
 
-Every envelope, the framework's, a hook's, or one the route declares itself, is
-one definition in `components` per status and code, named after the code
-(`ITEM_NOT_FOUND` is `ItemNotFound`), so a generated client gets one type per
-failure. A schema is recognized as an envelope when its `error` is required and a
-single string. When the route and a hook both describe one code, the route's
-definition is kept; if the other one has different fields, the generator warns.
-A union the route declares joins the other failures of its status as one flat
-`anyOf`.
+Every envelope, whether from the framework, a hook or the route, becomes one
+definition in `components`, named after its code: `ITEM_NOT_FOUND` becomes
+`ItemNotFound`. A generated client gets one type per failure. A schema counts
+as an envelope when its `error` is required and a single string. When every
+alternative of a status is an envelope, the status gets a `discriminator` on
+`error`, so a client can narrow on the code.
 
-When every alternative of a status is an envelope, the union carries a
-`discriminator` on `error`, with the mapping from each code to its definition,
-and a generated client narrows on the code.
-
-A status is described by what answers with it. The route's part is the
-`description` of the schema it declares (`.describe()` in Zod and ArkType,
-`v.description()` in Valibot, `{ description }` in TypeBox) for any status, a
-`200` as much as a `404`. A union described as a whole is one description, one
-described branch by branch is one per branch. A hook's part is its `documented()`
-description, the framework's its own. One description is the status's
-description; several are a list, each led by its code:
+A status's description comes from what answers with it: the `description`
+of the route's schema (`.describe()` in Zod and ArkType, `v.description()`
+in Valibot, `{ description }` in TypeBox), a hook's `documented()`
+description, or the framework's own. Several descriptions become a list led
+by each code:
 
 ```md
 - `ACCOUNT_DISABLED`: this account is disabled
 - `CAPTCHA_FAILED`: the captcha token is missing or did not pass
 ```
 
-A status nothing describes keeps its reason phrase: `Not Found`, `Successful
-response`.
+A status with no description keeps its reason phrase, such as `Not Found`.
 
-## An error format of your own
+## Documenting hooks
 
-Every failure reaches the application's `onError` hooks: a thrown `HttpError`, a
-validation or body failure, a `404`, a `405`, a rate limit's refusal, and an
-error nothing expected. So one hook answers all of them in your format:
+A hook that answers by itself, such as an auth check or a limiter, can say
+so. Every route it guards is then documented with it. `secured()` adds a
+security scheme, `documented()` adds responses:
 
 ```ts twoslash
-import type { ErrorBody } from "@tetsujs/core";
-import { hook, HttpError, reportFailure } from "@tetsujs/core";
+import { hook, HttpError } from "@tetsujs/core";
 
-export const inOurFormat = hook.onError((ctx) => {
-  const { error } = ctx;
+declare function verify(header: string | null): { id: string } | undefined;
+declare function check(ctx: object): void;
+// ---cut---
+import { documented, secured } from "@tetsujs/openapi";
 
-  if (error instanceof HttpError) {
-    const { status, error: code, ...rest } = error.body as ErrorBody;
+export const auth = secured(
+  hook.beforeParse((ctx) => {
+    const user = verify(ctx.req.headers.get("authorization"));
 
-    return Response.json({ code, ...rest }, { status });
-  }
+    if (!user) throw new HttpError(401);
 
-  reportFailure(ctx, "unhandled", error);
+    return { user };
+  }),
+  { name: "bearerAuth", scheme: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
+);
 
-  return Response.json(
-    { code: "INTERNAL_SERVER_ERROR", message: "Internal Server Error" },
-    { status: 500 },
-  );
+export const guard = documented(hook.beforeParse((ctx) => check(ctx)), {
+  responses: [
+    {
+      status: 429,
+      description: "Rate limit exceeded",
+      error: "RATE_LIMITED",
+      fields: { retryAfter: { type: "integer", minimum: 0 } },
+      headers: { "retry-after": { schema: { type: "integer", minimum: 0 } } },
+    },
+  ],
 });
 ```
 
-An error the hook answers is one nothing else reports: `reportError` hears of a
-failure only when no `onError` hook answered it. So the hook that answers the
-unexpected ones, a database gone or a `TypeError`, reports them itself. Left out,
-they answer in your format and never reach the error tracker. See
-[Errors](/docs/concepts/errors/).
+Both return a copy of the hook with the same type, so it goes into a stack
+like any other. A hook mounted on a group or the application documents every
+route under it. Hooks from [`@tetsujs/rate-limit`](/docs/packages/rate-limit/)
+come documented already.
 
-The document is generated from the routes, not from that hook, so it is told the
-same format with `errors`:
+A response in `documented()` takes:
+
+- `error`: the envelope's code, documented as a `const`.
+- `fields`: what the hook adds next to `status`, `message` and `error`,
+  always present.
+- `headers`: what it sets on the response, documented as possible, not
+  required.
+- `message`: an example of the envelope's message.
+- `schema`: the body, for a hook that does not answer with the envelope.
+
+`fields` and `headers` are JSON Schema typed keyword by keyword
+(`JsonSchema`), so a misspelled keyword does not compile.
+
+`secured()` takes:
+
+| Field | Default | |
+| --- | --- | --- |
+| `name` | required | the name the scheme is registered under in `components` |
+| `scheme` | required | the OpenAPI security scheme; its `type` is `http`, `apiKey`, `oauth2`, `openIdConnect` or `mutualTLS` |
+| `scopes` | none | OAuth2 scopes |
+| `status` | `401` | the status a refused request gets |
+| `description` | none | how the refusal is described |
+| `error` | none | the refusal's `error` code |
+| `message` | none | an example of the refusal's message |
+
+Every hook of a route runs, so the schemes of all its hooks are required
+together: a route behind a CSRF check and a captcha needs both. To accept
+one credential or another, such as a session cookie or a bearer token, check
+both in one hook and pass `anyOf`:
+
+```ts twoslash
+import { hook } from "@tetsujs/core";
+import type { SecurityRequirement } from "@tetsujs/openapi";
+
+declare function sessionOrToken(ctx: object): { id: string };
+declare const cookieSession: SecurityRequirement;
+declare const bearerToken: SecurityRequirement;
+// ---cut---
+import { secured } from "@tetsujs/openapi";
+
+export const caller = secured(hook.beforeParse((ctx) => ({ user: sessionOrToken(ctx) })), {
+  anyOf: [cookieSession, bearerToken],
+});
+```
+
+With a CSRF check on the same route, the document says
+`security: [{ session: [], csrf: [] }, { bearer: [], csrf: [] }]`.
+
+## An error format of your own
+
+An application can answer every failure in a format of its own with one
+`onError` hook, as [Errors](/docs/concepts/errors/#an-error-format-of-your-own) shows. The document cannot
+read that hook, so describe the same format with `errors`. Here the format is
+`{ code, message }`:
 
 ```ts twoslash
 import { controller, createApp, route } from "@tetsujs/core";
@@ -356,227 +328,20 @@ createApp({
 });
 ```
 
-`schema` describes one failure from what the generator knows of it: its `status`,
-its code when known as `error`, an example `message`, and in `fields` what it
-carries besides: `issues` for a validation failure, `retryAfter` for a rate
-limit, a hook's own `fields`. It is used for the framework's failures and the
-hooks' refusals alike.
-
-`discriminator` names the top-level field that holds the code. Statuses of
-envelopes are then discriminated on it, and a route's own envelope is recognized
-by it: a `{ code: "ITEM_NOT_FOUND", … }` the route declares is the same
-definition as a hook's. A format that nests its code has no top-level field to
-name. It gives `code` instead, reading the code from a route's schema:
-
-```ts twoslash
-import type { ErrorFormat } from "@tetsujs/openapi";
-
-const nested: Pick<ErrorFormat, "code"> = {
-  code: (schema) => {
-    const error = schema.properties?.error;
-    const code = typeof error === "object" ? error.properties?.code : undefined;
-
-    return typeof code === "object" && typeof code.const === "string" ? code.const : undefined;
-  },
-};
-```
-
 | `errors` field | |
 | --- | --- |
-| `schema` | builds the body of one failure from `{ status, error, message, fields }`, as JSON Schema |
-| `discriminator` | the top-level field that holds the code; none unless named |
-| `code` | reads the code from a schema a route or hook declared; by default the `const` of the discriminator's field |
+| `schema` | builds the JSON Schema of one failure from `{ status, error, message, fields }`. `error` is the code when known; `fields` holds what the failure carries besides, such as `issues` or `retryAfter` |
+| `discriminator` | the top-level field that holds the code. Statuses are discriminated on it, and a route's own envelope is recognized by it. None unless named |
+| `code` | reads the code from a schema a route or hook declared, for a format that nests its code. By default, the `const` of the discriminator's field |
 
-The hook and `errors` describe one format in two places. The core knows nothing
-about documents, and a function cannot be read for the shape it returns, so keep
-a test that holds them together: provoke the failures, the unexpected one
-included, and check each against the document with
-[`assertDescribed`](#testing-against-the-document):
-
-```ts twoslash
-import { expect, test } from "bun:test";
-import { controller, createApp, hook, HttpError, route } from "@tetsujs/core";
-import type { ErrorBody } from "@tetsujs/core";
-import { serve } from "@tetsujs/core/testing";
-
-const info = { title: "Items API", version: "1.0.0" };
-const inOurFormat = hook.onError((ctx) =>
-  ctx.error instanceof HttpError
-    ? Response.json(ctx.error.body as ErrorBody, { status: ctx.error.status })
-    : undefined,
-);
-const items = controller("Items", () => ({
-  create: route({ method: "POST", path: "/items", handler: () => ({ id: 1 }) }),
-}));
-const api = items();
-const errors = { schema: () => ({ type: "object" as const }) };
-// ---cut---
-import { openapi } from "@tetsujs/openapi";
-import { assertDescribed } from "@tetsujs/openapi/testing";
-
-const boom = route({
-  method: "GET",
-  path: "/boom",
-  handler: () => {
-    throw new Error("boom");
-  },
-});
-const app = createApp({ hooks: { onError: [inOurFormat] }, routes: [api, boom] });
-const request = serve(app);
-const { document } = openapi(app, { info, errors });
-
-test("failures are what the document says", async () => {
-  await assertDescribed(document, "POST /items", await request("/items", { method: "POST", body: "{}" }));
-  await assertDescribed(document, "GET /boom", await request("/boom"));
-});
-```
-
-## Documenting hooks
-
-A hook that answers by itself, an auth check or a limiter, can say so, and every
-route it guards is documented accordingly. `secured()` adds a security scheme,
-`documented()` adds responses:
-
-```ts twoslash
-import { hook, HttpError } from "@tetsujs/core";
-
-declare function verify(header: string | null): { id: string } | undefined;
-declare function check(ctx: object): void;
-// ---cut---
-import { documented, secured } from "@tetsujs/openapi";
-
-export const auth = secured(
-  hook.beforeParse((ctx) => {
-    const user = verify(ctx.req.headers.get("authorization"));
-
-    if (!user) throw new HttpError(401);
-
-    return { user };
-  }),
-  { name: "bearerAuth", scheme: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
-);
-
-export const guard = documented(hook.beforeParse((ctx) => check(ctx)), {
-  responses: [
-    {
-      status: 429,
-      description: "Rate limit exceeded",
-      error: "RATE_LIMITED",
-      fields: { retryAfter: { type: "integer", minimum: 0 } },
-      headers: { "retry-after": { schema: { type: "integer", minimum: 0 } } },
-    },
-  ],
-});
-```
-
-A response with an `error` code is the framework's envelope, defined once in
-`components` and named after the code. `fields` adds what the hook puts next to
-`status`, `message` and `error`, each always present. `headers` adds what it sets
-on the response, possible rather than required. Both are JSON Schema written by
-hand, typed keyword by keyword (`JsonSchema`), so a misspelled keyword does not
-compile. A hook whose body is not the envelope passes a `schema` instead.
-`message` gives an example of the envelope's message.
-
-`secured()` takes a requirement with these fields:
-
-| Field | Default | |
-| --- | --- | --- |
-| `name` | required | the name the scheme is registered under in `components` |
-| `scheme` | required | the scheme, as OpenAPI spells it: `http`, `apiKey`, `oauth2`, `openIdConnect`, `mutualTLS` |
-| `scopes` | none | OAuth2 scopes |
-| `status` | `401` | the status an unauthenticated request gets |
-| `description` | none | how the refusal is described |
-| `error` | none | the `error` code the refusal carries, as a `const` |
-| `message` | none | an example of the refusal's message |
-
-Both return a copy of the hook with its type unchanged, so an annotated hook
-goes into a stack like any other, and a hook used elsewhere is not changed
-behind its author's back. A hook annotated once is documented everywhere it runs:
-application and group chains are merged into every route's at startup, so a guard
-mounted on a group documents the group's operations without repeating itself.
-
-Hooks from [`@tetsujs/rate-limit`](/docs/packages/rate-limit/) are already
-documented this way. A scheme is identified by its `name`: the same one mounted
-twice is one requirement, and two different schemes under one name are reported,
-with the first one kept.
-
-Every hook of a route runs, so every scheme its hooks carry is required together:
-a route behind a CSRF check and a captcha is documented as needing both, one
-entry of `security`. In OpenAPI, separate entries mean any one of them will do.
-Two hooks of one scheme require the scopes of both.
-
-"Either" lives inside one hook. A hook that accepts a session cookie or a bearer
-token says so with `anyOf`, and the document lists every combination a client may
-bring:
-
-```ts twoslash
-import { hook, HttpError } from "@tetsujs/core";
-import type { SecurityRequirement } from "@tetsujs/openapi";
-
-declare function sessionOrToken(ctx: object): { id: string };
-declare const cookieSession: SecurityRequirement;
-declare const bearerToken: SecurityRequirement;
-// ---cut---
-import { secured } from "@tetsujs/openapi";
-
-export const caller = secured(hook.beforeParse((ctx) => ({ user: sessionOrToken(ctx) })), {
-  anyOf: [cookieSession, bearerToken],
-});
-```
-
-With a CSRF check on the same route, the document says `security: [{ session: [],
-csrf: [] }, { bearer: [], csrf: [] }]`.
-
-## Using the document directly
-
-When the document itself is the output, written to a file in CI or fed to a
-client generator, call the generator:
-
-```ts twoslash
-import { createApp } from "@tetsujs/core";
-
-const app = createApp({ routes: [] });
-// ---cut---
-import { openapi } from "@tetsujs/openapi";
-
-const { document, warnings } = openapi(app, {
-  info: { title: "Users API", version: "1.0.0" },
-});
-
-await Bun.write("openapi.json", JSON.stringify(document, null, 2));
-```
-
-`openapi()` returns the document and the `warnings`, each with the `route` it is
-about, as `GET /path` or empty for the document as a whole, and a `message`. It
-mounts and serves nothing, and the document is data.
-
-`docsPage()` renders the page on its own, for serving it elsewhere:
-
-```ts twoslash
-import { route } from "@tetsujs/core";
-// ---cut---
-import { docsPage } from "@tetsujs/openapi";
-
-const page = docsPage({ ui: "scalar", documentUrl: "/openapi.json" });
-
-const ui = route({
-  method: "GET",
-  path: "/reference",
-  handler: () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
-});
-```
-
-| `docsPage()` option | Default | |
-| --- | --- | --- |
-| `ui` | required | `"scalar"`, `"swagger-ui"` or `"redoc"` |
-| `documentUrl` | required | where the document is served; the page fetches it from there |
-| `title` | `"API documentation"` | the browser title |
-| `assets` | the renderer on jsDelivr, pinned | `{ script, style?, integrity? }` |
+The hook and `errors` describe one format in two places. Keep a test that
+provokes each kind of failure, the unexpected one included, and checks it
+with [`assertDescribed`](#testing-against-the-document).
 
 ## Testing against the document
 
-`@tetsujs/openapi/testing` checks a response a test provoked against the
-operation the document describes:
+`@tetsujs/openapi/testing` checks a response a test provoked against what the
+document says:
 
 ```ts twoslash
 import { expect, test } from "bun:test";
@@ -603,87 +368,132 @@ test("a wrong code is what the document says", async () => {
 });
 ```
 
-It throws unless the status is declared and the body fits one of the alternatives
-its status describes, listing every problem at once:
+It throws unless the operation declares the status and the body fits one of
+that status's alternatives, and lists every problem:
 
 ```text
 POST /session answered 403, which the document does not describe:
 - error "CAPTCHA_FAILED", which its 403 does not list: ACCOUNT_DISABLED, CSRF_HEADER_REQUIRED
 ```
 
-The operation is named as the test called it, a method and the path it
-requested, matched against the document's templates. The body is read from a
-clone, so the test can still read the response. Without a validator only the top
-level of the body is compared: required fields, and fields that are a `const`,
-which is where an envelope keeps its code.
+The second argument is the method and the path the test requested, such as
+`"GET /users/42"`; it is matched against the document's path templates. The
+body is read from a clone, so the test can still read the response.
 
 | Option | Default | |
 | --- | --- | --- |
-| `validate` | none | `(schema, body) => true \| string`: checks the whole body with the JSON Schema validator of your choice, given a schema that stands on its own; return `true`, or what is wrong |
-| `headers` | none | headers the status must declare when the response carries them, such as `retry-after` |
+| `validate` | none | `(schema, body) => true \| string`: checks the whole body with a JSON Schema validator of your choice, such as `(schema, body) => ajv.validate(schema, body) \|\| ajv.errorsText()`. Without it, only the top level is compared: required fields and `const` fields |
+| `headers` | none | headers the status must declare when the response carries them, such as `["retry-after"]` |
+
+A header the status declares as required, such as `location` or
+`set-cookie`, must be on the response even without `headers`. See
+[Testing](/docs/guides/testing/).
+
+## Using the document directly
+
+To write the document to a file in CI or feed it to a client generator, call
+`openapi()`. It takes `info`, `servers`, `errors` and `tags`, and mounts
+nothing:
 
 ```ts twoslash
 import { createApp } from "@tetsujs/core";
-import type { OpenApiDocument } from "@tetsujs/openapi";
-import { assertDescribed } from "@tetsujs/openapi/testing";
 
-declare const document: OpenApiDocument;
-declare const res: Response;
-declare const ajv: { validate(schema: object, body: unknown): boolean; errorsText(): string };
+const app = createApp({ routes: [] });
 // ---cut---
-await assertDescribed(document, "POST /session", res, {
-  validate: (schema, body) => ajv.validate(schema, body) || ajv.errorsText(),
-  headers: ["retry-after"],
+import { openapi } from "@tetsujs/openapi";
+
+const { document, warnings } = openapi(app, {
+  info: { title: "Users API", version: "1.0.0" },
 });
+
+await Bun.write("openapi.json", JSON.stringify(document, null, 2));
 ```
 
-Only the headers named are checked, because a response carries headers no
-document describes, `content-type` and `x-request-id` among them. The other way
-needs no list: a header the status declares required, such as a `location` or a
-`set-cookie`, is one the response must carry.
+Each warning has a `route`, such as `GET /path` (empty for the document as a
+whole), and a `message`.
 
-The core does not check a thrown error against the route's response map, because
-a guard's refusal would be reported on every route it runs on. A test asks about
-the one response it provoked. See [Testing](/docs/guides/testing/).
+`docsPage({ ui, documentUrl, title?, assets? })` returns the page's HTML, to
+serve it from a route of your own. `documentUrl` is where the page fetches
+the document from, and `title` defaults to `"API documentation"`.
 
 ## Warnings
 
-A route is still documented when part of it cannot be described, and the gap is
-reported instead of failing the startup:
+A route that cannot be fully described is still documented, and the gap is
+reported instead of failing startup:
 
 ```text
 [openapi] POST /api/users: the body schema does not emit JSON Schema
 ```
 
-This happens with a validator that does not emit JSON Schema, a schema whose
-conversion throws, and two routes that map to the same OpenAPI path (`/files/*`
-and `/files/:wildcard` are both `/files/{wildcard}`; the second replaces the
-first in the document, and the warning says so). `docs()` prints each warning
-with `console.warn`; `onWarning` receives them instead.
+Warnings are raised for:
 
-It also happens with a recursive or named schema. A schema is embedded as the
-validator emits it, and the references inside it, `#` for its own root,
-`#/$defs/…` for a definition next to it, resolve against the document's root once
-embedded, where they lead nowhere. Zod's recursive getters and `.meta({ id })`,
-ArkType's scopes and Valibot's `lazy` emit them. TypeBox's `Type.Cyclic` names
-itself with `$id` and is described as it is.
+- a validator that does not emit JSON Schema, or a conversion that throws;
+- two routes that map to the same OpenAPI path, such as `/files/*` and
+  `/files/:wildcard`; the second replaces the first in the document;
+- a reference that leads nowhere. Recursive and named schemas emit
+  references (`#`, `#/$defs/…`) that no longer resolve once embedded in the
+  document: Zod's recursive getters and `.meta({ id })`, ArkType's scopes,
+  Valibot's `lazy`. TypeBox's `Type.Cyclic` is described correctly;
+- a tag used but not described in `tags`, or described and not used;
+- two different security schemes under one `name`. The first is kept.
 
-Other warnings name a tag used and not described in `tags`, a tag described and
-used by no operation, and a security scheme claimed under one name with two
-different definitions.
+`docs()` prints each warning with `console.warn`, or passes it to
+`onWarning`.
+
+## The page and your origin
+
+The page loads its renderer (Scalar, Swagger UI or Redoc) from jsDelivr and
+runs it on the application's origin, with that origin's cookies. The default
+files are pinned to an exact version with a Subresource Integrity hash, so
+the browser refuses a file the CDN changed. That still makes it someone
+else's code running next to your users' sessions.
+
+Where the origin carries a session, serve the document alone:
+
+```ts twoslash
+import { docs } from "@tetsujs/openapi";
+
+const info = { title: "Users API", version: "1.0.0" };
+// ---cut---
+const documentOnly = docs({ info, ui: false });
+```
+
+Or host the renderer yourself, or pin your own copy with its hash:
+
+```ts twoslash
+import { docs } from "@tetsujs/openapi";
+
+const info = { title: "Users API", version: "1.0.0" };
+// ---cut---
+const pinned = docs({
+  info,
+  assets: {
+    script: "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.1/dist/browser/standalone.js",
+    integrity: { script: "sha384-…" },
+  },
+});
+```
+
+`curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A` prints the
+hash; prefix it with `sha384-`. Swagger UI also needs `style` and
+`integrity.style`.
+
+A `content-security-policy` that denies scripts from other origins, such as
+`apiPolicy` of [`@tetsujs/secure-headers`](/docs/packages/secure-headers/#content-security-policy),
+leaves the page blank. That page shows how to lift the policy for this route.
 
 ## Exports
 
-- `docs` and `DocsController`: the controller, with `DocsOptions`.
+- `docs` and `DocsController`, with `DocsOptions`.
 - `openapi`, with `OpenApiOptions`, `GeneratorResult` and `GeneratorWarning`.
 - `docsPage`, with `DocsPageOptions`, `DocsUi` and `DocsAssets`.
 - `documented` and `secured`, with `HookDocs`, `DocumentedResponse`,
   `DocumentedHeader`, `SecurityRequirement`, `SecurityAlternatives`,
   `SecurityScheme` and `HookContributions`.
 - `ErrorFormat` and `DocumentedFailure`, for an error format of your own.
-- `JsonSchema`, `JsonSchemaKeywords` and `JsonSchemaType`, for JSON Schema written
-  by hand.
-- The types of the document: `OpenApiDocument`, `DocumentInfo`, `DocumentServer`,
+- `JsonSchema`, `JsonSchemaKeywords` and `JsonSchemaType`, for JSON Schema
+  written by hand.
+- The document's types: `OpenApiDocument`, `DocumentInfo`, `DocumentServer`,
   `PathItemObject`, `OperationObject`, `ParameterObject`, `ResponseObject`,
   `HeaderObject`, `ContentMap` and `TagObject`.
-- From `@tetsujs/openapi/testing`: `assertDescribed` and its options.
+- From `@tetsujs/openapi/testing`: `assertDescribed`, with `AssertDescribedOptions`.

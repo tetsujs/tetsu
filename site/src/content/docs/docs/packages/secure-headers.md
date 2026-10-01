@@ -6,9 +6,9 @@ sidebar:
   label: "@tetsujs/secure-headers"
 ---
 
-`@tetsujs/secure-headers` writes the response headers a browser reads as
-instructions: no content sniffing, no framing, no referrer leaking, HTTPS only.
-It is one hook, and the defaults cannot break a JSON API.
+`@tetsujs/secure-headers` sets the response headers that tell a browser to
+turn off content sniffing, framing and referrer leaks, and to use HTTPS only.
+It is one `beforeResponse` hook, and its defaults are safe for a JSON API.
 
 ```bash
 bun add @tetsujs/secure-headers
@@ -31,12 +31,8 @@ const secure = secureHeaders();
 createApp({ hooks: { beforeResponse: [secure] }, routes });
 ```
 
-`secureHeaders()` is one `beforeResponse` hook. Mount it on the application:
-that slot sees every outgoing response, errors and `404`s included. A `401` is
-the response an attacker iterates over, and the least useful one to leave
-undecorated.
-
-Sent by default, none of which can break a JSON API:
+Mount it on the application, so it covers every response, errors and `404`s
+included. Sent by default:
 
 | Header | Value | |
 | --- | --- | --- |
@@ -45,8 +41,8 @@ Sent by default, none of which can break a JSON API:
 | `referrer-policy` | `no-referrer` | URLs with identifiers do not leak to other sites |
 | `strict-transport-security` | `max-age=15552000` | HTTPS only, for 180 days |
 
-The values do not depend on the request, so they are assembled once, when
-`secureHeaders()` is called, and only written per response.
+The headers are set with `set`, so they replace a header of the same name that
+the handler set.
 
 ## Options
 
@@ -58,16 +54,15 @@ The values do not depend on the request, so they are assembled once, when
 | `noSniff` | `true` | `false` turns it off |
 | `contentSecurityPolicy` | not sent | a policy string; `apiPolicy` is ready-made |
 
-HSTS is sent on every response, including plain HTTP ones, where browsers are
-required to ignore it. It therefore works the same behind any proxy and needs
-to know nothing about protocols.
-
 ## HSTS
+
+HSTS is sent on every response. Browsers ignore it over plain HTTP, so it
+works the same behind any proxy.
 
 `includeSubDomains` and `preload` are off by default. The first breaks any
 subdomain still served over plain HTTP, for as long as `maxAge` says. The
-second takes months and a browser release to undo. Turn them on when that is
-known to be safe:
+second takes months and a browser release to undo. Turn them on when you know
+they are safe:
 
 ```ts twoslash
 import { secureHeaders } from "@tetsujs/secure-headers";
@@ -75,17 +70,15 @@ import { secureHeaders } from "@tetsujs/secure-headers";
 const secure = secureHeaders({ hsts: { maxAge: 63_072_000, includeSubDomains: true } });
 ```
 
-`preload` without `includeSubDomains`, or with a `maxAge` under a year
-(31,536,000 seconds), makes `secureHeaders()` throw: the browsers' preload
-list would reject it, and the header would go on promising a submission that
-never succeeds.
+`preload` without `includeSubDomains`, or with a `maxAge` under one year
+(31,536,000 seconds), makes `secureHeaders()` throw, because the browsers'
+preload list would reject it.
 
 ## Content Security Policy
 
-A policy is not sent unless asked for, because a wrong policy breaks pages
-rather than APIs, and the failure is a blank page and a console message on
-someone else's machine. For an API that only answers JSON, `apiPolicy` denies
-everything:
+No policy is sent by default: a wrong policy breaks pages, and the failure
+only shows in the browser of whoever loads them. For an API that only answers
+JSON, `apiPolicy` denies everything:
 
 ```ts twoslash
 import { apiPolicy, secureHeaders } from "@tetsujs/secure-headers";
@@ -94,13 +87,9 @@ const secure = secureHeaders({ contentSecurityPolicy: apiPolicy });
 // default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
 ```
 
-Every directive of `apiPolicy` is a denial, so there is nothing in it to tune
-for a particular application, and an endpoint it breaks was serving a document
-rather than an API.
-
-If the same application serves a page, such as the docs page of
+If the same application also serves a page, such as the docs page of
 [`@tetsujs/openapi`](/docs/packages/openapi/), remove the policy for that
-route, named by the path it is mounted at:
+route:
 
 ```ts twoslash
 import { controller, createApp, hook, route } from "@tetsujs/core";
@@ -126,13 +115,14 @@ createApp({
 });
 ```
 
-`ctx.route.path` is the route's whole path. Mounted in a group, the page at
-`/docs` under `/api` is `/api/docs`, and that is what to compare with.
+`ctx.route.path` is the route's full path: mounted in a group under `/api`,
+the page is `/api/docs`.
 
 ## An exception for one route
 
 A route's own `beforeResponse` hook runs after the application's, so it can
-change a header for that route:
+change a header for that route. Setting the header in the handler does not
+work: the handler runs first, and the application's hook overwrites it.
 
 ```ts twoslash
 import { hook, route } from "@tetsujs/core";
@@ -159,15 +149,11 @@ const embeddable = route({
 });
 ```
 
-A policy with `frame-ancestors`, which `apiPolicy` has as `'none'`, is what a
-browser follows, and it ignores `x-frame-options` then. Allowing a frame means
-changing both. Setting the header in the handler does not work: the handler
-runs before `beforeResponse`, and the application's value replaces it.
+When the policy has `frame-ancestors`, as `apiPolicy` does, browsers follow it
+and ignore `x-frame-options`, so allowing a frame means changing both.
 
 ## Notes
 
-- The package also exports the types `SecureHeadersOptions`, `HstsOptions` and
-  `SecureHeadersHook`. Read a hook's type off `secureHeaders()` rather than
-  annotating it with `AnyHook`, which erases the slot the hook belongs to.
-- Headers are written with `set`, so a header of the same name that a handler
-  set is replaced by the application's value.
+- The package also exports the types `SecureHeadersOptions`, `HstsOptions`
+  and `SecureHeadersHook`. Type a hook with `ReturnType<typeof secureHeaders>`
+  rather than `AnyHook`, which erases the slot the hook belongs to.

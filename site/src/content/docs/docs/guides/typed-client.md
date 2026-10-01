@@ -1,30 +1,20 @@
 ---
 title: Typed client from OpenAPI
-description: A typed client for a Tetsu API, generated from its OpenAPI document with openapi-typescript and openapi-fetch or hey-api, and kept honest in CI.
+description: Generate a typed client for a Tetsu API from its OpenAPI document, with openapi-typescript and openapi-fetch or hey-api, and keep the document in sync in CI.
 sidebar:
   order: 11
 ---
 
 This guide gives the API's consumers — a frontend, another service — a
-client whose paths, parameters, bodies and errors are typed, generated
-from the OpenAPI document the application already describes itself with.
+client with typed paths, parameters, bodies and errors. It is generated
+from the [OpenAPI document](/docs/packages/openapi/) that Tetsu builds from
+your routes.
 
-## The document is the boundary
-
-Some frameworks type a client from the server's own source: Elysia's Eden
-and Hono's RPC client import the application's type and infer every call
-from it. There is no generation step, and the price is that the client
-compiles against the server — it needs the server's code, its
-dependencies' types and a compatible TypeScript, and every change on the
-server is re-checked in every client.
-
-Tetsu's boundary is the [OpenAPI document](/docs/packages/openapi/)
-instead. It is generated from the routes as they are declared — paths,
-parameters, bodies, statuses, the error envelopes — and it is a file: a
-client in another repository, or in another language, reads it without
-seeing a line of the server, and a change to it is a diff a reviewer
-reads. The cost is one step, generating the types from the document, and
-the types are exactly as good as the document is.
+Tetsu has no RPC client that imports the server's types, as Elysia's Eden
+or Hono's client do. The document is the boundary instead: a client in
+another repository or another language reads it without the server's
+code, and a change to the API shows up as a diff of one file. The cost is
+one generation step.
 
 ## Serving the document
 
@@ -60,8 +50,8 @@ export const app = createApp({
 });
 ```
 
-`ui: false` serves the document without the page that renders it; leave
-it out to get the page at `/docs` as well.
+`ui: false` serves only the document; leave it out to also get a
+documentation page at `/docs`.
 
 ## Generating the types
 
@@ -72,16 +62,13 @@ TypeScript types, from a file or from a URL:
 bunx openapi-typescript http://localhost:3000/openapi.json -o src/api.d.ts
 ```
 
-The output is one `paths` interface, keyed by the document's paths, with
-`components` and `operations` beside it. Nothing in it runs; it is types
-only, so it costs the client nothing at runtime.
+The output is types only, with a `paths` interface keyed by the
+document's paths. It costs nothing at runtime.
 
 ## Calling the API
 
 [`openapi-fetch`](https://openapi-ts.dev/openapi-fetch/) is a thin
-`fetch` wrapper typed by that `paths` interface. The file below stands in
-for the generated one, shaped as `openapi-typescript` writes it for the
-application above:
+`fetch` wrapper typed by that `paths` interface:
 
 ```ts twoslash
 // @filename: api.d.ts
@@ -143,88 +130,65 @@ if (error) {
 }
 ```
 
-The path is checked against the document, `id` has to be a number, and
-`data` is the `200` body. A path that does not exist, or a parameter left
-out, is a compile error in the client.
+The path is checked against the document, `id` must be a number, and
+`data` is the `200` body. A wrong path or a missing parameter is a compile
+error.
 
 ## Errors are in the document
 
-`error` is the body of whichever other status came back, typed as the
-union of what the document lists for the operation. That includes the
-failures the framework answers by itself — a `422` when validation fails,
-a `500` — because the document describes them on every route where they
-can happen, in the same envelope the server sends. See
-[Errors](/docs/concepts/errors/).
+`error` is the body of any other status, typed as the union of what the
+document lists for the operation. That includes the failures the
+framework answers by itself, such as `422` for a validation failure and
+`500`. Branch on the `error` code, not on the message, which is written for
+people and may change. See [Errors](/docs/concepts/errors/).
 
-Every envelope carries its code in `error` as a constant, so a client
-branches on it rather than on the message, which is written for people
-and may change. Each code is one definition in `components`, named after
-it — `USER_NOT_FOUND` is `UserNotFound` — so a generated client has one
-type per failure. A status that only envelopes answer with carries a
-`discriminator` on `error`, which generators that understand it use to
-narrow.
-
-An envelope that is thrown but not declared is not in the document. A
-route that answers `404` lists it in its response map, as `usersGet` does
-above; a hook that refuses describes its refusal with
-[`documented()` or `secured()`](/docs/packages/openapi/#documenting-hooks),
-as the [rate limiter](/docs/packages/rate-limit/) does for its `429`. An
-application with an error format of its own tells the document with
+An error that is thrown but not declared is not in the document. A route
+lists its own in its response map, as `404` above. A hook that refuses
+describes its refusal with
+[`documented()` or `secured()`](/docs/packages/openapi/#documenting-hooks).
+A custom error format is described with
 [`errors`](/docs/packages/openapi/#an-error-format-of-your-own).
 
 ## Operation ids
 
-A generator that writes functions rather than a path-keyed client names
-them after each operation's `operationId`. Tetsu builds it from the
-controller's name and the route's field — `get` in
-`controller("Users", …)` is `usersGet` — so the names a client sees come
-from names you wrote, and renaming a variable changes nothing.
-
-Renaming a controller does change them, and that is where a reviewer sees
-it. On a public API, state the id on every route with
-`docs: { operationId }`, so it cannot change by accident. Two routes that
-arrive at the same id stop the application at startup; nothing is renamed
-behind your back. See [Operation ids](/docs/packages/openapi/#operation-ids).
+A generator that writes a function per operation names it after the
+`operationId`. Tetsu builds it from the controller's name and the route's
+field: `get` in `controller("Users", …)` is `usersGet`. Renaming the
+controller renames the functions, so on a public API state the id on each
+route with `docs: { operationId }`. Two routes with the same id are an
+error when the document is built. See
+[Operation ids](/docs/packages/openapi/#operation-ids).
 
 ## An SDK instead
 
-[`@hey-api/openapi-ts`](https://heyapi.dev) generates a client with a
-function per operation, named after its `operationId`, together with the
-types:
+[`@hey-api/openapi-ts`](https://heyapi.dev) generates the types and a
+function per operation:
 
 ```bash
 bunx @hey-api/openapi-ts -i http://localhost:3000/openapi.json -o src/client
 ```
 
-Which to use is a matter of taste: `openapi-fetch` keeps the calls in the
-shape of HTTP, paths and methods; an SDK hides them behind functions. Both
-read the same document, and so does any generator in any other language.
+`openapi-fetch` keeps calls in the shape of HTTP; an SDK hides them
+behind functions. Which to use is a matter of taste.
 
 ## Where the client lives
 
-The client belongs to its consumers, not to the server: in the frontend's
-repository, or in a package of its own in a monorepo that other services
-depend on. The server's only part is the document, and there are two ways
-to hand it over:
+The client belongs to its consumers: the frontend's repository, or a
+package of its own in a monorepo. The server only hands over the document,
+either served, as above, or written to a file and committed. A committed
+file makes every API change a visible diff and allows the CI check below.
 
-- **Served**, as above, and read by the client's build from a running
-  instance — a staging server, or the server started in CI.
-- **Written to a file** and committed next to the server's code, where
-  the client's build fetches it, or a monorepo package reads it directly.
+`openapi()` builds the document without serving it. The script imports the
+application, not `main.ts`, so nothing starts listening:
 
-The second makes every change to the API a change to a file, which is also
-what makes the check below possible. `openapi()` builds the document
-without serving it; the script imports the application, not the server,
-so nothing starts listening:
-
-```ts twoslash
-// @filename: app.ts
+```ts twoslash title="scripts/openapi.ts"
+// @filename: src/app.ts
 import { createApp } from "@tetsujs/core";
 export const app = createApp({ routes: [] });
-// @filename: openapi.ts
+// @filename: scripts/openapi.ts
 // ---cut---
 import { openapi } from "@tetsujs/openapi";
-import { app } from "./app";
+import { app } from "../src/app";
 
 const { document, warnings } = openapi(app, { info: { title: "Users API", version: "1.0.0" } });
 
@@ -235,10 +199,10 @@ if (warnings.length > 0) process.exit(1);
 await Bun.write("openapi.json", `${JSON.stringify(document, null, 2)}\n`);
 ```
 
-A warning means part of a route could not be described — most often a
-schema from a validator that emits no JSON Schema — so the script fails
-rather than write a document with a hole in it. Keeping the application in
-a module of its own, and serving it from another, is the layout
+A warning means part of a route could not be described, most often a
+schema from a validator that emits no JSON Schema. The script fails rather
+than write an incomplete document. Keeping the application apart from
+`main.ts` is the layout
 [Structuring an application](/docs/guides/structuring/) describes.
 
 ## Checking the document in CI
@@ -252,13 +216,9 @@ git diff --exit-code openapi.json
 ```
 
 A pull request that changes the API without updating the document fails,
-and one that updates it shows the change to the contract next to the code
-that made it: a renamed field, a status a route stopped declaring, an
-operation id that moved. Whether a change breaks existing clients is still
-a reviewer's call; a tool such as `oasdiff` compares two documents and
-lists the changes that do.
+and one that updates it shows the contract change next to the code. A tool
+such as `oasdiff` can list which changes break existing clients.
 
-A test can make the same check from the other side: that a response the
-application really sends is one its document describes. That is
-[`assertDescribed`](/docs/packages/openapi/#testing-against-the-document),
-and it catches a handler that answers what the document never promised.
+To check the other direction, that real responses match the document, use
+[`assertDescribed`](/docs/packages/openapi/#testing-against-the-document)
+in tests.

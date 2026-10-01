@@ -7,23 +7,21 @@ sidebar:
 ---
 
 `@tetsujs/typebox` turns a [TypeBox](https://github.com/sinclairzx81/typebox)
-schema into a DTO the framework accepts in any part of a route's `schema`. It
-keeps TypeBox's compiled validation, infers the types, and emits the same
-schema into the OpenAPI document. TypeBox is one of the libraries Tetsu
-validates with through Standard Schema; see [Validation](/docs/concepts/validation/)
-for how a schema is used in a route.
+schema into a DTO you can use in any part of a route's `schema`. Validation
+is compiled, types are inferred, and the same schema goes into the OpenAPI
+document. See [Validation](/docs/concepts/validation/) for how schemas are
+used in a route.
 
 ```bash
 bun add typebox @tetsujs/typebox
 ```
 
-`typebox` is a peer dependency, so the application picks its version (1.3.34 or
-later), and there is one copy of it.
+`typebox` is a peer dependency, version 1.3.34 or later, so the application
+picks the version and has one copy of it.
 
 ## Usage
 
-Wrap a TypeBox schema with `tb()` where the DTO is declared, and use it in any
-part of a route's `schema`:
+Wrap a TypeBox schema with `tb()` and use it in a route's `schema`:
 
 ```ts twoslash
 import { controller, route } from "@tetsujs/core";
@@ -54,59 +52,47 @@ export const usersController = controller("Users", () => ({
 }));
 ```
 
-The schema is compiled once, when `tb()` runs, and every request uses the
-compiled check. `Type` is TypeBox's own, re-exported, so TypeBox's documentation
-applies as it is. The package also re-exports the types `Static`, `StaticDecode`
-and `TSchema`. The value `tb()` returns is still a plain JSON Schema object: it
-serializes clean, nests into other TypeBox schemas and feeds OpenAPI as it is,
-and the validator is attached as a non-enumerable property.
-
-The validated type is the decoded one. For a plain schema that is the schema's
-own type, and for one built with `Type.Codec` it is what the codec produces.
+`tb()` compiles the schema once, and every request runs the compiled check.
+`Type` is TypeBox's own, re-exported, so TypeBox's documentation applies.
+The types `Static`, `StaticDecode` and `TSchema` are re-exported too. What
+`tb()` returns is still a plain JSON Schema object: it serializes cleanly
+and nests into other TypeBox schemas.
 
 ## Options
 
 | Option | Effect | Use for |
 | --- | --- | --- |
 | `convert` | converts before checking: `"42"` becomes `42`, a single `"a"` becomes `["a"]` | `params`, `query`, `headers` and form fields, which arrive as strings |
-| `clean` | drops properties the schema does not declare | `response` DTOs, so nothing undeclared leaks |
-| `defaults` | fills in a declared `default` when a value is missing | queries with optional parameters, configuration |
-| `issues` | `"detailed"` (default) or `"summary"` | `"summary"` gives one issue per failed value, much cheaper on large bodies |
-| `vendor` | the vendor name reported to the core | custom tooling |
+| `clean` | drops properties the schema does not declare | `response` DTOs, so undeclared fields do not leak |
+| `defaults` | fills in a declared `default` when a value is missing | optional query parameters, configuration |
+| `issues` | `"detailed"` (default) or `"summary"` | `"summary"` reports a single issue with no path, much cheaper on large bodies |
+| `vendor` | the vendor name reported through Standard Schema | custom tooling |
 
-All are off by default, and none of them modifies the value it was given: a
-schema that converts, cleans or fills defaults works on a copy. On a `response`
-schema that matters, since the value is the object the handler returned, and
-`clean` on it would otherwise delete the undeclared fields from a cached entity
-or a store record.
+All are off by default. None of them changes the value passed in: they work
+on a copy, so `clean` on a response never deletes fields from the object the
+handler returned.
 
-`convert` is never implicit. Path parameters, query strings and headers always
-arrive as strings, so they need it; a body does not, and a body that sends
-`"42"` for a number is refused.
+`convert` is never implicit. A JSON body that sends `"42"` for a number is
+refused.
 
-`defaults` runs before coercion, so a default is checked exactly like a value
-that arrived. It also changes what the schema says: a property with a `default`
-is documented as optional on input, since the client does not have to send it,
-and as required on output, since the value is there by the time the response is
-built.
+`defaults` runs before the check, so a filled-in default is checked like any
+other value. In the OpenAPI document, a property with a `default` is optional
+on input and required on output.
 
-`issues: "summary"` reports one issue for the whole value, with no path, and
-never walks the value to say where it went wrong. The compiled check says
-invalid in nanoseconds; saying where is TypeBox's own error walk, which costs in
-proportion to how much valid data lies before the failure. Use it on a large body
-on an endpoint open to anyone, where the sender of a malformed payload is owed a
-`422` and nothing more.
+`issues: "summary"` returns one issue, `does not match the schema`, with no
+path. Finding where a value failed is TypeBox's slow path, and its cost grows
+with the valid data before the failure. Use `"summary"` on large bodies on
+public endpoints, where a bad payload only needs a `422`.
 
-Wrapping a DTO again replaces its options rather than adding to them:
-`tb(CreateOrder, { convert: true, issues: "summary" })` keeps `convert` only
-because it says so.
+Wrapping a DTO again replaces its options.
+`tb(CreateOrder, { issues: "summary" })` has no `convert`, even if
+`CreateOrder` had it.
 
 ### Nested DTOs
 
-A DTO nested in another is checked with the options of the outer one, not its
-own. A nested DTO declared with an option the outer one does not have is refused
-where the outer one is made, since a `clean` that no longer strips is a field
-leaking out of a response:
+A DTO nested in another is checked with the outer DTO's options, not its
+own. If the nested one has an option the outer one lacks, `tb()` throws,
+because a `clean` that no longer strips would leak fields:
 
 ```ts twoslash
 import { tb, Type } from "@tetsujs/typebox";
@@ -120,9 +106,9 @@ const Users = tb(Type.Object({ users: Type.Array(PublicUser) }), { clean: true }
 // strips every user
 ```
 
-A schema derived from a DTO, such as `Type.Pick(PublicUser, ["id"])`,
-`Type.Omit` or `Type.Partial`, is a new schema and carries none of the DTO's
-options. Give the `tb()` around it the options it needs.
+A schema derived from a DTO, with `Type.Pick`, `Type.Omit` or
+`Type.Partial`, is a new schema with none of the DTO's options. Pass the
+options it needs to its own `tb()`.
 
 ## Files
 
@@ -159,27 +145,25 @@ export const uploads = controller("Uploads", () => ({
 | Option | Accepts | Checks |
 | --- | --- | --- |
 | `maxSize` | `5242880`, `"512k"`, `"5m"` | the largest file size |
-| `minSize` | the same | the smallest; `1` rejects a file with nothing in it |
+| `minSize` | the same | the smallest; `1` rejects an empty file |
 | `type` | `"image"`, `"image/png"`, `["image", "application/pdf"]` | the MIME type the client declared, not the bytes; `"image"` matches every image type |
 
-A size is a number of bytes, or a number with the suffix `k` (KiB) or `m` (MiB).
+A size is a number of bytes, or a number with `k` (KiB) or `m` (MiB).
 
-`files()` gives an array whenever the field is there, even for a single file. A
-file input nothing was chosen in is left out of the body, so under
-`Type.Optional` an untouched one is absent: `file()` is `undefined` rather than
-refused for its type, and `files()` is `undefined` rather than `[]`, so the
-handler reads `ctx.body.gallery ?? []`, as the type already asks.
+`files()` gives an array whenever the field is there, even for a single
+file. A file input left empty is absent from the body, so wrap an optional
+one in `Type.Optional`: an absent `files()` field is `undefined`, not `[]`,
+and the handler reads `ctx.body.gallery ?? []`.
 
-These checks run after the body was read, so they are a contract and not a
-defence. The limit on what is read at all is `maxBodySize` on the application,
-and it counts the multipart framing too, which is larger than it looks. In the
-OpenAPI document a file is described as a binary string, with its size limits
+These checks run after the body is read. The limit on how much is read at
+all is `maxBodySize` on the application, and it counts the multipart framing
+too. In the OpenAPI document a file is a binary string with its size limits
 and media type.
 
 ## Error messages
 
-Set your own message on a schema with `errorMessage`: one string for any
-failure, or one per keyword:
+Set your own message with `errorMessage`: one string for any failure, or one
+per keyword:
 
 ```ts twoslash
 import { tb, Type } from "@tetsujs/typebox";
@@ -195,18 +179,18 @@ const CreateUser = tb(
 );
 ```
 
-`errorMessage` is not included in the JSON Schema or the OpenAPI document. For
-several languages, keep schemas without messages and translate in an `onError`
-hook, keyed by each issue's path. See [Errors](/docs/concepts/errors/).
+`errorMessage` is left out of the JSON Schema and the OpenAPI document. For
+several languages, keep schemas without messages and translate in an
+`onError` hook, by each issue's path. See [Errors](/docs/concepts/errors/).
 
-Every issue points at the field itself: a missing `password` is reported at
-`["body", "password"]`, not at `body`. A union of literals fails with one issue
-listing the allowed values. With `issues: "summary"`, the one issue says `does
-not match the schema`.
+Each issue points at the field itself: a missing `password` is reported at
+`["body", "password"]`, not at `body`. A union of literals fails with one
+issue that lists the allowed values.
 
 ## Codecs
 
-A `Type.Codec` is validated as it arrives and handed over decoded:
+A `Type.Codec` is validated as it arrives and handed to the handler
+decoded. The validated type is the decoded one:
 
 ```ts twoslash
 import { parse, tb, Type } from "@tetsujs/typebox";
@@ -224,15 +208,14 @@ const session = parse(Stored, await redis.hgetall(key));
 //    ^? { code: string; expiresAt: Date; }
 ```
 
-A `Decode` that throws fails the value, as the check does: a `422`, with the
-error's message, rather than a `500` any client could cause with a string
-`BigInt` cannot read. Throw a message meant for the client.
+If `Decode` throws, the value fails with a `422` carrying the error's
+message, not a `500`. Throw a message meant for the client.
 
 ## Validating outside a request
 
-`parse()` validates any value and returns it, or throws a `ValidationError` with
-every issue. It is synchronous, so it works at module level, for example for the
-environment:
+`parse()` validates a value and returns it, or throws a `ValidationError`
+with every issue. It is synchronous, so it works at module level, for
+example for the environment:
 
 ```ts twoslash
 import { parse, tb, Type } from "@tetsujs/typebox";
@@ -248,54 +231,23 @@ const Env = tb(
 export const env = parse(Env, Bun.env);
 ```
 
-Inside a handler, a thrown `ValidationError` becomes the same `422` a rejected
-request gets. At startup, catch it to print the issues and exit:
+Inside a handler, a thrown `ValidationError` becomes the same `422` a
+rejected request gets. At startup, catch it, print `error.issues` and exit.
 
-```ts twoslash
-import { parse, tb, Type } from "@tetsujs/typebox";
-import { ValidationError } from "@tetsujs/core";
+## OpenAPI
 
-const Env = tb(Type.Object({ PORT: Type.Integer() }), { convert: true });
-// ---cut---
-try {
-  parse(Env, Bun.env);
-} catch (error) {
-  if (error instanceof ValidationError) {
-    for (const issue of error.issues) {
-      console.error(`${issue.path.join(".")}: ${issue.message}`);
-    }
-
-    process.exit(1);
-  }
-
-  throw error;
-}
-```
-
-## OpenAPI and dialects
-
-OpenAPI 3.1 and JSON Schema 2020-12 are emitted as they are. A schema is
-described through Standard Schema's JSON Schema support, so a TypeBox DTO needs
-no converter in [`@tetsujs/openapi`](/docs/packages/openapi/). Older dialects
-throw rather than being converted approximately: a request for any target other
-than `draft-2020-12` or `openapi-3.1` fails with a message naming the two. The
-supported targets are exported as `supportedTargets`.
+A TypeBox schema is JSON Schema 2020-12, which OpenAPI 3.1 uses as is, so
+[`@tetsujs/openapi`](/docs/packages/openapi/) needs no converter. Only the
+targets `draft-2020-12` and `openapi-3.1` are supported, exported as
+`supportedTargets`. Asking for an older dialect throws.
 
 ## Performance
 
 TypeBox compiles each schema into a checking function, so valid bodies are
-checked several times faster than with other Standard Schema libraries, and the
-bigger the body, the bigger the gain. From `bun run --cwd bench validators`, in
-nanoseconds per check:
-
-| | Zod 4.6 | ArkType 2.2 | Valibot 1.5 | TypeBox via `tb()` |
-| --- | --- | --- | --- | --- |
-| small body, valid | 23 | 24 | 21 | **6.7** |
-| 20-item body, valid | 922 | 168 | 784 | **52** |
-| 20-item body, one item invalid | 1,020 | 3,260 | 936 | 21,090 |
-| memory to import | +21 MB | +57 MB | +3 MB | +36 MB |
-
-Describing a failure in detail is TypeBox's slow path; `issues: "summary"`
-answers the invalid body above in 76 ns. TypeBox fits large bodies, mostly valid
-traffic and schemas that double as documentation. A lighter library fits when
-memory and startup matter more. See [Performance](/docs/more/performance/).
+checked several times faster than with other Standard Schema libraries, and
+the gap grows with the body. Describing a failure in detail is its slow
+path, which `issues: "summary"` avoids, and importing it costs more memory
+than Zod or Valibot. TypeBox suits large bodies, mostly valid traffic and
+schemas that double as documentation; a lighter library suits cases where
+memory and startup matter more. [Performance](/docs/more/performance/#validation)
+has the numbers.

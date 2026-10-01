@@ -14,7 +14,7 @@ const principles = [
   },
   {
     title: "Explicit over DRY",
-    text: "A route lists its own hooks, so reading it shows everything that runs, and in what order.",
+    text: "A route lists its hooks by slot, in the order they run. Similar routes repeat them instead of inheriting them.",
   },
   {
     title: "The platform, not a wrapper",
@@ -65,8 +65,13 @@ const principles = [
   li:not(.more)::before {
     content: "0" counter(principle);
     font-family: var(--__sl-font-mono, ui-monospace, monospace);
-    color: var(--tetsu-red);
+    color: #ff4d57;
     font-size: var(--sl-text-sm);
+  }
+  /* The brand red is too dark for small text on the dark background (3.1:1),
+     so the dark theme uses a lighter red (5.4:1). */
+  :global([data-theme="light"]) li:not(.more)::before {
+    color: var(--tetsu-red);
   }
   h3 {
     color: var(--sl-color-white);

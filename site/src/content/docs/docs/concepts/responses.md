@@ -6,9 +6,7 @@ sidebar:
 ---
 
 A handler answers by returning a value, and the framework turns that value
-into the response. This page covers the rule for that, what `ctx.out` adds
-to every response, how a response map states which statuses a route
-answers with and what each one carries, and the two ways to redirect.
+into the response.
 
 ## What a handler's return becomes
 
@@ -18,8 +16,8 @@ answers with and what each one carries, and the two ways to redirect.
 | a `Response` | sent as it is |
 | any other value | JSON, with `200` |
 
-`ctx.out.status` replaces the `200` or the `204` of a serialized value. It
-has no effect on a `Response`, which states its own status:
+`ctx.out.status` replaces the `200` or `204` of a serialized value. It has
+no effect on a `Response`, which states its own status:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -39,46 +37,36 @@ route({
 });
 ```
 
-A stream is not a value the framework serializes. A `ReadableStream` or a
-generator has no own enumerable fields, so as JSON it would be `{}` and the
-body would vanish without a word. Returning one bare is a compile error,
-and the runtime refuses it too with a `500`; a stream leaves inside a
-`Response` that states its content type. See [Streaming](/docs/concepts/streaming/).
+A `ReadableStream` or a generator returned bare is a compile error, and a
+`500` at runtime: as JSON it would be `{}`. A stream goes out inside a
+`Response` that states its content type. See
+[Streaming](/docs/concepts/streaming/).
 
 ## `ctx.out`
 
-`ctx.out` is what the response will carry besides its body. It pairs with
-the request side by position: `ctx.headers` and `ctx.cookies` are what
-arrived, `ctx.out.headers` and `ctx.out.cookies` are what leaves.
+`ctx.out` is what the response carries besides its body. `ctx.headers` and
+`ctx.cookies` are what arrived; `ctx.out.headers` and `ctx.out.cookies` are
+what leaves.
 
 | Field | |
 | --- | --- |
 | `status` | the status of a serialized result |
-| `headers` | a standard `Headers`, created the first time it is read |
-| `cookies` | `set(name, value, attributes)` and `delete(name, attributes)` — see [Cookies](/docs/concepts/cookies/) |
+| `headers` | a standard `Headers` |
+| `cookies` | `set(name, value, attributes)` and `delete(name, attributes)`, see [Cookies](/docs/concepts/cookies/) |
 
-`headers` is never assigned, only changed: `set()` to own a header,
-`append()` to add to one. Two hooks that write headers therefore compose
-rather than replace each other's whole set. Every hook and the handler see
-the same `ctx.out`, so a hook in `beforeParse` can set a header that goes
-out with whatever the request ends in.
+Every hook and the handler share the same `ctx.out`. `headers` is never
+replaced, only changed with `set()` and `append()`, so two hooks that write
+headers do not overwrite each other's.
 
-## Headers on every response
+`ctx.out.headers` is applied to every response that leaves: a serialized
+result, a `Response` the handler built, a hook's short-circuit, and an
+error response. A request id or a rotated session cookie does not vanish
+on the `401` it goes with. Headers are merged by name:
 
-`ctx.out.headers` is laid over every response that leaves the pipeline:
-a serialized result, a `Response` the handler built, a `Response` a hook
-short-circuited with, and an error response. A request id or a rotated
-session cookie does not disappear on exactly the `401` it accompanies.
-
-The headers are merged name by name:
-
-- `set-cookie` is appended to what the response already has;
+- `set-cookie` is appended;
 - `vary` is merged, each token once, so a handler's `Vary: Cookie` survives
   a CORS hook adding `Origin`;
 - every other name overwrites the response's own value.
-
-A response whose headers cannot be changed — one a `fetch` to another
-service returned — is copied first, so this holds for it too.
 
 `ctx.out.status`, by contrast, applies only to a serialized result. An
 error's status belongs to the error, and a `Response` carries its own.
@@ -86,8 +74,8 @@ error's status belongs to the error, and a `Response` carries its own.
 ## The response map
 
 `schema.response` describes what leaves. A single schema checks every
-response the handler serializes, whatever its status. A map binds a schema
-to each status, and it is also the list of statuses the route answers with:
+serialized response, whatever its status. A map binds a schema to each
+status, and is also the list of statuses the route answers with:
 
 ```ts twoslash
 import { controller, httpError, route } from "@tetsujs/core";
@@ -125,52 +113,54 @@ export const usersController = controller("Users", () => ({
 }));
 ```
 
-The rules the map sets:
-
-- **Only a declared status leaves.** The handler can write only a declared
-  status into `ctx.out.status`; anything else is a compile error. A
-  response that leaves with an undeclared status anyway — the implicit
-  `200` of a handler that forgot to set `201`, a status a hook wrote — is
-  refused at runtime with a `500`.
-- **`null` declares a status without a body**, such as a `204` or a `304`.
-  It is in the map because it is part of what the endpoint answers, and the
-  generated document lists it.
-- **A value under a bodiless status is a `500`.** Returned for a status
-  declared `null`, it would skip every schema — the stripping a `200` would
-  have done included — so it is refused rather than sent.
+- **Only a declared status leaves.** Setting an undeclared status on
+  `ctx.out.status` is a compile error. A response that still leaves with
+  one, such as the implicit `200` of a handler that forgot to set `201`, is
+  a `500`.
+- **`null` declares a status without a body**, such as `204` or `304`. A
+  value returned under it is a `500`.
 - **The status picks the schema.** The handler may return any of the
-  declared shapes, and the status the response leaves with decides which
-  schema checks it. A documented error shape returned under `200`
-  therefore compiles and fails at runtime.
+  declared shapes, and the status it leaves with decides which schema
+  checks it. The wrong shape for the status compiles, and is a `500`.
+
+Entries for statuses the handler never returns, such as a `404` it throws,
+only document the error path. A thrown `HttpError` is answered by the
+[error mapping](/docs/concepts/errors/), and no response schema is checked
+there.
+
+### What is serialized
+
+The value the schema returns is what becomes the JSON. In the example
+above, the stored user carries a `passwordHash` that `PublicUser` does not
+name, and Zod's object schema drops unknown keys, so the hash never leaves.
+TypeScript alone would not catch this: a `StoredUser` satisfies
+`{ id: number; name: string }`, extra field and all.
+
+A response that fails its schema is the server's fault. It answers `500`
+with the envelope and nothing of the value, and `reportError` receives a
+`ResponseContractError` with `source: "response"`. See
+[Errors](/docs/concepts/errors/#failures-that-cannot-become-a-response).
+
+`validateResponses: false` on `createApp` turns every response check off.
+The schemas still type the handler and document the route. The framework
+never reads `NODE_ENV` itself, so checking outside production only is your
+call:
 
 ```ts twoslash
-// @errors: 2322
-import { route } from "@tetsujs/core";
-import { z } from "zod";
-const Order = z.object({ id: z.number() });
+import { createApp } from "@tetsujs/core";
+declare const routes: object[];
 // ---cut---
-route({
-  method: "POST",
-  path: "/orders",
-  schema: { response: { 200: Order } },
-  handler: (ctx) => {
-    ctx.out.status = 201;
-    return { id: 1 };
-  },
+const app = createApp({
+  routes,
+  validateResponses: Bun.env.NODE_ENV !== "production",
 });
 ```
 
-Entries for statuses the handler never returns — a `404` it throws, a `409`
-a hook raises — document the error path and nothing more. A thrown
-`HttpError` is answered by the [error mapping](/docs/concepts/errors/),
-and no schema is consulted there.
-
 ### Headers and cookies of a status
 
-A status that leaves with headers or cookies says so in place of its body's
-schema, the way a request declares its parts. The entry has three keys —
-`body`, `headers` and `cookies` — and any other is refused at startup, so a
-misspelled part is not silently left unchecked:
+An entry can check headers and cookies too, with the keys `body`, `headers`
+and `cookies`. Any other key is refused at startup, so a misspelled part is
+not silently left unchecked:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -195,59 +185,19 @@ route({
 });
 ```
 
-`headers` sees the headers on `ctx.out` once the handler has returned,
-names in lower case and without `set-cookie`. That includes headers a hook
-set before the handler, so a schema should not refuse keys it does not
-name. `cookies` sees each cookie the response sets — through `ctx.out` or
-through Bun's `ctx.req.cookies` — by name, with the value as the handler
-wrote it: opened when the cookie is signed, `""` when it is deleted. An
-entry without `body` carries none, as `null` does.
+- `headers` sees `ctx.out.headers` after the handler returns, names in
+  lower case, without `set-cookie`. Hooks may have added headers too, so
+  the schema should allow keys it does not name.
+- `cookies` sees each cookie the response sets, by name, with the value as
+  the handler wrote it: opened when signed, `""` when deleted.
+- An entry without `body` has no body, like `null`.
 
-They are checked with the body, and a response that breaks them is a
-`500`. What `ctx.out` holds still goes out with that `500`, as with every
-error response: the schema says what a status leaves with, and is not a
-filter over it.
-
-## What is serialized
-
-The response check is a transformation as well as a contract: the value the
-schema returns is what becomes the JSON. In the example above, the stored
-user carries a `passwordHash` and `PublicUser` does not name it. Zod's
-object schema drops unknown keys, so the hash never leaves the process.
-
-The compiler cannot guarantee that on its own. Typing is structural, and a
-value of type `StoredUser` satisfies `{ id: number; name: string }`, extra
-field and all. The runtime check is the barrier.
-
-A response that fails its schema is not the client's fault. It answers
-`500` with the envelope and nothing of the offending value, and the
-application's `reportError` receives a `ResponseContractError` with
-`source: "response"` — see [Errors](/docs/concepts/errors/#failures-that-cannot-become-a-response).
-
-`validateResponses: false` on `createApp` turns every response check off:
-the schemas, the list of statuses, the bodiless rule. The schema still
-checks the handler's return type at compile time and still documents the
-route. Checking outside production only is a decision for the place the
-application is built:
-
-```ts twoslash
-import { createApp } from "@tetsujs/core";
-declare const routes: object[];
-// ---cut---
-const app = createApp({
-  routes,
-  validateResponses: Bun.env.NODE_ENV !== "production",
-});
-```
-
-The framework never reads `NODE_ENV` itself: a declared schema behaves the
-same in every environment unless you say otherwise.
+A response that breaks them is a `500`.
 
 ## Redirects
 
-A redirect is a response like any other. The platform's
-`Response.redirect` works from a handler, or from a hook that turns a
-request away, and cookies set on `ctx.out` go with it:
+A redirect is a response like any other. `Response.redirect` works from a
+handler or a hook, and cookies set on `ctx.out` go with it:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -264,10 +214,10 @@ route({
 });
 ```
 
-Such a redirect is a `Response`, so it is sent unchecked and is absent from
-the generated document. A redirect the response map declares is checked
-and documented like any other status, its `location` included. The status
-and the header go on `ctx.out`, and the handler returns nothing:
+That redirect is a `Response`, so it is not checked and not in the
+generated document. To have it checked and documented, declare it in the
+response map, set the status and `location` on `ctx.out`, and return
+nothing:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -291,17 +241,13 @@ route({
 
 ## A `Response` of your own
 
-A `Response` the handler builds is sent as it is. The framework does not
-inspect a response it did not build: no response schema checks it, the
-response map does not apply to its status, and the generated document does
-not describe it. It is still a response leaving the pipeline, so
-`ctx.out.headers` is laid over it and `beforeResponse` and `afterResponse`
-hooks see it.
+A `Response` the handler builds is sent as it is: no response schema checks
+it, the response map does not apply to its status, and the generated
+document does not describe it. `ctx.out.headers` is still applied, and
+`beforeResponse` and `afterResponse` hooks still see it.
 
-That makes a `Response` the way out for what JSON is not — a file, HTML, a
-stream — and the reason not to reach for it by default. A route that
-returns a value keeps its contract checked and documented; a route that
-returns a `Response` gives both up.
+Use it for what JSON is not, such as a file, HTML or a stream. For JSON,
+return the value, so the contract stays checked and documented.
 
 ```ts twoslash
 import { route } from "@tetsujs/core";

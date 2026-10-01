@@ -18,7 +18,7 @@ const refusals = [
   },
   {
     title: "No plugins",
-    text: "A package is one hook in one slot. Registration at runtime would make what runs for a route something to look up instead of something to read.",
+    text: "A package is a hook, a controller or a function, used like your own code. Registration at runtime would make what runs for a route something to look up instead of something to read.",
   },
   {
     title: "No middleware chain",
@@ -57,11 +57,11 @@ const refusals = [
       />
       <div>
         <p class="kanji" lang="ja">鉄</p>
-        <h1>Tetsu means iron.</h1>
+        <h1 id="_top">Tetsu means iron.</h1>
         <p class="lead">
           Not a metaphor for speed or elegance — the plain material. Iron does what it looks
-          like it does. You can see how a piece of it was made and where it is joined, and it holds.
-          That is what the framework tries to be.
+          like it does: you can see where it is joined, and it holds. That is what the framework
+          tries to be.
         </p>
         <p class="motto">No magic. Just iron.</p>
       </div>
@@ -78,9 +78,9 @@ const refusals = [
             been handed the right tool.
           </p>
           <p>
-            In the mark, the oni is the developer — the one who already knows the domain, the data and
-            the users. Tetsu is the club: a tool of plain iron, made to be held, that adds weight to
-            every blow without getting in the way of the hand.
+            In the mark, the oni is the developer, who already knows the domain, the data and the
+            users. Tetsu is the club: plain iron that adds weight to every blow and stays out of the
+            way of the hand.
           </p>
         </div>
         <ul class="details">
@@ -95,11 +95,10 @@ const refusals = [
     <section class="block">
       <h2>What you write is what runs</h2>
       <p class="wide">
-        Open any route and everything that happens to its request is written there: the path, the
-        schemas, the hooks by slot, the handler. Open the file that starts the server and every
-        instance the application runs on is built there, by hand. There is no registry, no file
-        scanning, no reflection and no configuration that lives somewhere else. What you read is
-        the whole program.
+        Open any route and what happens to its request is written there: the path, the schemas, the
+        hooks by slot, the handler. What a group or the whole application adds is written where the
+        application is wired, and every instance is built there by hand. There is no
+        registry, no file scanning and no reflection. What you read is the whole program.
       </p>
       <p class="wide">
         The types follow the same rule. A field is on the context exactly when it exists at that
@@ -136,10 +135,10 @@ const refusals = [
     </section>
 
     <section class="block who">
-      <h2>Who makes it</h2>
+      <h2>Open source</h2>
       <p class="wide">
-        Tetsu is an open-source project under the MIT license, built in the open on GitHub. Questions,
-        bugs and ideas go to the <a href="https://github.com/tetsujs/tetsu/issues">issue tracker</a>;
+        Tetsu is MIT-licensed and built in the open on GitHub. Questions, bugs and ideas go to the
+        <a href="https://github.com/tetsujs/tetsu/issues">issue tracker</a>;
         anything else to <a href="mailto:hello@tetsujs.com">hello@tetsujs.com</a>.
       </p>
       <div class="actions">

@@ -6,16 +6,16 @@ sidebar:
   label: "@tetsujs/rate-limit"
 ---
 
-`@tetsujs/rate-limit` refuses the requests of a client that goes over its
-budget for a window of time. It is a hook you mount where the limit applies,
-and the counters live in a store you can replace.
+`@tetsujs/rate-limit` refuses requests from a client that goes over its budget
+for a window of time. It is a hook you mount where the limit applies, and the
+counters live in a store you can replace.
 
 ```bash
 bun add @tetsujs/rate-limit
 ```
 
-The package depends on [`@tetsujs/openapi`](/docs/packages/openapi/), which it
-uses to document the refusal, and takes `@tetsujs/core` as a peer dependency.
+It depends on [`@tetsujs/openapi`](/docs/packages/openapi/), which it uses to
+document the refusal.
 
 ## Usage
 
@@ -38,19 +38,17 @@ const limit = rateLimit({
 createApp({ hooks: { beforeParse: [limit] }, routes });
 ```
 
-This counts by the client's address. Behind a proxy that address is the
-proxy's, and on a server listening on a unix socket there is none: `undefined`,
-which skips the limit. [Choosing a key](#choosing-a-key) shows how to read the
-client's address from the proxy.
+This allows 60 requests a minute per client address. Behind a proxy that
+address is the proxy's: see [Behind a proxy](#behind-a-proxy).
 
 A request over the limit gets `429` with the standard error body (code
-`RATE_LIMITED`, plus `retryAfter` in seconds) and a `retry-after` header. Every
-counted request's response carries `x-ratelimit-limit`, `x-ratelimit-remaining`
-and `x-ratelimit-reset` (seconds until the window ends). The refusal is a
-thrown `HttpError`, so the application's `onError` hooks see it like any other
-failure, and an application with its own error format formats this one too.
+`RATE_LIMITED`, plus `retryAfter` in seconds) and a `retry-after` header. The
+refusal is a thrown `HttpError`, so `onError` hooks and a custom error format
+apply to it. Every counted response carries `x-ratelimit-limit`,
+`x-ratelimit-remaining` and `x-ratelimit-reset` (seconds until the window
+ends).
 
-`rateLimit()` is one `beforeParse` hook. For one route only, mount it on the
+`rateLimit()` is one `beforeParse` hook. To limit one route, mount it on the
 route:
 
 ```ts twoslash
@@ -71,11 +69,14 @@ const feedback = route({
 });
 ```
 
-### Budgets and instances
+### Budgets
 
-The counters live in the instance: one `limit` mounted on two routes or groups
-is one budget shared between them. For separate budgets, make two. Two limits
-on one route work too, a short window against bursts and a long one:
+One limiter is one budget: mounted on two routes, it counts both together. For
+separate budgets, make two limiters.
+
+Two limiters on one route work too, such as a short window against bursts and
+a long one. A request passes when it is within both. Give one of them
+`headers: false`, or the two overwrite each other's `x-ratelimit-*` headers:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -95,12 +96,8 @@ const login = route({
 });
 ```
 
-A request passes when it is within both. Each limiter sets the `x-ratelimit-*`
-headers, and a response carries the last one's; `headers: false` on the other
-keeps them from taking turns.
-
-`perRoute: true` gives each route its own budget from one limiter, for "20 a
-minute on every endpoint", mounted once on the application:
+`perRoute: true` gives each route its own budget from one limiter mounted on
+the application, for "20 a minute on every endpoint":
 
 ```ts twoslash
 import { controller, createApp, route } from "@tetsujs/core";
@@ -122,34 +119,27 @@ const each = rateLimit({
 createApp({ hooks: { beforeParse: [each] }, routes });
 ```
 
-A route is its template, so `/orders/1` and `/orders/2` share `GET /orders/:id`.
-Requests no route answers, a `404`, a `405` or a CORS preflight, share one
-budget between them, so probing paths that do not exist is counted too. With
-[`cors()`](/docs/packages/cors/) before the limiter, as it goes before every
-hook that can refuse, a preflight is answered before it is counted.
+A route is its template, so `/orders/1` and `/orders/2` share
+`GET /orders/:id`. Requests no route answers (a `404`, a `405`, an `OPTIONS`
+preflight) share one budget, so probing for paths is counted too. With
+[`cors()`](/docs/packages/cors/) mounted before the limiter, a preflight is
+answered before it is counted.
 
 ## Choosing a key
 
-`key` decides what is counted, and there is no default: the right answer
-depends on your deployment. A default would have to guess a topology, and behind
-a balancer the guess puts every client in one bucket while the limiter looks
-configured right. The function returns a string, or `undefined` to skip the limit
-for that request.
+`key` decides what is counted, and there is no default. The right key depends
+on the deployment: behind a balancer, a default by address would put every
+client in one bucket while the limiter looked fine. Return a string, or
+`undefined` to skip the limit for that request.
 
-It runs before the request is parsed, so it reads the request itself: headers,
-and cookies through Bun's `ctx.req.cookies` (`ctx.cookies` is not filled in
-yet), and what the `beforeParse` hooks before it returned.
+**A key must be something the client cannot choose.** An unverified cookie,
+token or header is whatever the client sends, and a new value each time means
+a new, empty budget each time. Count by the connection's address, or by what a
+hook has verified.
 
-A key has to be something the client cannot choose. A session cookie, a token
-or a tenant header is whatever the client sends until something has verified
-it: a client that sends a new value each time gets a new, empty budget each
-time. And `?? undefined` after a value the client may leave out skips the limit
-for everyone who leaves it out. Count by the connection's address, or by what a
-hook that verified the client worked out.
-
-A key another hook already worked out, such as a user whose session it verified
-or a client address, is read from the context once `key` says it needs it with
-`Requires`:
+By default the key runs before the body is parsed, so it reads the request
+itself and what earlier `beforeParse` hooks returned. To read a field another hook
+provides, declare it with `Requires`:
 
 ```ts twoslash
 import { hook, HttpError, route, signedCookie, type Requires } from "@tetsujs/core";
@@ -177,62 +167,32 @@ const createOrder = route({
 });
 ```
 
-`signedCookie()` checks the seal before the body is read, where `ctx.cookies` is
-not filled yet. `ctx.req.cookies` holds the sealed string as the client sent it.
-Keyed by that string, a client that puts a junk `session` in front of the real
-one, which the application skips and Bun's `req.cookies` reads, gets a new
-budget each time.
+The limiter then requires `userId` wherever it is mounted: placed before
+`auth`, or where nothing provides it, it does not compile. See
+[Context and its types](/docs/concepts/context/).
 
-The limiter then demands the field where it is mounted, like any hook with
-`Requires`: mounted before `auth`, or on a route nothing provides it to, it does
-not compile. See [Context and its types](/docs/concepts/context/).
+`signedCookie()` reads and verifies a signed cookie in `beforeParse`, where
+`ctx.cookies` is not filled in yet. Do not key by `ctx.req.cookies`: it holds
+the cookie as the client sent it, unverified.
 
 ### Behind a proxy
 
-Limiting by client address behind a proxy means reading `x-forwarded-for`, and
-the first entry is the wrong one: the client can send that header itself and
-choose its own bucket. Count from the end instead, by the number of proxies of
-your own in front:
+Behind a proxy, the connection's address is the proxy's, and the client's
+is in `x-forwarded-for`. Count it from the end of that header, by the
+number of your own proxies in front: the first entry is whatever the client
+sent, and would let it pick its own bucket.
+[Behind a proxy](/docs/guides/behind-a-proxy/#rate-limiting-behind-a-load-balancer)
+shows a hook that works the address out and a limiter keyed by it.
 
-```ts twoslash
-import { rateLimit } from "@tetsujs/rate-limit";
-// ---cut---
-const trustedHops = 1;
-
-const limit = rateLimit({
-  limit: 60,
-  windowMs: 60_000,
-  key: (ctx) => {
-    const chain = ctx.req.headers.get("x-forwarded-for");
-
-    if (!chain) return ctx.server.requestIP(ctx.req)?.address;
-
-    return chain.split(",").at(-trustedHops)?.trim();
-  },
-});
-```
-
-It holds only where the server is reachable through all `trustedHops` proxies
-and nothing else: each of them adds to the chain, so it is never shorter than
-that. A shorter one, where `at()` gives `undefined` and the limit is skipped,
-means a proxy was bypassed or `trustedHops` is wrong. Keep the server off any
-address but the last proxy's. See also [Behind a proxy](/docs/guides/behind-a-proxy/).
-
-Without a proxy, `ctx.server.requestIP(ctx.req)?.address` is the client's
-address, in the form the server's socket reports it. `Bun.serve` without a
-`hostname` listens on both IPv4 and IPv6, and a client that connects over IPv4
-is then `::ffff:203.0.113.7`, not `203.0.113.7`. As a key that is harmless: one
-client, one form, one bucket. Compared with a list of addresses, a trusted proxy
-or an allow-list, it silently never matches. Strip the `::ffff:` prefix before
-comparing, or listen on `0.0.0.0`, which is IPv4 only and turns IPv6 clients
-away.
+A server that listens on IPv4 and IPv6, `Bun.serve`'s default, reports an
+IPv4 client as `::ffff:203.0.113.7`. As a key that is fine. To compare it
+with a list of addresses, strip the `::ffff:` prefix first, as the next
+example does.
 
 ### Skipping the limit
 
-Returning `undefined` skips the limit for that request. An allowance has to rest
-on something the client cannot send: a header such as `x-internal` is one any
-client can add, unless a proxy of yours overwrites it. Allow by the connection's
-address instead:
+Returning `undefined` skips the limit. Base an exemption on the connection's
+address, not on a header such as `x-internal`, which any client can send:
 
 ```ts twoslash
 import { rateLimit } from "@tetsujs/rate-limit";
@@ -250,16 +210,16 @@ const limit = rateLimit({
 });
 ```
 
-A health check needs no allowance: mount the limiter on the routes or the group
-it protects, and leave `/healthz` outside it.
+Likewise, a key such as `header ?? undefined` skips the limit for every client
+that leaves the header out. A health check needs no exemption: mount the
+limiter on the routes or groups it protects, and leave the probes outside.
 
 ## Limiting by account
 
-A limit by address hardly slows down guessing a password: an attacker with many
-addresses gets the whole budget on each. The measure that holds counts by the
-account being tried, and the account is in the body, which a limiter before the
-body cannot read. `slot: "beforeHandle"` runs it after the body is validated,
-where the key reads it:
+A limit by address barely slows password guessing: an attacker with many
+addresses gets a full budget on each. What works is counting by the account
+being tried, and the account is in the body. `slot: "beforeHandle"` runs the
+limiter after the body is validated, so the key can read it:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -292,13 +252,10 @@ const login = route({
 });
 ```
 
-The address limit still refuses a flood before its bodies are read, and the
-account limit stops the guessing across addresses. A limiter goes in the slot it
-was made for, `beforeParse` (the default), `beforeValidation` or `beforeHandle`,
-and the compiler refuses it anywhere else, or on a route that does not provide
-what its key reads. The same slot holds a limit by a user a `beforeHandle` hook
-looked up. A slot after the handler is not offered: by then there is nothing
-left to protect.
+The address limit still refuses a flood before reading its bodies, and the
+account limit stops guessing across addresses. A limiter can be made for
+`beforeParse` (the default), `beforeValidation` or `beforeHandle`, and the
+compiler refuses it in any other slot.
 
 ## Options
 
@@ -310,26 +267,20 @@ left to protect.
 | `perRoute` | `false` | a budget per route rather than one for the limiter |
 | `slot` | `"beforeParse"` | `"beforeValidation"` or `"beforeHandle"` to count by what the body holds |
 | `store` | `memoryStore()` | where the counters live |
-| `name` | none | required with `store`, and only with it: what tells this limiter's counters apart in it |
+| `name` | none | required with `store`, and only with it |
 | `status` | `429` | status of a refusal |
 | `headers` | `true` | send the `x-ratelimit-*` headers |
 
-The options are checked when the limiter is made, and a bad one throws at
-startup. A `windowMs` of `NaN`, which is what `Number()` of an unset environment
-variable reads as, or of `0`, would refuse nothing while the headers went on
-reporting a budget. A `limit` that is not a whole number, a `slot` that is not
-one of the three, a `name` without a `store`, and a `store` without a `name` are
-refused too.
+Bad options throw when the limiter is made. For example, a `windowMs` of `NaN`
+(what `Number()` of an unset environment variable gives) would otherwise
+refuse nothing.
 
 ## A shared store
 
-The default store, `memoryStore()`, keeps counters in the process: fine for one
-server and for tests, not for several behind a load balancer. Expired entries
-are dropped in a sweep as the map grows, rather than by a timer, so the store
-never keeps the process alive. A store is one method, `hit(key, windowMs)`,
-which counts a hit against a key and returns the window it fell into as
-`{ count, resetAt }`, with `resetAt` in epoch milliseconds. It may be
-asynchronous:
+The default `memoryStore()` keeps counters in the process: fine for one server
+and for tests, not for several behind a load balancer. A store is one method,
+`hit(key, windowMs)`, which counts a hit and returns `{ count, resetAt }`, with
+`resetAt` in epoch milliseconds. It may be async:
 
 ```ts twoslash
 declare const redis: {
@@ -357,44 +308,35 @@ const limit = rateLimit({
 });
 ```
 
-The expiry is set on every hit, if the key has none yet (`NX`, Redis 7 and
-later). Set only on the first, a timeout between the two commands left a counter
-that never expired, and its client refused for good. Set on every hit, the next
-request repairs it. On an older Redis, send both in one `MULTI`. A refusal's
-`retry-after` is never less than one second, even when a store answers with a
-window that is already over, so the client is not told to retry at once.
+The expiry is set on every hit, only if the key has none (`NX`, Redis 7 and
+later). Set only on the first hit, a timeout between the two commands would
+leave a counter that never expires, and its client refused for good. On older
+Redis, send both commands in one `MULTI`.
 
-A limiter given a store needs a `name`, and only such a limiter takes one. The
-store finds a counter by its key alone, and the key is the name, then the
-client: `shop-login:203.0.113.7`, or `shop-login:POST:/login:203.0.113.7` with
-`perRoute`. So:
+A limiter with a store needs a `name`, which starts every key it counts under:
+`shop-login:203.0.113.7`, or `shop-login:POST:/login:203.0.113.7` with
+`perRoute`. So the name is the budget:
 
-- Without a store, the budget is the limiter. With one, it is the name: every
-  server of a fleet whose limiter has it shares one budget, which is what a
-  shared store is for.
-- A name is unique across everything that writes to the store. Two services on
-  one Redis need two names; the simplest way is to prefix every key the store
-  sends to Redis with the service, `shop:`, once, in the store, and keep the
-  limiters' names short.
-- One name on one store with other settings is refused when the second limiter
-  is made: one counter cannot have two limits. The same settings under one name
-  are fine, since an application rebuilt for every test, and every server of a
-  fleet, makes its limiters again.
+- Every server of a fleet whose limiter has that name shares one budget, which
+  is what a shared store is for.
+- A name must be unique across everything that writes to the store. Two
+  services on one Redis need different names, or a store that prefixes every
+  key with the service.
+- Two limiters with one name on one store but different settings are refused.
+  The same settings under one name are fine, since every test run and every
+  server makes its limiters again.
 
 ## Notes
 
 - **In tests, every request comes from one address.** `serve()` and its
-  `client()` connect from the test process, so a limiter keyed by address counts
-  one bucket across a test file, and a header does not change the address. Build
-  the application per test, or give it the limiter's `key` from outside and pass
-  one the test controls. See [Testing](/docs/guides/testing/).
-- With [`@tetsujs/openapi`](/docs/packages/openapi/), every operation the limiter
-  guards is documented with a `429`, its `retryAfter` and its `retry-after`
-  header, without the routes declaring it.
-- A refusal is a thrown `HttpError`, with `retryAfter` in its body, so the
-  application's `onError` hooks see it like any other failure.
-- The package also exports `memoryStore`, the types `RateLimitOptions`,
-  `RateLimitHook`, `RateLimitStore`, `WindowState` and `LimitSlot`, and the
-  option types `OwnCounters` and `SharedCounters`. A limiter whose key demands
-  more than the request, or one made for another slot, is typed by
-  `ReturnType` of its own `rateLimit()` call, not by `RateLimitHook`.
+  `client()` connect from the test process, so a limiter keyed by address
+  counts all requests of a test file in one bucket. Build the application per
+  test, or pass it a `key` the test controls. See [Testing](/docs/guides/testing/).
+- With [`@tetsujs/openapi`](/docs/packages/openapi/), every operation the
+  limiter guards is documented with a `429`, its `retryAfter` and its
+  `retry-after` header.
+- The package also exports `memoryStore` and the types `RateLimitOptions`,
+  `RateLimitHook`, `RateLimitStore`, `WindowState`, `LimitSlot`,
+  `OwnCounters` and `SharedCounters`. `RateLimitHook` is a `beforeParse`
+  limiter whose key reads only the request; type any other limiter with
+  `ReturnType` of its own `rateLimit()` call.

@@ -3,21 +3,20 @@ title: Key concepts
 description: The whole model of Tetsu on one page — the application, controllers, routes, hooks in slots, the context and errors.
 ---
 
-Tetsu has few moving parts, and each is an ordinary value. This page walks
-through all of them in the order a request meets them; each section links to
-the page that covers it in full.
+Tetsu has few moving parts, and each is an ordinary value. This page goes
+through them in the order a request meets them, with a link to the full
+page for each.
 
 ## The application is data
 
-`createApp` returns an object — the routes, a fallback for unmatched paths,
-a WebSocket handler — and `Bun.serve` takes it as it is. There is no server
-object of the framework's own:
+`createApp` returns plain data — the routes, a fallback for unmatched paths
+and a WebSocket handler — and `Bun.serve` takes it as it is:
 
 ```ts twoslash
 import { controller, createApp, route } from "@tetsujs/core";
 
 const health = controller("Health", () => ({
-  live: route({ method: "GET", path: "/live", handler: () => "ok" }),
+  live: route({ method: "GET", path: "/livez", handler: () => "ok" }),
 }));
 
 const app = createApp({ routes: health() });
@@ -25,16 +24,15 @@ const app = createApp({ routes: health() });
 Bun.serve({ ...app, port: 3000 });
 ```
 
-Because the application is data, starting and stopping it is yours:
-`ctx.server` is Bun's real server, graceful shutdown is a package
-([`@tetsujs/lifecycle`](/docs/packages/lifecycle/)), and routing is Bun's
-native router — the framework has no router of its own to disagree with it.
+There is no server object of the framework's own. Routing is Bun's native
+router, `ctx.server` is Bun's server, and starting and stopping it is up to
+you. Graceful shutdown is a package:
+[`@tetsujs/lifecycle`](/docs/packages/lifecycle/).
 
 ## Controllers take their dependencies as arguments
 
 A controller is a name and a function from its dependencies to its routes.
-It is called once, in the one place where the application is wired — the
-composition root:
+You call it once, where the application is wired:
 
 ```ts twoslash
 interface Note { id: number; text: string }
@@ -51,50 +49,30 @@ const notes = new NoteStore();
 export default createApp({ routes: notesController(notes) });
 ```
 
-There is no container, no decorator and no registry. The name is a contract:
-the OpenAPI document builds each `operationId` from it, and generated clients
-name their methods after those.
+There is no container, no decorator and no registry. The name matters: the
+OpenAPI document builds each `operationId` from it.
 [Controllers and dependencies](/docs/concepts/controllers/)
 
-## A route declares everything that runs for it
+## A route declares what it needs
 
-`route()` takes a method, a path, the schemas of the request parts, the hooks
-and the handler. Nothing about a route is configured elsewhere, so reading
-it shows what happens to a request:
-
-```ts twoslash
-interface Order { id: number }
-declare const orders: { find(id: number): Order | undefined };
-import { hook } from "@tetsujs/core";
-const auth = hook.beforeParse(() => ({ user: { id: "ada" } }));
-// ---cut---
-import { route } from "@tetsujs/core";
-import { z } from "zod";
-
-route({
-  method: "GET",
-  path: "/orders/:id",
-  schema: { params: z.object({ id: z.coerce.number() }) },
-  hooks: { beforeParse: [auth] },
-  handler: (ctx) => orders.find(ctx.params.id),
-});
-```
-
-Paths are checked by the compiler against what Bun's router actually
-matches. [Routes and handlers](/docs/concepts/routes-and-handlers/)
+`route()` takes a method, a path, schemas for the parts of the request, hooks
+by slot and the handler. Its context is typed from what the route itself
+declares; hooks of its groups and of the application run for it too, but add
+nothing to its types. The compiler checks the path against what Bun's router
+matches.
+[Routes and handlers](/docs/concepts/routes-and-handlers/)
 
 ## Hooks sit in fixed slots
 
-A request passes through named stages. There is no `next()` and no onion:
-each hook has a slot, and the slot says when it runs.
+A request passes through named stages. There is no `next()`: each hook is
+made for a slot, and the slot says when it runs.
 
 ```
 beforeParse → parse → beforeValidation → validate → beforeHandle
   → handler → beforeResponse → afterResponse      (onError on failure)
 ```
 
-A hook is made for a slot and mounted by slot. What it returns joins `ctx`;
-to stop the request it throws.
+What a hook returns is added to `ctx`. To refuse the request, it throws.
 
 ```ts twoslash
 interface User { id: string }
@@ -117,16 +95,16 @@ route({
 });
 ```
 
-`auth` runs before the body is read, so an anonymous request is refused
-without reading it. [Lifecycle hooks](/docs/concepts/lifecycle-hooks/)
+`auth` sits in `beforeParse`, so an anonymous request is refused before its
+body is read. [Lifecycle hooks](/docs/concepts/lifecycle-hooks/)
 
-## The context tells the truth
+## The context has only what exists
 
 `ctx` is never annotated. A field is on it exactly when it exists at that
-point of the request: parameters from the path, the body only once it was
-validated, `user` only after the hook that returned it. A hook that needs a
-field says so with `Requires`, and mounting it where nothing provides that
-field is a compile error:
+point: the parameters of the path, the body once it is validated, `user`
+after the hook that returned it. A hook that needs a field declares it with
+`Requires`, and mounting it where nothing provides the field is a compile
+error:
 
 ```ts twoslash
 interface User { id: string }
@@ -152,30 +130,30 @@ route({
 ## Validation is Standard Schema
 
 `params`, `query`, `headers`, `cookies` and `body` are each validated by the
-schema you give them — Zod, Valibot, ArkType, or TypeBox through an adapter.
-All parts are checked at once; a failure is answered with `422` and every
-issue. `response` checks what leaves, and lists the statuses the route
-answers with. [Validation](/docs/concepts/validation/) ·
+schema you give them: Zod, Valibot, ArkType, or TypeBox through an adapter.
+All parts are checked at once, and a failure is a `422` listing every issue.
+A `response` schema checks what the route sends back.
+[Validation](/docs/concepts/validation/) ·
 [Responses](/docs/concepts/responses/)
 
 ## One shape for every error
 
-A thrown `HttpError`, a failed validation, an unmatched path or method, a
-body over the limit — every failure is answered in one shape:
+A thrown `HttpError`, a failed validation, an unmatched path, a body over
+the limit — every failure is answered in one shape:
 
 ```json
 { "status": 404, "message": "Not Found", "error": "NOT_FOUND" }
 ```
 
-An `onError` hook on the application sees all of them and can replace the
-format for the whole application. What cannot become a response — an error
-after the response was sent — goes to `reportError`.
-[Errors](/docs/concepts/errors/)
+An `onError` hook on the application sees every failure and can change the
+format. An error that can no longer become a response, because the response
+was already sent, goes to `reportError`. [Errors](/docs/concepts/errors/)
 
 ## Packages are hooks
 
-There is no plugin system. A package is a function that takes options and
-returns one hook, mounted in its slot like your own:
+There is no plugin system. CORS, request ids, access logs, rate limits and
+security headers are packages, each a function that returns a hook, mounted
+in its slot like your own:
 
 ```ts twoslash
 import { createApp } from "@tetsujs/core";
@@ -184,12 +162,11 @@ import { accessLog } from "@tetsujs/request-log";
 import { requestId } from "@tetsujs/request-id";
 declare const routes: Parameters<typeof createApp>[0]["routes"];
 // ---cut---
-const browser = cors({ origin: "https://app.example.com" });
-const id = requestId();
-const log = accessLog();
-
 createApp({
-  hooks: { beforeParse: [browser, id], afterResponse: [log] },
+  hooks: {
+    beforeParse: [cors({ origin: "https://app.example.com" }), requestId()],
+    afterResponse: [accessLog()],
+  },
   routes,
 });
 ```

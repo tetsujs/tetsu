@@ -5,28 +5,30 @@ sidebar:
   order: 12
 ---
 
-This guide writes a reusable hook the way the framework's own packages
-are written: an API-key check that other applications can install and
-mount. It covers the shape of a package, the rules that keep its types and
-its failures honest, and a test.
+This guide writes a reusable hook the way the framework's own packages are
+written, using an API-key check as the example: the package's shape, the
+rules that keep its types and failures honest, and a test.
 
 ## A package is one hook
 
-Tetsu has no plugin system. A package is a function that takes options
-and returns one hook, which the application mounts in its slot like any
-hook of its own — `cors()`, `requestId()` and `rateLimit()` are all this
-shape. Everything that runs for a route stays visible where the route
-mounts it, and the compiler checks the package's hook as it checks any
-other: its slot, what it needs from the context, what it adds.
+Tetsu has no plugin system. A package is a function that takes options and
+returns one hook, which the application mounts like any hook of its own —
+`cors()`, `requestId()` and `rateLimit()` all have this shape. The
+compiler checks the package's hook as it checks any other: its slot, what
+it needs from the context and what it adds.
 
-The function runs once, where the application is wired, and the hook it
-returns runs for every request. Options are read and checked in the
-function; the request is handled in the hook.
+The function runs once, where the application is wired, and reads and
+checks the options. The hook it returns runs for every request.
+
+A package that seems to need two slots usually does not: `accessLog()`
+reads the start time from `ctx.startedAt` instead of a `beforeParse` hook,
+and `cors()` sets its headers on `ctx.out` instead of a late hook. If yours
+still needs two, [open an issue](https://github.com/tetsujs/tetsu/issues).
 
 ## An API-key check
 
 The hook reads a key from a header, looks it up, refuses the request when
-the key is unknown, and adds the client it belongs to to the context:
+the key is unknown, and adds the key's client to the context:
 
 ```ts twoslash
 import { hook, httpError, reportFailure } from "@tetsujs/core";
@@ -107,21 +109,14 @@ const reportsController = controller("Reports", () => ({
 }));
 ```
 
-The sections below go through what each part of the package does, and
-why.
+The sections below explain each part.
 
 ## Do not annotate the return type
 
-`apiKey` has no return type written on it, and that is deliberate. The
-hook's type carries three things: its slot, the context it needs and the
-context it adds. All three are inferred from the `hook.beforeParse` call,
-and all three are what the application's compiler checks it by.
-
-The type that looks right — `Hook<SlotName, unknown, unknown>`, the widest
-hook there is, exported as `AnyHook` — erases them. With the slot erased,
-the hook could be any slot's, and a slot refuses it; with the contribution
-erased, nothing it returns reaches the context. Even a precise slot does
-not save the second half:
+`apiKey` has no return type on purpose. The hook's type carries its slot,
+the context it needs and the context it adds, all inferred from the
+`hook.beforeParse` call. An annotation such as `AnyHook` erases them, and
+even a precise slot loses what the hook adds:
 
 ```ts twoslash
 // @errors: 2339
@@ -144,40 +139,27 @@ route({
 });
 ```
 
-Give the type a public name instead, read off the function:
-`export type ApiKeyHook = ReturnType<typeof apiKey>`. It stays exactly
-what the function returns, whatever the function comes to return.
+To give the type a public name, read it off the function:
+`export type ApiKeyHook = ReturnType<typeof apiKey>`.
 
-A package whose slot is chosen by an option — `rateLimit()` runs in
-`beforeParse`, `beforeValidation` or `beforeHandle`, by its `slot` option
-— is the one case for writing the return type out: one overload per slot,
-each returning the precise hook of that slot, so the option decides which
-one the caller gets. See
+The one exception is a package whose slot is chosen by an option, as
+`rateLimit()`'s `slot` is. It writes one overload per slot, each returning
+that slot's precise hook. See
 [the rate limiter's source](https://github.com/tetsujs/tetsu/blob/main/packages/rate-limit/src/index.ts).
 
-## Refuse by throwing
+## Refuse by throwing, set headers on `ctx.out`
 
-A refusal is a thrown `HttpError`, made with `httpError(status, code,
-message)`, never a `Response` the hook builds itself. A thrown error goes
-through the application's `onError` hooks like every other failure, so an
-application with an error format of its own formats the package's refusal
-too, and its clients see one shape. A `Response` returned from the hook
-would be sent as it is, past that format.
-
-The code, `INVALID_API_KEY`, is the part a client branches on; name it
-after what happened, in the application's upper-case style. See
+A refusal is a thrown `HttpError` made with `httpError(status, code,
+message)`, never a `Response` the hook builds. A thrown error goes through
+the application's `onError` hooks, so an application with its own error
+format formats the package's refusal too. Name the code, such as
+`INVALID_API_KEY`, after what happened; it is what clients branch on. See
 [Errors](/docs/concepts/errors/).
 
-## Headers go on `ctx.out`
-
-A header the package adds to the response goes on `ctx.out.headers`. The
-core puts those on whatever response leaves — the handler's, an error, a
-`404` — so a header set before a refusal is on the refusal too. A hook that
-built or cloned a `Response` to add a header would miss every response it
-did not build.
-
-A maintenance switch shows both rules, and the documentation of a refusal
-that carries a header:
+A header the package adds goes on `ctx.out.headers`. The core puts those
+on every response that leaves — the handler's, an error, a `404` — so a
+header set before a refusal is on the refusal too. A maintenance switch
+shows both rules, and how to document a refusal that carries a header:
 
 ```ts twoslash
 import { hook, httpError } from "@tetsujs/core";
@@ -210,86 +192,62 @@ export function maintenance(options: { readonly until: () => Date | undefined })
 ## Contribute to the document
 
 A hook that answers by itself — a `401`, a `429`, a `503` — changes what
-the routes it guards can answer, and their
-[OpenAPI document](/docs/packages/openapi/) should say so without every
-route repeating it. The core knows nothing about documents, so the
-package annotates its hook with `@tetsujs/openapi`:
+the routes it guards can answer. The package annotates its hook with
+`@tetsujs/openapi` so the [OpenAPI document](/docs/packages/openapi/) says
+so on every route it runs for:
 
-- **`secured(hook, requirement)`** adds a security scheme — `apiKey` in a
-  header above — and the refusal that goes with it, `401` unless the
-  requirement says otherwise. Every route the hook runs for is documented
-  as requiring it.
+- **`secured(hook, requirement)`** adds a security scheme and its refusal,
+  `401` unless the requirement sets `status`.
 - **`documented(hook, { responses })`** adds responses: a status, its
-  `error` code, the fields the hook adds to the envelope and the headers
-  it sets.
+  `error` code, and the fields and headers the hook adds.
 
-Both return a copy of the hook with its type unchanged, so the annotated
-hook mounts exactly as the plain one would. An application that does not
-generate a document pays nothing for the annotation. See
+Both return a copy of the hook with the same type, so the annotated hook
+mounts exactly like the plain one. See
 [Documenting hooks](/docs/packages/openapi/#documenting-hooks).
 
 ## State lives in the instance
 
-Everything the hook keeps between requests belongs to the instance
-`apiKey()` returned: two calls make two independent hooks, and one
-instance mounted on two groups is one hook shared by both. Keep nothing in
-module scope, where every application in the process — and every test —
-would share it without asking.
+Anything the hook keeps between requests belongs to the instance
+`apiKey()` returned: two calls make two independent hooks. Keep nothing in
+module scope, where every application and every test in the process would
+share it.
 
-State that has to be shared across processes — a fleet's counters, a
-lock, the keys themselves — goes behind an interface the application
-implements, as `ApiKeyStore` does here and `RateLimitStore` does for
+State shared across processes — counters, locks, the keys themselves —
+goes behind an interface the application implements, as `ApiKeyStore`
+does here and `RateLimitStore` does for
 [`@tetsujs/rate-limit`](/docs/packages/rate-limit/#a-shared-store). Keep
 the interface to the methods the hook calls, and let a method return a
-value or a promise, so an in-memory store for tests stays synchronous and a
-database-backed one does not have to pretend.
+value or a promise, so an in-memory test store can stay synchronous.
 
-The store is given the key's hash, not the key: the application stores
-hashes, a database dump holds no working keys, and the lookup by hash is an
-ordinary index lookup.
+The store is given the key's hash, not the key, so a database dump holds no
+working keys.
 
 ## Report what cannot be answered
 
 Recording when a key was last used should not make the request wait, so
-the hook starts the write and does not await it. When the write fails, the
-response has already gone its way, and there is nobody to answer with an
-error. `reportFailure(ctx, source, error)` hands the failure to the
-application's `reportError` — its logger, its error tracker — with the
-request's context, so the report carries the request id and whatever else
-the application's hooks put there. `source` names the package; any string
-will do.
+the hook starts the write and does not await it. If the write fails, the
+response may already be gone, and there is nobody to answer with an error.
+`reportFailure(ctx, source, error)` hands the failure to the
+application's `reportError` with the request's context, so the report
+carries the request id. `source` names the package.
 
 A failure the hook can answer is thrown instead: a store that throws in
-`find` becomes a `500` through `onError`, and is reported by the framework
-like any failure nothing answered.
+`find` becomes a `500` and is reported like any unhandled error.
 
 ## No timers without an owner
 
 A package does not start an interval or a timeout that outlives the
-request. A timer keeps the process alive, and whoever created the hook has
-no way to stop it — so tests hang and a shutdown waits. When the package
-needs something to expire, it sweeps as it is used, the way the rate
-limiter's memory store drops old windows once the map has doubled. When it
-needs to run in the background, it takes a signal from the application,
-which owns the process's lifetime — the `stopping` or `draining` signal of
-[`@tetsujs/lifecycle`](/docs/packages/lifecycle/), passed in as an option.
-
-## One slot
-
-A package that seems to need two slots is usually a sign that the core is
-missing something. `accessLog()` would have needed a `beforeParse` hook to
-note when a request started; the core records `ctx.startedAt` instead, and
-the log is one `afterResponse` hook. `cors()` would have needed a
-`beforeResponse` hook to add its headers; it sets them on `ctx.out`, which
-reaches every response, and is one `beforeParse` hook. If a package of
-yours still needs two, [open an issue](https://github.com/tetsujs/tetsu/issues):
-the missing piece belongs in the core, where every package gets it.
+request: the timer keeps the process alive, nobody can stop it, and tests
+hang. To expire entries, sweep as the hook is used, the way the rate
+limiter's memory store drops old windows as its map grows. For work in the
+background, take a signal from the application as an option, such as the
+`stopping` signal of [`@tetsujs/lifecycle`](/docs/packages/lifecycle/).
 
 ## Testing
 
-A package is tested the way an application is: mounted on a small
-application served by `serve()`, and asked over HTTP. The same test can
-check that the document describes the refusal the hook really sends:
+Test a package the way you test an application: mount it on a small
+application, serve it with `serve()`, and send it requests. The same test
+can check that the document describes the refusal the hook really sends:
 
 ```ts twoslash
 // @filename: api-key.ts
@@ -362,23 +320,21 @@ test("the route is documented as requiring a key", () => {
 });
 ```
 
-The store is a `Map` in the test, which is what the interface is for. A
-test of the failure report passes a store whose `used` rejects and an
-application given a `reportError` that collects what it receives. More on
-serving applications in tests is in [Testing](/docs/guides/testing/).
+The store is a `Map` in the test. To test the failure report, pass a
+store whose `used` rejects and a `reportError` that collects what it
+receives. More on testing is in [Testing](/docs/guides/testing/).
 
 ## Publishing
 
 - **`@tetsujs/core` is a peer dependency.** The application and the
   package must share one copy of the core: an `HttpError` from a second
-  copy is not an instance of the application's, and its `onError` would
-  not recognize the refusal.
-- **`@tetsujs/openapi`** is a dependency when the package annotates its
-  hook, as it is for `@tetsujs/rate-limit`.
+  copy is not an instance of the application's, and the refusal would
+  become a `500`.
+- **`@tetsujs/openapi` is a dependency** when the package annotates its
+  hook, as in `@tetsujs/rate-limit`.
 - **Export the options and the hook's type** — `ApiKeyOptions`,
-  `ApiKeyHook` — so an application can pass the hook around without
-  spelling its type.
+  `ApiKeyHook` — so an application can pass the hook around.
 - **Say which slot it goes in**, and where in that slot: before or after
-  `cors()`, before or after the hooks that provide what it `Requires`.
-  The compiler checks what a hook needs, not what should come first. See
+  `cors()`, after the hooks that provide what it `Requires`. The compiler
+  checks what a hook needs, not what should come first. See
   [Groups and mounting](/docs/concepts/groups-and-mounting/).

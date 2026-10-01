@@ -11,15 +11,24 @@ const links = [
 ];
 
 const path = Astro.url.pathname;
+
+// The link to this very page is the current page; the one to the section a
+// page is in only marks where the reader is.
+const current = (href: string) => {
+  if (path === href) return "page";
+
+  return path.startsWith(href) ? "true" : undefined;
+};
 ---
 
 <div class="header">
   <div class="title-wrapper sl-flex">
     <SiteTitle />
-    <nav class="links" aria-label="Main">
+    {/* The sidebar's navigation is already labelled "Main". */}
+    <nav class="links" aria-label="Site">
       {
         links.map((link) => (
-          <a href={link.href} aria-current={path.startsWith(link.href) ? "page" : undefined}>
+          <a href={link.href} aria-current={current(link.href)}>
             {link.label}
           </a>
         ))
@@ -66,7 +75,7 @@ const path = Astro.url.pathname;
     font-size: var(--sl-text-sm);
   }
   .links a:hover,
-  .links a[aria-current="page"] {
+  .links a[aria-current] {
     color: var(--sl-color-white);
   }
   .right-group,

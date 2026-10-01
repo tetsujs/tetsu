@@ -6,6 +6,7 @@
       "name": "tetsu-site",
       "dependencies": {
         "@astrojs/starlight": "0.42.4",
+        "@ec-ts/twoslash": "1.0.0",
         "astro": "7.3.5",
         "expressive-code-twoslash": "0.6.1",
         "sharp": "0.35.5",

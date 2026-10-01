@@ -1,6 +1,6 @@
 ---
 title: Hook slots
-description: The lifecycle slots in order — when each runs, what ctx holds there, what a return value and a throw do — the hook factories, Requires, and the compile-time and startup checks.
+description: The lifecycle slots in order, what ctx holds in each, what a return value and a throw do, the hook factories, Requires, and the checks.
 sidebar:
   order: 3
 ---
@@ -20,43 +20,39 @@ beforeParse → parse → beforeValidation → validate → beforeHandle
 | Slot | Runs | `ctx` has, on a route | A return value | A throw |
 | --- | --- | --- | --- | --- |
 | `beforeParse` | first, before the body is read | `req`, `server`, `out`, `route`, `startedAt`, `params` as strings | an object joins `ctx`; a `Response` ends the request; nothing goes on | goes to `onError` |
-| `beforeValidation` | after the body is parsed, before any schema runs | the above, `body` as parsed (`unknown`), `rawBody` when the route asks | as `beforeParse` | goes to `onError` |
+| `beforeValidation` | after the body is parsed, before any schema runs | the above, `body` as parsed, `rawBody` when the route asks | as `beforeParse` | goes to `onError` |
 | `beforeHandle` | after validation, right before the handler | the above, with `params`, `query`, `headers`, `cookies` and `body` validated | as `beforeParse` | goes to `onError` |
-| `beforeResponse` | once the response exists — after the handler, a short-circuit or an error | `res: Response`; validated parts and hook fields optional | a `Response` replaces `ctx.res`; anything else is ignored | goes to `onError`; the rest of the chain runs over the error response |
+| `beforeResponse` | once the response exists: after the handler, a short-circuit or an error | `res: Response`; validated parts and hook fields optional | a `Response` replaces `ctx.res`; anything else is ignored | goes to `onError`; the remaining hooks run on the error response |
 | `afterResponse` | as the response goes to Bun, on every outcome | `res: SentResponse`, without the body; validated parts and hook fields optional | ignored; a promise is not awaited | reported, `source: "afterResponse"` |
 | `onError` | when a stage throws | `error: unknown`; validated parts and hook fields optional | a `Response` answers; nothing passes the error on | reported, `source: "onError"`; the next hook tries |
 
-Between the slots, `parse` reads the body when the route declares
-`schema.body`, `bodyType` or `rawBody` (`400` or `413` on failure), and
-`validate` checks every declared part at once (`422`).
+`parse` reads the body when the route declares `schema.body`, `bodyType`
+or `rawBody`, and fails with `400` or `413`. `validate` checks every
+declared part at once and fails with `422`.
 
-- **Order.** Slots run in lifecycle order whatever order they are written
-  in. Inside a slot, the array is the order. Across levels, the
-  application's hooks run first, then each group's from the outermost in,
-  then the route's — except `onError`, which runs from the route outwards.
-- **Short-circuit.** A `Response` returned from a `before*` hook before
-  the handler skips the remaining stages and the handler, and still passes
-  `beforeResponse`, `ctx.out.headers` and `afterResponse`. Build it on
-  every call: its body is single-use.
-- **`beforeResponse`** sees every response, error responses included.
-  Each of its hooks starts at most once per request: when one throws, the
-  error response continues from the next hook. A replaced response's body
-  is cancelled.
-- **`afterResponse`** hooks start in order, each without waiting for the
-  one before, once the response is ready. Their synchronous part is part
-  of the response's latency. What they need of `ctx.req` and `ctx.res`
-  they read before their first `await`.
-- **`onError`** returns a `Response` or nothing; an object is a compile
-  error.
-- **Protocol responses** — `404`, `405`, `OPTIONS` — run the
-  application's hooks only.
-- **A WebSocket handshake** that succeeds runs no response hooks: there is
-  no response.
+- **Order.** Slots run in lifecycle order, whatever order they are written
+  in. Inside a slot, the array order is the run order. Application hooks
+  run first, then each group's from the outermost in, then the route's.
+  `onError` runs the other way, from the route outwards.
+- **Short-circuit.** A `Response` returned before the handler skips the
+  remaining stages and the handler. It still goes through
+  `beforeResponse`, `ctx.out.headers` and `afterResponse`. Build a new one
+  on every call: a body can be read only once.
+- **`beforeResponse`** sees every response, error responses included. Each
+  hook runs at most once per request: if one throws, the error response
+  continues from the next hook.
+- **`afterResponse`** hooks start in order without waiting for each other.
+  Their synchronous part adds to the response's latency. Read what you
+  need from `ctx.req` and `ctx.res` before the first `await`.
+- **`404`, `405` and `OPTIONS`** run the application's hooks only.
+- **A successful WebSocket handshake** runs no response hooks: there is no
+  response.
 
-## What a slot guarantees on its own
+## What a slot guarantees
 
-What an unannotated hook's `ctx` is typed as, and the most a group's or the
-application's hook may require:
+`SlotBases[slot]` is what an unannotated hook's `ctx` is typed as. It is
+also the most a group or application hook may require, besides what the
+hooks before it at the same level contribute.
 
 | Slot | `SlotBases[slot]` |
 | --- | --- |
@@ -67,27 +63,16 @@ application's hook may require:
 | `afterResponse` | `BaseCtx & { res: SentResponse }` |
 | `onError` | `BaseCtx & { error: unknown }` |
 
-A hook of a group or the application may also require what the hooks
-before it at the same level contribute — earlier in its slot, or in a slot
-that runs before its own. In `beforeResponse`, `afterResponse` and
-`onError` those fields are optional. `BaseCtx` is described in
-[Context fields](/docs/reference/context/).
+`BaseCtx` is described in [Context fields](/docs/reference/context/).
 
 ## Factories
 
 `hook` has one factory per slot: `hook.beforeParse`,
 `hook.beforeValidation`, `hook.beforeHandle`, `hook.beforeResponse`,
-`hook.afterResponse`, `hook.onError`.
-
-```ts
-hook.beforeParse(fn: (ctx) => object | Response | void | Promise<…>): Hook<"beforeParse", Req, Ext>
-hook.onError(fn: (ctx) => Response | void | Promise<…>): Hook<"onError", Req, unknown>
-```
-
-A factory returns `{ slot, fn }`, typed with what the hook requires (its
-`ctx` parameter, or the slot's base when it is not annotated) and what it
-contributes (its return type). A bare function is not accepted where a
-hook is mounted.
+`hook.afterResponse` and `hook.onError`. Each takes a function of `ctx` and
+returns a hook typed with what it requires (its `ctx` parameter, or the
+slot's base when unannotated) and what it contributes (its return type).
+Only a hook made by a factory can be mounted.
 
 ```ts twoslash
 import { hook, HttpError, route } from "@tetsujs/core";
@@ -111,21 +96,22 @@ route({
 });
 ```
 
-What a return value contributes:
+What a returned object contributes:
 
-- the fields of the object returned, typed in every later hook and in the
-  handler;
+- its own enumerable fields, typed in every later hook and in the handler.
+  Return a plain object literal: a class instance's methods and getters
+  live on its prototype and are not copied;
 - optional fields when the hook may also return nothing
   (`return user ? { user } : undefined`);
-- nothing for a `Response`, which short-circuits instead;
-- never `req`, `server`, `out`, `route`, `res`, `error`, `startedAt`,
-  `rawBody`, `__proto__`, `constructor` or `prototype`: the pipeline owns
-  them, and the runtime drops them;
-- only own enumerable string keys. Return a plain object literal: a class
-  instance's methods and getters live on its prototype and never arrive.
+- never `req`, `server`, `out`, `route`, `res`, `error`, `startedAt` or
+  `rawBody`: the pipeline owns them and drops them from a returned object.
 
-A returned `cookies` object under a signed name is checked like the
-request's cookies, in every slot.
+A `Response` contributes nothing; it short-circuits instead. An `onError`
+hook returns a `Response` or nothing; returning an object is a compile
+error.
+
+A returned `cookies` object is checked like the request's cookies: under
+a signed name, a value whose signature does not hold is dropped.
 
 ## `Requires`
 
@@ -133,9 +119,9 @@ request's cookies, in every slot.
 type Requires<T extends object> = BaseCtx & T;
 ```
 
-A hook that is reused declares what it needs instead of where it sits.
-Mounting it where nothing provides that is a compile error naming the
-missing field:
+A reusable hook declares what it needs instead of where it sits. Mounting
+it where nothing provides that is a compile error naming the missing
+field:
 
 ```ts twoslash
 import { hook, HttpError, route } from "@tetsujs/core";
@@ -170,27 +156,23 @@ At compile time, where the hooks are mounted:
 
 | Error | When |
 | --- | --- |
-| `HookSlotError` | a hook sits in a slot other than its own |
+| `HookSlotError` | a hook sits in a slot other than its own, or a function is not wrapped by a `hook.*` factory |
 | `HookRequirementError` | a hook requires a field nothing before it provides; the message names it |
-| `HookStackError` | a slot holds an array type rather than a tuple — `const shared = [auth]` without `as const` |
-| `HooksIndexError` | `hooks` is typed with an index signature, so none of its slots can be checked |
-| a bare function | a function not wrapped by a `hook.*` factory |
+| `HookStackError` | a slot holds a widened array instead of a tuple, such as `const shared = [auth]` without `as const` |
+| `HooksIndexError` | `hooks` is typed with an index signature, so its slots cannot be checked |
 
-At startup, `createApp` refuses a key that is not a slot, a slot that is not
-a list, an element that is not a hook, a hook in a slot other than its own,
-`hooks` given as a list, and the same hook instance mounted twice in one
-route's chain.
+What `createApp` refuses at startup is listed in
+[`createApp`](/docs/reference/create-app/#checked-at-startup).
 
 ## Types
 
 | Type | |
 | --- | --- |
 | `Hook<Slot, Req, Ext>` | a hook: its slot, what it requires, what it contributes |
-| `AnyHook` | the widest hook type |
+| `AnyHook` | any hook |
 | `SlotName` | `"beforeParse" \| "beforeValidation" \| "beforeHandle" \| "beforeResponse" \| "afterResponse" \| "onError"` |
 | `SlotBases` | what each slot guarantees on its own |
-| `SentResponse` | `Response` without its body: `status`, `statusText`, `headers`, `ok`, `redirected`, `type`, `url` |
+| `SentResponse` | `Response` without its body |
 | `HooksConfig`, `GroupHooks` | hooks keyed by slot |
 | `MergedHooks` | the chains of a route table entry, every slot present |
-| `HandlerCtx`, `ResponseCtx`, `ErrorCtx` | the context a handler, a response-slot hook and an `onError` hook of a route receive |
-| `Requires<T>` | `BaseCtx & T` |
+| `HandlerCtx`, `ResponseCtx`, `ErrorCtx` | the context of a route's handler, response-slot hook, `onError` hook |

@@ -1,28 +1,31 @@
 ---
 title: Authentication
-description: Sessions in a cookie the application signs, a hook that says who is asking before the body is read, sign-in and sign-out routes, bearer tokens and API keys.
+description: A session in a signed cookie, a hook that says who is asking before the body is read, sign-in and sign-out routes, bearer tokens and API keys.
 sidebar:
   order: 3
 ---
 
-This page builds sign-in for an API: a session in a cookie the application
-signs, a hook that refuses an unknown caller and gives the routes behind it
-a typed `ctx.user`, and the routes that start and end a session. Bearer
-tokens and API keys follow the same pattern.
+This page builds sign-in for an API: a session in a signed cookie, a hook
+that refuses an unknown caller and gives the routes behind it a typed
+`ctx.user`, and the routes that start and end a session. Bearer tokens and
+API keys follow the same pattern.
 
-The framework has no authentication module and no session store. What it
-provides is the pieces — signed cookies, hooks that add to the context,
-`Requires` — and a session store is a service of your own. The examples
-assume one with three methods: `start(userId)` makes a new random session
-id and records whom it belongs to, `find(sessionId)` returns the user or
-`undefined` when the id is unknown or expired, and `end(sessionId)`
-forgets it. A table, a Redis hash or a map in memory all fit.
+Tetsu has no authentication module and no session store. It provides the
+pieces: signed cookies, hooks that add to the context, and `Requires`. The
+session store is a service of your own. The examples assume one with three
+methods:
+
+- `start(userId)` makes a new random session id and records its owner;
+- `find(sessionId)` returns the user, or `undefined` when the id is unknown
+  or expired;
+- `end(sessionId)` forgets it.
+
+A table, a Redis hash or a map in memory all fit.
 
 ## A signed session cookie
 
-The session travels in a cookie, and the application signs it: with a
-secret, the cookies `sign` names are sealed on the way out and verified on
-the way in.
+With a secret, the cookies named in `sign` are signed on the way out and
+verified on the way in:
 
 ```ts twoslash
 import { createApp } from "@tetsujs/core";
@@ -32,24 +35,19 @@ declare const env: { COOKIE_SECRET: string };
 createApp({ cookies: { secret: env.COOKIE_SECRET, sign: ["session"] }, routes });
 ```
 
-The secret is 32 random bytes or more — `openssl rand -base64 32` — read
-from the environment in `main.ts` and passed in. An empty or missing one
-is refused at startup.
+Use 32 random bytes or more (`openssl rand -base64 32`), read from the
+environment in `main.ts`. An empty or missing secret is refused at startup.
 
-The signature says the value came from this application. It does not hide
-it: a signed cookie is readable by the client, so it carries a session id
-and nothing else. It also means a forged id is refused without a lookup,
-because its seal does not hold. See [Cookies](/docs/concepts/cookies/#signed-cookies).
-
-A cookie that carried the user's id itself, signed, would need no store at
-all — and could not be revoked before it expires. Signing out on one
-device, or locking an account, needs the store.
+A signature proves the value came from this application, so a forged id is
+refused without a lookup. It does not hide the value: the client can read
+it, so the cookie carries a session id and nothing else. See
+[Cookies](/docs/concepts/cookies/#signed-cookies).
 
 ## The hook that says who is asking
 
 A hook in `beforeParse` reads the session, asks the store, and either
 refuses with `401` or returns the user. What it returns joins the context,
-typed, in everything that runs after it:
+typed, for everything that runs after it:
 
 ```ts twoslash
 interface User { readonly id: string; readonly name: string }
@@ -86,34 +84,22 @@ route({
 });
 ```
 
-Two choices in it are deliberate.
+- **`beforeParse`** refuses before the body is read, so an upload from a
+  stranger costs nothing, and a rate limit mounted after the hook can count
+  by user.
+- **`signedCookie()`**, not `ctx.cookies`, because `ctx.cookies` is filled
+  only after the body is read. `signedCookie()` reads the `cookie` header,
+  checks the signature, and returns the value, or `undefined` when the
+  cookie is missing or forged.
 
-**`beforeParse`, so the refusal comes before the body.** An upload from
-someone who is not signed in is refused before a byte of it is read, and a
-rate limit mounted after the hook can count by the user it found.
-
-**`signedCookie()`, not `ctx.cookies`.** `ctx.cookies` is filled when the
-request is validated, after the body is read. `signedCookie()` reads the
-request's `cookie` header, checks the seal and returns the value without
-it, or `undefined` when the cookie is missing or forged. Of a name sent
-twice, it takes the first whose seal holds, so a junk `session` put in
-front of the real one does not change who the caller is.
-
-A session could also be declared in `schema.cookies`, as any request part
-can. A missing or forged one then fails validation — `422`, after the body
-is read — which is right for a cookie that is merely expected, and wrong
-for one that decides whether the caller may be here at all.
-
-The hook is a factory over the store, the way a hook package is a factory
-over its options. A controller builds it from the `sessions` it is given
-and mounts it on its routes — see
+The hook is a factory over the store. A controller builds it from the
+`sessions` it is given — see
 [Hooks and dependencies](/docs/concepts/controllers/#hooks-and-dependencies).
 
 ## Hooks that need the user
 
-A hook that works with the user says so with `Requires`, instead of
-depending on where it is mounted. Mounting it where nothing provides
-`user` is a compile error that names the missing field:
+A hook that reads the user declares it with `Requires`. Mounting it where
+nothing provides `user` is a compile error that names the missing field:
 
 ```ts twoslash
 interface User { readonly id: string; readonly name: string; readonly admin: boolean }
@@ -154,16 +140,13 @@ route({
 });
 ```
 
-`adminOnly` goes after `signedIn` in the same slot; written the other way
-round, it does not compile. `ownNote` needs the validated `params` too, so
-it goes in `beforeHandle`, after validation.
+`adminOnly` must come after `signedIn`; the other order does not compile.
+`ownNote` reads the validated `params`, so it goes in `beforeHandle`.
 
-On a group, `authenticate` still refuses everyone under it, but `ctx.user`
-is not typed in the handlers: a controller is typed where it is written,
-not where it is mounted. A route that reads `ctx.user` mounts the hook
-itself; a controller whose routes all do writes the set once,
-`const signedIn = { beforeParse: [authenticate(sessions)] } as const`, and
-passes it to each. See [Context and its types](/docs/concepts/context/).
+Mounted on a group, `authenticate` still refuses everyone under it, but
+`ctx.user` is not typed in the handlers, so a route that reads it mounts the
+hook itself; see
+[Context and its types](/docs/concepts/context/#why-a-group-hooks-field-is-not-in-the-handlers-type).
 
 ## Signing in and out
 
@@ -230,29 +213,25 @@ export const sessionController = controller(
 );
 ```
 
-- **A new session at every sign-in.** `start` makes a fresh id rather than
-  reusing one the client already had, so an id planted before sign-in is
+- **A new session id at every sign-in**, so an id planted before sign-in is
   worth nothing after it.
 - **`httpOnly`** keeps the cookie from the page's scripts; **`secure`**
-  keeps it off plain HTTP. The value is signed on the way out without the
-  route mentioning it — `session` is in `sign`.
-- **Deleting** a cookie needs the `path` and `domain` it was set with: a
-  browser treats another path as another cookie. Sharing `cookie` between
-  the two routes keeps them the same.
-- **Sign-out does not require a session.** It ends one if there is one and
-  answers `204` either way, so a client that signs out twice is not told
-  anything went wrong.
+  keeps it off plain HTTP. The value is signed without the route doing
+  anything, because `session` is in `sign`.
+- **Deleting** a cookie needs the `path` and `domain` it was set with.
+  Sharing `cookie` between the two routes keeps them the same.
+- **Sign-out answers `204` either way**, so signing out twice is not an
+  error.
 
 A wrong password answers `401` with its own code, `BAD_CREDENTIALS`, which
-a client can tell from an expired session's `UNAUTHORIZED`. The error
-format is in [Errors](/docs/concepts/errors/). To test the flow as a
-browser would — sign in, act, sign out — use a client with a cookie jar:
-see [Testing](/docs/guides/testing/#a-client-with-a-session).
+a client can tell apart from an expired session's `UNAUTHORIZED`. To test
+the whole flow, use a client with a cookie jar — see
+[Testing](/docs/guides/testing/#a-client-with-a-session).
 
 ## Bearer tokens and API keys
 
 A token in the `authorization` header is the same hook with another
-source. It refuses what it does not know and returns who is calling:
+source:
 
 ```ts twoslash
 interface Client { readonly id: string; readonly scopes: readonly string[] }
@@ -272,34 +251,31 @@ export const apiKey = (keys: ApiKeys) =>
   });
 ```
 
-Where the token comes from — a JWT verified with a library, a key looked up
-by its hash, an introspection call — is the service's business; the route
-sees only `ctx.client`. An API that accepts either a session or a token
-has one hook that tries both and returns the same field, so every route
-behind it reads one type.
+How the token is checked — a JWT library, a key looked up by its hash — is
+the service's business; the route sees only `ctx.client`. To accept either
+a session or a token, write one hook that tries both and returns the same
+field.
 
-A hook wrapped in `secured()` from `@tetsujs/openapi` puts its scheme and
-its `401` in the OpenAPI document for every route it guards. See
+Wrap the hook in `secured()` from `@tetsujs/openapi` to put its scheme and
+its `401` in the OpenAPI document. See
 [documenting hooks](/docs/packages/openapi/#documenting-hooks).
 
 ## Cookies across sites and CSRF
 
-A cookie session and a frontend on the same site need nothing more. The
-`lax` cookie above is sent on the site's own requests and on top-level
-navigation to it, and kept off requests that other sites' pages make —
-which is what stops those pages from acting as the user.
+With the frontend on the same site, the `lax` cookie above needs nothing
+more. Browsers send it on the site's own requests and on navigation to it,
+but not on a form post or a `fetch` from another site's page, and that is
+what stops those pages from acting as the user.
 
-A frontend on another site that sends the session with
-`cors({ credentials: true })` needs the cookie set with `secure: true` and
-`sameSite: "none"`: the browser keeps a `Lax` cookie off a request from
-another site, and refuses `none` without `secure`. That cookie is then
-sent on requests from any site, and CORS does not stop them from being
-made — it stops the page from reading the answer. A form on another site
-can still post to the API with the user's cookie.
+A frontend on another site needs the cookie set with `secure: true` and
+`sameSite: "none"`, and `cors({ credentials: true })`; see
+[Cookies](/docs/concepts/cookies/#cross-site-cookies-and-cors). The browser
+then sends the cookie on requests from any site. CORS stops another page
+from reading the answer, not from sending the request: a form on another
+site can still post to the API with the user's cookie.
 
-With `sameSite: "none"`, check the origin of every request that changes
-something. Browsers send `Origin` on such requests; a hook after `cors()`
-refuses the ones not on the list:
+So with `sameSite: "none"`, check the `Origin` of every request that
+changes something. A hook after `cors()` refuses the ones not on the list:
 
 ```ts twoslash
 import { httpError, hook } from "@tetsujs/core";
@@ -316,26 +292,25 @@ const sameOrigin = hook.beforeParse((ctx) => {
 });
 ```
 
-A client that is not a browser sends no `Origin`, and is refused by this
-hook; such a client authenticates with a token instead of a cookie.
+A client that is not a browser sends no `Origin` and is refused here; it
+should authenticate with a token instead of a cookie.
 
 ## Rate limiting sign-in
 
-A sign-in route is where passwords are guessed. A limit by the client's
-address refuses a flood before its bodies are read; a limit by the account
-being tried, after the body is validated, stops guessing spread across
-many addresses. Both are [`@tetsujs/rate-limit`](/docs/packages/rate-limit/#limiting-by-account)
-on the same route.
+Sign-in is where passwords are guessed. Limit it twice: by the client's
+address, before the body is read, and by the account being tried, after
+validation, which stops guessing spread across many addresses. See
+[`@tetsujs/rate-limit`](/docs/packages/rate-limit/#limiting-by-account).
 
-Behind the `authenticate` hook, a limiter can count by user instead of by
-address — `key: (ctx: Requires<{ user: User }>) => ctx.user.id`, mounted
-after it in `beforeParse`. Keying by the raw cookie would not work: a
-client that sends a new value each time gets a new budget each time. And
-behind a proxy the address is the proxy's until something says otherwise
-— see [Behind a proxy](/docs/guides/behind-a-proxy/).
+Behind `authenticate`, a limiter can count by user instead:
+`key: (ctx: Requires<{ user: User }>) => ctx.user.id`, mounted after it in
+`beforeParse`. Do not key by the raw cookie: a client that sends a new
+value each time gets a new budget each time. Behind a proxy, the address
+is the proxy's until you say otherwise — see
+[Behind a proxy](/docs/guides/behind-a-proxy/).
 
 ## WebSockets
 
-A WebSocket handshake is a request, and goes through the same hooks: the
-`authenticate` hook refuses it with an ordinary `401`, and what it
-returned becomes `socket.data`. See [WebSockets](/docs/concepts/websockets/).
+A WebSocket handshake is a request and goes through the same hooks.
+`authenticate` refuses it with an ordinary `401`, and the user it returns
+is `socket.data.user`. See [WebSockets](/docs/concepts/websockets/).

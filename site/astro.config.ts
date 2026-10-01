@@ -28,7 +28,7 @@ export default defineConfig({
           tag: "meta",
           attrs: {
             property: "og:image:alt",
-            content: "Tetsu — No magic. Just iron. The HTTP framework for Bun.",
+            content: "Tetsu — No magic. Just iron. HTTP framework for Bun.",
           },
         },
         {
@@ -46,9 +46,9 @@ export default defineConfig({
             "- A route is `route({ method, path, schema, hooks, handler })`. A controller is `controller(name, (deps) => ({ ...routes }))`; the name is the contract OpenAPI operation ids are built from.",
             "- No decorators, no DI container, no plugins: dependencies are function arguments, wired by hand in one place.",
             "- Hooks run in fixed slots, in this order: `beforeParse`, `parse`, `beforeValidation`, `validate`, `beforeHandle`, the handler, `beforeResponse`, `afterResponse`; `onError` maps a failure to a response. A hook is made with `hook.<slot>(fn)` and mounted by slot: `hooks: { beforeParse: [auth] }` on a route, a group or the application.",
-            "- A hook adds to `ctx` by returning an object, and refuses by throwing `HttpError` or `httpError(status, code, message)`.",
+            "- A hook adds to `ctx` by returning an object, and refuses by throwing `HttpError` or `httpError(status, code, message)`, or by returning a `Response`.",
             "- `ctx` is never annotated. A field exists only when declared: path parameters from the path, `ctx.body` only when the route declares a body, a hook's field only after that hook.",
-            "- Validation goes through Standard Schema (Zod, Valibot, ArkType; TypeBox via `@tetsujs/typebox`). A failure is a 422; every error body is `{ status, message, error }`.",
+            "- Validation goes through Standard Schema (Zod, Valibot, ArkType; TypeBox via `@tetsujs/typebox`). A failure is a 422 listing every issue. Every error the framework answers has the body `{ status, message, error }`; an application `onError` hook can change it.",
             "- Handlers are unit-tested with `testCtx()` and applications through a real server with `serve()`, both from `@tetsujs/core/testing`.",
             "- Packages, all released together under one version: `@tetsujs/core`, `openapi`, `typebox`, `cors`, `rate-limit`, `request-id`, `request-log`, `secure-headers`, `sse`, `lifecycle`.",
             "",
