@@ -44,10 +44,14 @@ older compiler; CI does it for every TypeScript version it supports.
 | `examples/` | a runnable file per feature, tested by `examples/recipes.test.ts`, and `examples/app` |
 | `bench/` | HTTP, per-request, validation and type-cost benchmarks, and their numbers |
 | `scripts/` | the build, the package check, and the core's README |
+| `site/` | the documentation at [tetsujs.com](https://tetsujs.com), a project of its own |
 
-`README.md` is the documentation. The core's README is generated from it —
-after editing the root one, run `bun run readme`; a test fails when they
-differ.
+The documentation is the site in `site/`: a change in behaviour updates its
+pages in the same pull request. Every TypeScript example there is compiled
+against the packages while the site is built, so `bun run --cwd site build`
+fails on one that no longer holds. The READMEs only point at the site; the
+core's is generated from the root one — after editing that, run
+`bun run readme`; a test fails when they differ.
 
 ## Building
 
