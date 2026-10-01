@@ -567,9 +567,12 @@ function assertRawBody(rawBody: unknown, bodyType: unknown): void {
  * The runtime twin of `ValidatePath`, for a path the compiler never saw
  * as a literal: the same rules in the same order — the whole path first,
  * then one walk over the segments — so a path breaking two of them fails
- * at startup with the error the compiler would have shown.
+ * at startup with the error the compiler would have shown. `ws()` runs it
+ * too: a handshake is a route like any other in Bun's router.
+ *
+ * Internal to the core.
  */
-function assertValidPath(path: string): void {
+export function assertValidPath(path: string): void {
   if (!path.startsWith("/")) {
     throw new Error(`Route path must start with "/", got "${path}"`);
   }
