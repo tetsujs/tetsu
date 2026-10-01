@@ -48,6 +48,7 @@ import type { Prettify } from "./internal.ts";
 import type { ValidatePath } from "./path.ts";
 import type { PipelineCtx } from "./pipeline.ts";
 import { upgraded } from "./pipeline.ts";
+import { assertValidPath } from "./route.ts";
 import type { AnySchema, InferOutput } from "./schema.ts";
 import { endpointKey } from "./socket.ts";
 import type {
@@ -245,6 +246,8 @@ export function ws<
   const S extends WsSchemaConfig = WsSchemaConfig,
   const H extends HooksInput = HooksConfig,
 >(config: WsConfig<Path, S, H>): WsDef<Path, S, H> {
+  assertValidPath(config.path);
+
   return { ...config, [wsBrand]: true } as WsDef<Path, S, H>;
 }
 

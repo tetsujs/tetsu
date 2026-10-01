@@ -7,6 +7,10 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: `ws()` refuses a malformed path where it is declared,
+  as `route()` does. A path the compiler did not see as a literal, such
+  as `"/chat/{id}"` or `"/a//b"`, was registered as it was, and a client
+  could never connect to it.
 - `@tetsujs/core`: a handler returning `Promise<any>` compiles, as one
   returning `any` already did. An async handler that returned untyped
   data, such as parsed JSON, was refused as a stream.

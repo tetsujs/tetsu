@@ -152,7 +152,7 @@ function ws(config: WsConfig): WsDef
 
 | Field | Type | |
 | --- | --- | --- |
-| `path` | string literal | the handshake's path; a literal is checked by the same rules as a route's |
+| `path` | string literal | the handshake's path, checked by the same rules as a route's: a literal at compile time, every path when `ws()` runs |
 | `schema` | `{ params?, query?, headers?, message? }` | the handshake's parts, and every text frame |
 | `hooks` | hooks keyed by slot | run for the handshake |
 | `docs` | `{ summary?, description? }` | for readers only; socket endpoints are not in OpenAPI |
