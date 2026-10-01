@@ -16,6 +16,10 @@ export default defineConfig({
       favicon: "/favicon.svg",
       head: [
         {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+        },
+        {
           tag: "meta",
           attrs: {
             property: "og:image",

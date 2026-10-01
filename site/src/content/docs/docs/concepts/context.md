@@ -138,8 +138,14 @@ written, not where it is mounted, and the same controller could be
 mounted under an authenticated group and outside one.
 
 The field is still there at runtime, but to use it in a handler, mount the
-hook on the route itself. For hooks several routes share, keep them in a
-constant, such as `{ beforeParse: [auth] } as const`.
+hook on the route itself, on each route that reads the field:
+
+```ts
+hooks: { beforeParse: [auth] },
+```
+
+To reuse a whole set of hooks across routes, see
+[Mounting hooks](/docs/concepts/groups-and-mounting/#mounting-hooks).
 
 Use group hooks for work that needs no typed field later: guards that
 refuse, logs, metrics, CORS. See

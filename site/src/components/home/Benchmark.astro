@@ -35,7 +35,7 @@ const scale = Math.ceil(
                   </span>
                   <span class="value">
                     {value.toFixed(2)} µs
-                    {target !== bare && <span class="over">+{over.toFixed(2)}</span>}
+                    {target !== bare && <> <span class="over">+{over.toFixed(2)}</span></>}
                   </span>
                 </li>
               );
@@ -46,7 +46,7 @@ const scale = Math.ceil(
     }
   </div>
   <p class="note">
-    Bun 1.4.2, Apple M5 Pro, 2026-09-27, medians of three interleaved rounds.
+    Bun 1.4.2, Apple M5 Pro, 2026-09-27, medians of three interleaved rounds.{" "}
     <a href="/docs/more/performance/">Method and caveats</a>
   </p>
 </section>
@@ -125,14 +125,10 @@ const scale = Math.ceil(
   }
   .over {
     color: var(--sl-color-gray-3);
-    margin-inline-start: 0.4rem;
   }
   .note {
     color: var(--sl-color-gray-3);
     font-size: var(--sl-text-sm);
     margin-top: 1.5rem;
-  }
-  .note a {
-    margin-inline-start: 0.5rem;
   }
 </style>

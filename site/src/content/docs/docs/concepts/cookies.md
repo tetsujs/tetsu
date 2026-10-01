@@ -115,11 +115,10 @@ A cookie whose signature does not hold is left out. `schema.cookies` then
 reports it missing, so a forger cannot tell a bad signature from a cookie
 that was never sent.
 
-The same applies to cookies a hook returns, for example a mobile client's
-session taken from a header. Under a signed name, the hook must return the
-signed value as the client sent it, and it is verified like the request's
-own. An unsigned `session: "admin"` does not reach a handler. A hook that
-passes `ctx.cookies` on unchanged keeps the values already verified.
+Cookies a hook returns are checked the same way. A hook that takes a
+mobile client's session from a header returns it signed, exactly as the
+client sent it; a plain `session: "admin"` is dropped. Cookies passed on
+unchanged from `ctx.cookies` are already verified and stay.
 
 ## Reading a signed cookie early
 

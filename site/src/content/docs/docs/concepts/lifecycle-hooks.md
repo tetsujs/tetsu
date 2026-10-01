@@ -17,7 +17,7 @@ runs at one point, named by its slot.
 beforeParse → parse → beforeValidation → validate → beforeHandle
   → handler → beforeResponse → afterResponse
 
-onError: when any stage throws, before beforeResponse
+onError: when any stage up to beforeResponse throws
 ```
 
 `parse` reads the body and `validate` checks the request against the
@@ -30,7 +30,7 @@ route's schemas. The other names are slots:
 | `beforeHandle` | after validation, right before the handler | loading an entity by a validated id, ownership checks |
 | `beforeResponse` | once the response exists, on every outcome | response headers, replacing the response |
 | `afterResponse` | as the response goes out, on every outcome | access logs, metrics, audit |
-| `onError` | when a stage throws | turning an error into a response |
+| `onError` | when any stage up to `beforeResponse` throws | turning an error into a response |
 
 A request refused in `beforeParse` never pays for parsing the body, and a
 `401` from there always comes before a `422` from validation. The
@@ -136,6 +136,15 @@ A `beforeResponse` hook sees the response as `ctx.res` and may replace it
 by returning another `Response`. It runs for every response: a handler's
 result, a hook's early response, and error responses too.
 
+A response a hook returns here is not checked against the route's
+response map and is not in the OpenAPI document. If clients should know
+about it, annotate the hook with
+[`documented()`](/docs/packages/openapi/#documenting-hooks).
+
+A `beforeResponse` hook that throws goes to `onError` like any stage. The
+hooks after it then run over the error response; the ones before it do not
+run again.
+
 ```ts twoslash
 import { hook } from "@tetsujs/core";
 
@@ -198,7 +207,10 @@ the framework so far.
 
 The observers of one request all start in order, without waiting for
 each other. One that throws or rejects is reported to
-`reportError`, or to the console, and the others still run.
+`reportError`, or to the console, and the others still run. It does not
+reach `onError`: the response has already gone, so there is nothing left
+to answer. Work whose failure must fail the request, such as a required
+audit record, belongs in `beforeResponse` or the handler.
 
 ## `onError`
 

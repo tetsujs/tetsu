@@ -1,6 +1,6 @@
 ---
 title: FAQ
-description: Short answers to the questions people ask about Tetsu first — decorators, classes, Bun only, plugins, typed clients and the version.
+description: Short answers to the questions people ask about Tetsu first — decorators, classes, start and shutdown, Bun only, plugins, typed clients and the version.
 ---
 
 ## Why no decorators or DI container?
@@ -19,6 +19,16 @@ parameters, so a hook built from a constructor argument in a field is built
 from `undefined` (TypeScript reports TS2729). `controller()` avoids the
 problem. Services stay classes — see
 [Controllers and dependencies](/docs/concepts/controllers/).
+
+## Where are `onStart` and `onShutdown`?
+
+There are none. A container needs them because it creates your objects in
+an order of its own; here you create them in `main.ts`, so the order is the
+order of the lines. Whatever must happen before the first request, such as
+connecting to the database or running migrations, goes before `Bun.serve()`.
+For stopping, [`@tetsujs/lifecycle`](/docs/packages/lifecycle/) handles
+`SIGTERM`: it drains the server and then runs the `close` functions you give
+it, in order. See [Health checks and shutdown](/docs/guides/health-and-shutdown/).
 
 ## Why only Bun?
 

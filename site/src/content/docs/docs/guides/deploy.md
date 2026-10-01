@@ -12,6 +12,11 @@ ship it — a container image and a single-file binary.
 There is no production mode. The application runs the same code
 everywhere, and `main.ts` passes in what differs.
 
+There is no build step either: Bun runs TypeScript as it loads it, so the
+container below runs `src/main.ts` as it is. A
+[single-file binary](#a-single-file-binary) is the option for when you
+want one.
+
 ## Serving
 
 `createApp` returns what `Bun.serve` takes, so Bun's own options go next
@@ -166,4 +171,6 @@ executables.
 - Behind a load balancer or a proxy, the client's address and HTTPS come
   from the proxy — see [Behind a proxy](/docs/guides/behind-a-proxy/).
 - A body limit that fits the API: `maxBodySize` is 1 MiB by default — see
-  [Request bodies](/docs/concepts/request-bodies/).
+  [Request bodies](/docs/concepts/request-bodies/#size-limits). A proxy in
+  front has a limit of its own, and the lower one wins: nginx's
+  `client_max_body_size` is 1 MB by default.
