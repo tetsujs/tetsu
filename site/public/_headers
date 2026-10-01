@@ -6,6 +6,13 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Strict-Transport-Security: max-age=31536000
 
+# Markdown and plain text are UTF-8. Without a charset, a browser opening
+# one of them may read it as Latin-1 and garble dashes and the µ sign.
+/*.md
+  Content-Type: text/markdown; charset=utf-8
+/*.txt
+  Content-Type: text/plain; charset=utf-8
+
 # File names under /_astro/ carry a hash of their content: a change is a new
 # name, so a copy never goes stale.
 /_astro/*
