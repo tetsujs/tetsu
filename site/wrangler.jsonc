@@ -1,0 +1,19 @@
+// The site is served by a Worker with no code of its own: Cloudflare hands
+// out the files of `dist/` as they were built. CI deploys it from `main`;
+// the domain is attached to the Worker in the dashboard.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tetsu-site",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    // `/docs/routes` redirects to `/docs/routes/`, the address Astro links to.
+    "html_handling": "auto-trailing-slash",
+    // An unknown address gets `404.html`, with the 404 status.
+    "not_found_handling": "404-page"
+  },
+  // One public address: no `*.workers.dev` copy of the site, and no
+  // preview URL per version.
+  "workers_dev": false,
+  "preview_urls": false
+}
