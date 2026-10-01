@@ -689,7 +689,7 @@ describe("the draining signal", () => {
   });
 
   test("an event stream closed on it lets the stop be clean and quick", async () => {
-    // The two packages together, as the README puts them: sse() with
+    // The two packages together, as the docs put them: sse() with
     // until: draining, a client connected, and a grace period long enough
     // that waiting it out would show.
     const child = await spawned(`

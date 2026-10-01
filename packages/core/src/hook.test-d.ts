@@ -231,7 +231,7 @@ export const clonesEarly = hook.beforeResponse((ctx) => {
 });
 
 // A set of hooks shared between applications, spread into each slot where
-// it is mounted — the README's alternative to joining `hooks` objects. The
+// it is mounted — the docs' alternative to joining `hooks` objects. The
 // set is `as const`, so every slot stays a tuple and the order is checked.
 const sharedId = hook.beforeParse(() => ({ requestId: "r1" }));
 const sharedScope = hook.beforeParse(
