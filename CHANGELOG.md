@@ -3,6 +3,14 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Fixed
+
+- `@tetsujs/core`: a handler returning `Promise<any>` compiles, as one
+  returning `any` already did. An async handler that returned untyped
+  data, such as parsed JSON, was refused as a stream.
+
 ## 0.6.0 — 2026-09-30
 
 ### Breaking changes

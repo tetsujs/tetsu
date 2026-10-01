@@ -210,6 +210,18 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 type Yielding<T> = T extends YieldsOverTime ? true : never;
 
 /**
+ * `true` when some member of `T`, awaited, yields over time. A member that
+ * awaits to `any` is skipped on its own, so it neither passes for a stream
+ * nor hides one beside it: `Promise<any> | ReadableStream` still has a
+ * stream on one branch.
+ */
+type Streams<T> = T extends unknown
+  ? IsAny<Awaited<T>> extends true
+    ? never
+    : Yielding<Awaited<T>>
+  : never;
+
+/**
  * Validates what a handler returns at compile time.
  *
  * Resolves to `unknown` — which an intersection ignores — for everything
@@ -226,9 +238,9 @@ type Yielding<T> = T extends YieldsOverTime ? true : never;
  * Without a `response` schema {@link HandlerResult} is `unknown` and
  * accepts anything, which is the hole this closes. A union is checked
  * member by member, because a handler that returns a stream on one branch
- * returns it. `any` is left alone: it defeats every check in the language,
- * and rejecting it here would only punish handlers that touch untyped
- * code.
+ * returns it. `any` is left alone, awaited or not: it defeats every check
+ * in the language, and rejecting it here would only punish handlers that
+ * touch untyped code — an async one returning parsed JSON included.
  *
  * @example
  * ```ts
@@ -242,7 +254,7 @@ type Yielding<T> = T extends YieldsOverTime ? true : never;
 export type ValidateResult<R> =
   IsAny<R> extends true
     ? unknown
-    : [Yielding<Awaited<R>>] extends [never]
+    : [Streams<R>] extends [never]
       ? unknown
       : ResultError<"A handler must not return a stream: it serializes to '{}' and the body is silently dropped. Wrap it in the response it belongs to — new Response(stream, { headers }) — or serve it as events with sse() from @tetsujs/sse">;
 
