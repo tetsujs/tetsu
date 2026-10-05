@@ -43,8 +43,9 @@ const feed = route({
 - sets `content-type: text/event-stream` and `cache-control: no-cache`;
 - opens with a comment, `: open`, so the headers go out at once rather than
   with the first event;
-- sends a `: ping` comment every 15 seconds, so proxies do not close an idle
-  connection;
+- sends a `: ping` comment every 15 seconds, and raises the request's idle
+  timeout above that, so neither Bun nor a proxy closes an idle connection
+  (see [Idle connections](#idle-connections));
 - asks the generator for one event at a time, as the client reads. A client
   that stops reading pauses the generator instead of filling memory.
 
@@ -108,6 +109,28 @@ A stopping server waits for every response in flight, and a stream never
 finishes on its own. `until` ends it from outside: pass the `draining`
 signal of `@tetsujs/lifecycle`, and clients reconnect to another server.
 See [Streams and sockets](/docs/guides/health-and-shutdown/#streams-and-sockets).
+
+## Idle connections
+
+Bun closes a connection that sends nothing for its `idleTimeout`, 10
+seconds unless the server sets another, and the first heartbeat of a quiet
+feed comes after 15. So when the stream starts, `sse()` raises its own
+request's timeout to the heartbeat and ten seconds more, with
+`ctx.server.timeout()`. Every other request keeps the server's setting.
+
+The timeout is set as the stream is read, after the handler has returned,
+so it replaces one the handler set itself, such as the
+`server.timeout(req, 0)` of Bun's own guide. A generator that wants
+another sets it, since it starts later.
+
+Where the stream cannot raise it, the server's `idleTimeout` decides. A
+feed with `heartbeatMs: 0` is closed once it stays quiet longer. Over
+HTTP/3, Bun ignores a request's own timeout: set `idleTimeout` above the
+heartbeat. On a unix socket it ignores it too, and its types do not take
+`idleTimeout` with `unix`: keep the heartbeat under 8 seconds there, since
+Bun checks idleness every 4 and its default of 10 can end a connection
+after 8. Bun waits 255 seconds at most, so a heartbeat over four minutes
+keeps no connection open.
 
 ## Knowing what a stream did
 
@@ -186,11 +209,15 @@ declare function chunks(signal: AbortSignal): AsyncGenerator<string, void, undef
 const response = stream(ctx, chunks, { keepAlive: { everyMs: 15_000, chunk: "\n" } });
 ```
 
+A keep-alive raises the request's idle timeout, as the heartbeat of `sse()`
+does. Without one, Bun closes a stream that writes nothing for the server's
+`idleTimeout`.
+
 ## Options
 
 | `sse()` | Default | |
 | --- | --- | --- |
-| `heartbeatMs` | `15000` | keep-alive interval; `0` turns it off |
+| `heartbeatMs` | `15000` | keep-alive interval, up to 2³¹ − 1; `0` turns it off, and `NaN`, `Infinity` or a negative throws a `TypeError` |
 | `status` | `200` | |
 | `until` | none | a signal that ends the stream, such as `draining` |
 | `onEnd` | none | receives the summary when the stream ends |
@@ -200,7 +227,7 @@ const response = stream(ctx, chunks, { keepAlive: { everyMs: 15_000, chunk: "\n"
 | `contentType` | none | the `content-type` header |
 | `status` | `200` | |
 | `headers` | none | more response headers |
-| `keepAlive` | off | `{ everyMs, chunk }` |
+| `keepAlive` | off | `{ everyMs, chunk }`; `everyMs` follows the rules of `heartbeatMs` |
 | `until` | none | a signal that ends the stream |
 | `onEnd` | none | receives the summary; it counts `chunks` instead of `events` |
 

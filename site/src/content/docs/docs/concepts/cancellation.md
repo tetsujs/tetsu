@@ -113,3 +113,8 @@ route({
   },
 });
 ```
+
+An event stream from `@tetsujs/sse` sets its own, above its heartbeat; see
+[Idle connections](/docs/packages/sse/#idle-connections). On a unix socket
+Bun ignores `ctx.server.timeout()`, and only the server's `idleTimeout`
+applies.

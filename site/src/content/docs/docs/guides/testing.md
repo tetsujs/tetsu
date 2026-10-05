@@ -67,7 +67,8 @@ The rest is filled in. `ctx.req` is a request to `http://test/`; pass your
 own as `req` when the handler reads it. `ctx.out` collects the status,
 headers and cookies the handler sets. `ctx.server` throws when touched:
 code that needs it, such as `ctx.server.requestIP()`, is tested through
-`serve()`.
+`serve()`. Only `ctx.server.timeout()` does nothing, since a unit test has
+no connection to time out.
 
 ### Signed cookies in a unit test
 
