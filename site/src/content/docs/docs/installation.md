@@ -50,6 +50,29 @@ and check `tsconfig.json` against this one:
   `exactOptionalPropertyTypes` work: the packages are checked under
   `@tsconfig/strictest`.
 
+Bun's types also describe what Bun adds to the platform's globals. Their
+`fetch` has `preconnect`, so `typeof fetch` requires it too, and a
+stand-in typed with it, such as a fake in a test, fails to compile with
+"Property 'preconnect' is missing". Type a dependency on `fetch` by its
+call instead. `fetch` itself still fits:
+
+```ts twoslash
+import { controller, route } from "@tetsujs/core";
+// ---cut---
+type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+const weatherController = controller("Weather", ({ fetch }: { fetch: Fetch }) => ({
+  today: route({
+    method: "GET",
+    path: "/weather",
+    handler: async () => (await fetch("https://api.example.com/today")).json(),
+  }),
+}));
+
+weatherController({ fetch }); // the real one
+weatherController({ fetch: async () => Response.json({ sunny: true }) }); // a fake, in a test
+```
+
 ## A validation library
 
 Tetsu validates through [Standard Schema](https://standardschema.dev), which
