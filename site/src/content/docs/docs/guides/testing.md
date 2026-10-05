@@ -139,8 +139,65 @@ describe("notes", () => {
 });
 ```
 
-The server stops by itself: `serve()` registers an `afterAll` in the file
-or `describe` where it is called. Outside `bun test`, call `stopServers()`.
+The server stops by itself: `serve()` registers an `afterAll` where it is
+called, and Bun runs it when that scope ends: the file, the `describe`, or
+the test. Outside `bun test`, call `request.stop()` or `stopServers()`.
+
+Bun runs `afterAll` hooks in the order they were registered, so an
+`afterAll` of yours registered after `serve()` runs once the server has
+stopped. A teardown that still needs the server uses `{ stop: false }`,
+shown below, and calls `request.stop()` last.
+
+### Setting up before the server
+
+Not in `beforeAll`: Bun runs an `afterAll` registered inside a hook as
+soon as the hook returns, so the server would stop before the first test.
+A request to a server that has stopped throws, saying what stopped it.
+Await the setup at the top level of the file instead, and call `serve()`
+after it:
+
+```ts twoslash
+import { controller, createApp, route } from "@tetsujs/core";
+interface Database { close(): void }
+declare function openDatabase(): Promise<Database>;
+const notesController = controller("Notes", ({ db }: { db: Database }) => ({
+  list: route({ method: "GET", path: "/notes", handler: () => (db ? [] : []) }),
+}));
+// ---cut---
+import { serve } from "@tetsujs/core/testing";
+
+const db = await openDatabase();
+
+const request = serve(createApp({ routes: notesController({ db }) }));
+```
+
+Or keep the hooks and stop the server yourself: with `{ stop: false }`,
+it runs until `request.stop()`.
+
+```ts twoslash
+import { controller, createApp, route } from "@tetsujs/core";
+interface Database { close(): void }
+declare function openDatabase(): Promise<Database>;
+const notesController = controller("Notes", ({ db }: { db: Database }) => ({
+  list: route({ method: "GET", path: "/notes", handler: () => (db ? [] : []) }),
+}));
+// ---cut---
+import { afterAll, beforeAll } from "bun:test";
+import type { RequestFn } from "@tetsujs/core/testing";
+import { serve } from "@tetsujs/core/testing";
+
+let request: RequestFn;
+
+beforeAll(async () => {
+  const db = await openDatabase();
+
+  request = serve(createApp({ routes: notesController({ db }) }), {
+    stop: false,
+  });
+});
+
+afterAll(() => request.stop());
+```
 
 A server starts in under a millisecond, so building the application per
 file or per test, on a database in memory, is cheap. See

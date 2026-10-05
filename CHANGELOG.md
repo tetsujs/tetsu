@@ -5,6 +5,15 @@ API.
 
 ## Unreleased
 
+### Added
+
+- `@tetsujs/core`: `serve(app, { stop: false })` leaves the server running
+  for the caller, and `request.stop()` stops it. A server started in
+  `beforeAll` needs both: Bun runs an `afterAll` registered inside a hook
+  as soon as the hook returns, so the one `serve()` registers stopped it
+  before the first test
+  ([#72](https://github.com/tetsujs/tetsu/issues/72)).
+
 ### Fixed
 
 - `@tetsujs/sse`: a stream with a keep-alive — every `sse()` by default,
@@ -21,6 +30,10 @@ API.
   `TypeError` where the stream is made. Read as none, a `NaN` heartbeat —
   what `Number()` of an unset variable gives — let Bun close every quiet
   feed, and `Infinity` made a timer beat every millisecond.
+- `@tetsujs/core`: a server `serve()` started says what stopped it — its
+  own `afterAll`, `request.stop()` or `stopServers()` — when a request, a
+  client or `request.url` reaches it afterwards. One started in
+  `beforeAll` failed every request with a bare `ConnectionRefused`.
 - `@tetsujs/core`: in `testCtx()`, `ctx.server.timeout()` does nothing
   instead of throwing, since a unit test has no connection to time out. A
   handler that sets a timeout, or returns a stream with a keep-alive, can

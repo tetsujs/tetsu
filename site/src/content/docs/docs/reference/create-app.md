@@ -184,7 +184,7 @@ method receives the application, once, before `createApp` returns.
 | `toJsonSchema` | function | `toJsonSchema(schema, { target }, direction?)`: a schema's JSON Schema, or `undefined` when the validator cannot produce one |
 
 `@tetsujs/core/testing` exports `testCtx(parts, { cookies })`,
-`serve(app, { hostname })`, `stopServers()` and `captureErrors()`. See
+`serve(app, { hostname, stop })`, `stopServers()` and `captureErrors()`. See
 [Testing](/docs/guides/testing/).
 
 ### Types
