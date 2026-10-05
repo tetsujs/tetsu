@@ -106,7 +106,13 @@ jobs:
 
   # After the publish, not beside it: the publish waits for its reviewer,
   # and the site must not describe a version npm does not have yet.
+  #
+  # `secrets: inherit` is what lets the deploy see the Cloudflare token. A
+  # called workflow gets only the secrets its caller passes on, and those
+  # of the `site` environment its job names come with `inherit` alone:
+  # without it the token was empty, and the deploy of 0.6.2 failed.
   site:
     name: site
     needs: publish
     uses: ./.github/workflows/site.yml
+    secrets: inherit

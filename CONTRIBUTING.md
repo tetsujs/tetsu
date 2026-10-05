@@ -145,10 +145,12 @@ and no minor without choosing to.
    in the `npm` environment, then checks, packs and publishes the packages
    in dependency order through npm's trusted publishing, with provenance.
    After that it creates the GitHub release from the version's changelog
-   section.
+   section and deploys the site.
 
 A publish that fails half-way is finished by re-running the workflow:
-packages already in the registry at that version are skipped.
+packages already in the registry at that version are skipped. A deploy of
+the site that fails goes out on its own: run the Site workflow by hand on
+the version's tag.
 `bun run scripts/publish.ts <version> --dry-run` shows what would be
 published without uploading anything.
 
