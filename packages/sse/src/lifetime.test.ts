@@ -180,6 +180,62 @@ describe("the keep-alive", () => {
     await reader?.cancel();
     timers.mockRestore();
   });
+
+  test("does not start on an interval of 0, which turns it off", async () => {
+    const timers = spyOn(globalThis, "setInterval");
+    const before = timers.mock.calls.length;
+
+    const res = stream(
+      testCtx({}),
+      async function* () {
+        yield "one\n";
+      },
+      { keepAlive: { everyMs: 0, chunk: "\n" } },
+    );
+
+    expect(await readAll(res)).toBe("one\n");
+    expect(timers.mock.calls.length).toBe(before);
+
+    timers.mockRestore();
+  });
+});
+
+// `Number()` of an unset variable is NaN, which read as off let Bun close a
+// quiet feed, and a timer runs a delay it cannot hold every millisecond.
+describe("an interval no timer holds", () => {
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 2 ** 31])(
+    "%p is refused as a heartbeat, where the stream is made",
+    (heartbeatMs) => {
+      const make = () =>
+        sse(
+          testCtx({}),
+          async function* () {
+            yield { data: "never" };
+          },
+          { heartbeatMs },
+        );
+
+      expect(make).toThrow(TypeError);
+      expect(make).toThrow("an SSE heartbeatMs must be 0");
+    },
+  );
+
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 2 ** 31])(
+    "%p is refused as the keep-alive of stream()",
+    (everyMs) => {
+      const make = () =>
+        stream(
+          testCtx({}),
+          async function* () {
+            yield "never\n";
+          },
+          { keepAlive: { everyMs, chunk: "\n" } },
+        );
+
+      expect(make).toThrow(TypeError);
+      expect(make).toThrow("a keep-alive's everyMs must be 0");
+    },
+  );
 });
 
 describe("a stream nobody sent", () => {

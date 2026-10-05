@@ -3,6 +3,29 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Fixed
+
+- `@tetsujs/sse`: a stream with a keep-alive — every `sse()` by default,
+  a `stream()` given one — raises its request's idle timeout to the
+  interval and ten seconds more once it is read
+  ([#71](https://github.com/tetsujs/tetsu/issues/71)). Bun closes a
+  connection that sends nothing for 10 seconds by default, and a quiet
+  feed was cut before its first heartbeat at 15. The stream's timeout
+  replaces one the handler set itself, such as the
+  `server.timeout(req, 0)` of Bun's own guide. On a unix socket, where Bun
+  ignores a request's timeout, the heartbeat has to stay under 8 seconds.
+- `@tetsujs/sse`: a `heartbeatMs`, or a keep-alive's `everyMs`, that is
+  `NaN`, `Infinity`, a negative or over 2³¹ − 1 is refused with a
+  `TypeError` where the stream is made. Read as none, a `NaN` heartbeat —
+  what `Number()` of an unset variable gives — let Bun close every quiet
+  feed, and `Infinity` made a timer beat every millisecond.
+- `@tetsujs/core`: in `testCtx()`, `ctx.server.timeout()` does nothing
+  instead of throwing, since a unit test has no connection to time out. A
+  handler that sets a timeout, or returns a stream with a keep-alive, can
+  be called and read directly.
+
 ## 0.6.1 — 2026-10-01
 
 ### Fixed

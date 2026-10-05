@@ -31,8 +31,8 @@ backpressure, stopping when the client leaves, ending the generator, and
 reporting a failure.
 
 `sse()` formats each yielded event for `EventSource`, sends keep-alive
-comments so proxies do not close an idle connection, and sends a first
-comment so the headers leave at once:
+comments so neither Bun nor a proxy closes an idle connection, and sends a
+first comment so the headers leave at once:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -185,6 +185,11 @@ route({
 - **`cancel()`.** A response the pipeline builds and does not send has its
   body cancelled, and so does a client that leaves mid-stream. `cancel()`
   is where a cursor is closed or a subscription dropped.
+- **An idle connection.** Bun closes a connection that sends nothing for
+  its `idleTimeout`, 10 seconds unless set. A stream that can stay quiet
+  longer writes something its format ignores on a timer, and raises its
+  request's timeout above that with `ctx.server.timeout()`, as `sse()`
+  does.
 
 To end such a stream on shutdown too, give its source
 `AbortSignal.any([ctx.req.signal, shutdown.draining])`, as

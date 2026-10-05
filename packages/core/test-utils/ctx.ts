@@ -4,7 +4,8 @@
  * A `RouteDef` keeps its handler fully typed, so a unit test can skip HTTP
  * entirely: build the context the handler expects and call it. Anything the
  * handler does not touch stays absent, and touching the stub server fails
- * loudly rather than silently returning `undefined`.
+ * loudly rather than silently returning `undefined` — except for setting a
+ * timeout, which has no connection to apply to.
  *
  * @module
  */
@@ -15,16 +16,32 @@ import type { CookieOptions } from "../src/cookie.ts";
 import { cookieSealer, sealerKey } from "../src/cookie.ts";
 import type { BaseCtx, RouteInfo } from "../src/index.ts";
 
+/**
+ * The server a hand-built context carries. Every member throws, so a
+ * handler that needs the server says so instead of reading `undefined`.
+ *
+ * `timeout()` is the exception, and does nothing, as Bun's own does on a
+ * unix socket: it tunes the connection a request came in on, and a unit
+ * test has none. A stream with a keep-alive sets it as it is read, and a
+ * test reading one should not need a server for that.
+ */
 const stubServer = new Proxy(
   {},
   {
     get(_target, property) {
+      if (property === "timeout") {
+        return noTimeout;
+      }
+
       throw new Error(
         `ctx.server.${String(property)} was used in a unit test — serve the app (test-utils/server.ts) to exercise server-dependent code`,
       );
     },
   },
 ) as Server<unknown>;
+
+/** What setting a timeout does without a connection: nothing. */
+function noTimeout(): void {}
 
 /**
  * Builds a context for a direct handler call.

@@ -37,6 +37,13 @@ console.log(`listening on ${server.url}`);
 The port, hostname, TLS, idle timeout and Bun's body size cap are all
 `Bun.serve` options. An option written after the spread wins.
 
+The idle timeout, 10 seconds unless set, closes a connection that sends
+nothing for that long. An event stream from `sse()` raises its own
+request's timeout above its heartbeat, except on a unix socket, such as
+one nginx on the same machine connects to: Bun ignores a request's timeout
+there, and the heartbeat has to stay under 8 seconds. See
+[Idle connections](/docs/packages/sse/#idle-connections).
+
 Without a `hostname`, Bun listens on every interface, which is what a
 container needs. A server on `localhost` only is unreachable from outside
 the container.

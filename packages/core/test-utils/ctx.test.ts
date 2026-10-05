@@ -1,5 +1,6 @@
 /**
- * Tests for the hand-built context's cookie options.
+ * Tests for the hand-built context: its cookie options, and the server
+ * it stands in for.
  *
  * @module
  */
@@ -36,4 +37,16 @@ test("without them, signedCookie says what is missing", () => {
   expect(() => signedCookie(testCtx({}), "session")).toThrow(
     "testCtx(parts, { cookies })",
   );
+});
+
+test("a timeout set on the server does nothing: there is no connection", () => {
+  const ctx = testCtx({});
+
+  expect(() => ctx.server.timeout(ctx.req, 30)).not.toThrow();
+});
+
+test("anything else on the server throws, so the test says what it needs", () => {
+  const ctx = testCtx({});
+
+  expect(() => ctx.server.requestIP(ctx.req)).toThrow("serve the app");
 });

@@ -61,9 +61,43 @@ export interface StreamSummary {
   readonly reason: StreamReason;
 }
 
-/** Something written on a schedule, so an idle connection stays open. */
+/**
+ * Something written on a schedule, so an idle connection stays open.
+ *
+ * The first to close one is Bun: `idleTimeout`, 10 seconds unless the
+ * server sets another, ends a connection that has sent nothing for that
+ * long — before a beat every 15 seconds ever goes out. So once the stream
+ * is read, it raises its own request's timeout to the interval and ten
+ * seconds more, with `ctx.server.timeout()`. The connection is let go
+ * only when a beat is ten seconds late — the patience Bun gives any
+ * connection — and every other request keeps the server's setting.
+ *
+ * Finite on purpose. `0` turns the timeout off, which is what Bun's own
+ * guide to event streams does, and keeps a client that stopped reading
+ * connected for good; a client that reads slowly is not cut either way,
+ * because every chunk the socket sends resets the timer. On HTTP/1.1 the
+ * value also stays with the connection after the stream, until its next
+ * request — `0` would leave an idle connection open with nothing to close
+ * it.
+ *
+ * It is set as the stream is read, after the handler has returned, so it
+ * replaces a timeout the handler set itself. The generator starts after
+ * it, and a source that wants another timeout sets its own.
+ *
+ * Bun ignores a request's own timeout on a unix socket and over HTTP/3,
+ * and the server's `idleTimeout` decides there. Over HTTP/3 it has to sit
+ * above the interval; on a unix socket, whose options Bun's types give no
+ * `idleTimeout`, the interval has to stay under 8 seconds: Bun's clock
+ * ticks every 4, so its default of 10 can end an idle connection after 8.
+ * Bun waits 255 seconds at most, so an interval of more than four minutes
+ * keeps no connection open anywhere.
+ */
 export interface KeepAlive {
-  /** How often, in milliseconds. */
+  /**
+   * How often, in milliseconds, at most 2³¹ − 1; `0` turns it off. `NaN`,
+   * `Infinity` or a negative is refused with a `TypeError` where the
+   * stream is made.
+   */
   readonly everyMs: number;
 
   /**
@@ -85,7 +119,12 @@ export interface StreamOptions {
   /** Headers to send alongside — `cache-control`, and whatever else. */
   readonly headers?: Record<string, string>;
 
-  /** A filler written while nothing else is. Off by default. */
+  /**
+   * A filler written while nothing else is, which also raises the
+   * request's idle timeout above its interval — see {@link KeepAlive}.
+   * Off by default, and then the server's `idleTimeout` ends a stream that
+   * writes nothing for that long.
+   */
   readonly keepAlive?: KeepAlive;
 
   /**
@@ -173,6 +212,10 @@ export function openStream(
   options: StreamOptions,
   opening?: string,
 ): Response {
+  if (options.keepAlive !== undefined) {
+    interval("a keep-alive's everyMs", options.keepAlive.everyMs);
+  }
+
   const encoder = new TextEncoder();
   const ending = new AbortController();
   const signal = AbortSignal.any(
@@ -262,15 +305,20 @@ export function openStream(
    * nothing observable through a socket ever reaches them. The check is
    * kept on the reasoning, not on a measurement, and this is the note
    * saying so.
+   *
+   * Starting, it raises the request's idle timeout above the interval, so
+   * that Bun waits for the beats — see {@link KeepAlive}.
    */
   const keepAlive = (
     controller: ReadableStreamDefaultController<Uint8Array>,
   ): void => {
     const alive = options.keepAlive;
 
-    if (!alive || alive.everyMs <= 0 || over) {
+    if (!alive || alive.everyMs === 0 || over) {
       return;
     }
+
+    ctx.server.timeout(ctx.req, idleTimeoutFor(alive.everyMs));
 
     beating = setInterval(() => {
       if ((controller.desiredSize ?? 0) < 0) {
@@ -448,6 +496,42 @@ export function openStream(
       ...options.headers,
     },
   });
+}
+
+/**
+ * Checks a keep-alive interval: `0`, which turns it off, or a number of
+ * milliseconds a timer holds, at most 2³¹ − 1.
+ *
+ * Refused rather than read as off, as `rateLimit()` refuses a window of
+ * `NaN`: `Number()` of a variable that is not set is `NaN`, and a
+ * heartbeat that went missing without a word lets Bun close every feed
+ * that goes quiet — the failure it is there to prevent, with nothing in
+ * the logs. Nor run as given: a timer makes an interval it cannot hold a
+ * beat every millisecond.
+ *
+ * Internal to the package: `sse()` checks its heartbeat with it, under the
+ * name its caller wrote.
+ */
+export function interval(what: string, everyMs: number): number {
+  if (typeof everyMs === "number" && everyMs >= 0 && everyMs <= 2_147_483_647) {
+    return everyMs;
+  }
+
+  throw new TypeError(
+    `${what} must be 0, which turns it off, or a number of milliseconds up to 2147483647: ${everyMs} — Number() of a variable that is not set is NaN`,
+  );
+}
+
+/**
+ * The idle timeout of a request whose stream beats every `everyMs`, in the
+ * whole seconds Bun takes: the interval rounded up and ten seconds more,
+ * at most 255.
+ *
+ * The ten seconds also absorb Bun's clock, which checks idleness every
+ * four seconds: a timeout of N seconds can fire up to four of them early.
+ */
+function idleTimeoutFor(everyMs: number): number {
+  return Math.min(Math.ceil(everyMs / 1_000) + 10, 255);
 }
 
 /**
