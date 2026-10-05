@@ -49,6 +49,11 @@ API.
   reading the signal when a request comes in. They took the signal from a
   server the routes had to exist before
   ([#73](https://github.com/tetsujs/tetsu/issues/73)).
+- `@tetsujs/sse`: `sse()` sends `x-accel-buffering: no`. nginx, which
+  buffers a proxied response by default, held the events until its buffer
+  filled or the stream ended, so a live feed behind it looked dead while
+  the server was sending
+  ([#79](https://github.com/tetsujs/tetsu/issues/79)).
 
 ## 0.6.1 — 2026-10-01
 

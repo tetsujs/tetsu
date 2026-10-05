@@ -40,7 +40,9 @@ const feed = route({
 
 `sse()` returns a `Response` that:
 
-- sets `content-type: text/event-stream` and `cache-control: no-cache`;
+- sets `content-type: text/event-stream` and `cache-control: no-cache`, and
+  `x-accel-buffering: no`, so nginx, which buffers a proxied response by
+  default, passes each event on as it is written;
 - opens with a comment, `: open`, so the headers go out at once rather than
   with the first event;
 - sends a `: ping` comment every 15 seconds, and raises the request's idle
@@ -48,6 +50,19 @@ const feed = route({
   (see [Idle connections](#idle-connections));
 - asks the generator for one event at a time, as the client reads. A client
   that stops reading pauses the generator instead of filling memory.
+
+A header some other proxy needs, such as `no-transform`, which asks a proxy
+not to change the body, goes on `ctx.out.headers`. The framework lays it
+over the response `sse()` returns, and set from a hook, it covers a whole
+group or application:
+
+```ts twoslash
+import { hook } from "@tetsujs/core";
+// ---cut---
+const noTransform = hook.beforeHandle((ctx) => {
+  ctx.out.headers.set("cache-control", "no-cache, no-transform");
+});
+```
 
 Each yielded event has these fields:
 
@@ -234,7 +249,8 @@ const response = stream(ctx, chunks, { keepAlive: { everyMs: 15_000, chunk: "\n"
 
 A keep-alive raises the request's idle timeout, as the heartbeat of `sse()`
 does. Without one, Bun closes a stream that writes nothing for the server's
-`idleTimeout`.
+`idleTimeout`. A stream that should arrive as it is written, behind nginx,
+sends `x-accel-buffering: no` in `headers`, as `sse()` does on its own.
 
 ## Options
 

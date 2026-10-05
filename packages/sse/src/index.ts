@@ -171,6 +171,15 @@ export interface SseSummary extends Omit<StreamSummary, "chunks"> {
  * sends the status and headers with the first bytes of the body, and a
  * feed with nothing to say yet would otherwise answer nothing at all.
  *
+ * The headers tell a proxy what it needs to know: `cache-control:
+ * no-cache`, so nothing caches a feed, and `x-accel-buffering: no`, so
+ * nginx passes each event on as it is written. nginx buffers a proxied
+ * response by default and held the events until its buffer filled or the
+ * stream ended — a live feed that looked dead, from a server that was
+ * sending. nginx reads the header and does not pass it on; other proxies
+ * ignore it. A header some other proxy wants goes on `ctx.out.headers`,
+ * which the framework lays over the response this returns.
+ *
  * The generator is handed an `AbortSignal` that fires when the stream is
  * over, whichever way it ended — the client disconnected, the consumer
  * cancelled, the generator itself failed. It is not `ctx.req.signal`
@@ -263,7 +272,7 @@ export function sse(
     },
     {
       contentType: "text/event-stream",
-      headers: { "cache-control": "no-cache" },
+      headers: { "cache-control": "no-cache", "x-accel-buffering": "no" },
 
       ...(options.status === undefined ? {} : { status: options.status }),
 

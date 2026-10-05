@@ -177,6 +177,9 @@ executables.
   console — see [Logging](/docs/guides/logging/).
 - Behind a load balancer or a proxy, the client's address and HTTPS come
   from the proxy — see [Behind a proxy](/docs/guides/behind-a-proxy/).
+- Behind nginx, which buffers a proxied response by default, a live
+  `stream()` sends `x-accel-buffering: no`, as `sse()` does on its own —
+  see [`@tetsujs/sse`](/docs/packages/sse/).
 - A body limit that fits the API: `maxBodySize` is 1 MiB by default — see
   [Request bodies](/docs/concepts/request-bodies/#size-limits). A proxy in
   front has a limit of its own, and the lower one wins: nginx's

@@ -116,7 +116,14 @@ export interface StreamOptions {
   /** Status of the response. `200` by default. */
   readonly status?: number;
 
-  /** Headers to send alongside — `cache-control`, and whatever else. */
+  /**
+   * Headers to send alongside — `cache-control`, and whatever else.
+   *
+   * A stream that should arrive as it is written, behind nginx, sends
+   * `x-accel-buffering: no`, as `sse()` does on its own: nginx buffers a
+   * proxied response by default, and passes nothing on until its buffer
+   * fills or the stream ends.
+   */
   readonly headers?: Record<string, string>;
 
   /**

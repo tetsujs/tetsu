@@ -397,6 +397,14 @@ describe("the response", () => {
     await res.text();
   });
 
+  test("asks nginx, which buffers a proxied response, to pass it on", async () => {
+    const res = await request("/ticks");
+
+    expect(res.headers.get("x-accel-buffering")).toBe("no");
+
+    await res.text();
+  });
+
   test("carries the events the generator yielded", async () => {
     const res = await request("/ticks");
 
