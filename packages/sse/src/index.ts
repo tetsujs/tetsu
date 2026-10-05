@@ -78,19 +78,20 @@ export interface SseOptions {
   /**
    * How often a comment line is sent to keep the connection alive, in
    * milliseconds, at most 2³¹ − 1. Defaults to 15 seconds; `0` turns it
-   * off. `NaN`, `Infinity` or a negative is refused with a `TypeError`:
-   * read as off, a heartbeat that `Number()` of an unset variable made
-   * `NaN` would let Bun close every quiet feed without a word.
+   * off. `NaN`, `Infinity`, a negative or anything not a number, such as
+   * a string read from JSON, is refused with a `TypeError`: read as off, a
+   * heartbeat that `Number()` of an unset variable made `NaN` would let
+   * Bun close every quiet feed without a word.
    *
    * On by default because the failure it prevents is silent and remote: a
    * proxy between the server and the browser closes a connection that has
    * been idle — nginx after 60 seconds by default — and the application
    * sees a client that keeps reconnecting for no visible reason.
    *
-   * Bun closes one sooner, after 10 seconds, so the heartbeat also raises
-   * its request's idle timeout above the interval — see
-   * {@link KeepAlive}. Without a heartbeat, the server's `idleTimeout`
-   * ends a feed that stays quiet for longer.
+   * Bun closes one sooner, after 10 seconds, so the heartbeat also sets
+   * its request's idle timeout above the interval, in place of the
+   * server's — see {@link KeepAlive}. Without a heartbeat, the server's
+   * `idleTimeout` ends a feed that stays quiet for longer.
    */
   readonly heartbeatMs?: number;
 

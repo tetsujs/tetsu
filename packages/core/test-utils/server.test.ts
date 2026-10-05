@@ -97,6 +97,18 @@ describe("a server stopped with request.stop()", () => {
     await expect(request("/")).rejects.toThrow("request.stop() stopped it");
   });
 
+  // Bun works out `server.url` when it is first read, and a stopped server
+  // reads as port 0: a server nothing reached was named `localhost:0`.
+  test("names the port it listened on, though nothing reached it", async () => {
+    const request = serve(app);
+
+    request.stop();
+
+    await expect(request("/")).rejects.toThrow(
+      /the server at http:\/\/localhost:[1-9]\d* has stopped/,
+    );
+  });
+
   test("refuses its url, which a WebSocket would connect to", () => {
     const request = serve(app);
 

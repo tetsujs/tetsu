@@ -13,6 +13,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createApp, route } from "@tetsujs/core";
 import { serve, testCtx } from "@tetsujs/core/testing";
+import type { Server } from "bun";
 import type { SseSummary } from "./index.ts";
 import { frame, sse, stream } from "./index.ts";
 
@@ -202,6 +203,56 @@ describe("the keep-alive", () => {
 
 // `Number()` of an unset variable is NaN, which read as off let Bun close a
 // quiet feed, and a timer runs a delay it cannot hold every millisecond.
+describe("a server that cannot take a timeout", () => {
+  // A context built by hand, or `testCtx()` from before 0.6.2, has a server
+  // whose `timeout()` is missing or throws. 0.6.1 read these streams fine.
+  test("leaves a stream with a keep-alive as it was", async () => {
+    const ended: SseSummary[] = [];
+    const ctx = { ...testCtx({}), server: {} as Server<unknown> };
+
+    const res = sse(
+      ctx,
+      async function* () {
+        yield { data: "one" };
+      },
+      { heartbeatMs: 1_000, onEnd: (summary) => ended.push(summary) },
+    );
+
+    expect(await readAll(res)).toBe(": open\n\ndata: one\n\n");
+    expect(ended.map((summary) => summary.reason)).toEqual(["ended"]);
+  });
+});
+
+describe("a heartbeat that is not a number", () => {
+  // Read from a JSON file, say: 0.6.1 took "50" as fifty milliseconds.
+  test("is refused with its type named, and no word about NaN", () => {
+    const make = () =>
+      sse(
+        testCtx({}),
+        async function* () {
+          yield { data: "never" };
+        },
+        { heartbeatMs: "50" as unknown as number },
+      );
+
+    expect(make).toThrow('not the string "50"');
+    expect(make).not.toThrow("NaN");
+  });
+
+  test("while NaN is told where it most likely came from", () => {
+    const make = () =>
+      sse(
+        testCtx({}),
+        async function* () {
+          yield { data: "never" };
+        },
+        { heartbeatMs: Number.NaN },
+      );
+
+    expect(make).toThrow("Number() of a variable that is not set is NaN");
+  });
+});
+
 describe("an interval no timer holds", () => {
   test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 2 ** 31])(
     "%p is refused as a heartbeat, where the stream is made",

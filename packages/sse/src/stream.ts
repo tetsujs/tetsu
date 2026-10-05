@@ -67,10 +67,15 @@ export interface StreamSummary {
  * The first to close one is Bun: `idleTimeout`, 10 seconds unless the
  * server sets another, ends a connection that has sent nothing for that
  * long — before a beat every 15 seconds ever goes out. So once the stream
- * is read, it raises its own request's timeout to the interval and ten
+ * is read, it sets its own request's timeout to the interval and ten
  * seconds more, with `ctx.server.timeout()`. The connection is let go
  * only when a beat is ten seconds late — the patience Bun gives any
  * connection — and every other request keeps the server's setting.
+ *
+ * Sets, not raises: Bun does not say what the server's `idleTimeout` is,
+ * so a longer one, or `0`, is replaced for these requests too. A client
+ * that stops reading is then let go after it, and an interval of more
+ * than four minutes is cut at Bun's 255 seconds.
  *
  * Finite on purpose. `0` turns the timeout off, which is what Bun's own
  * guide to event streams does, and keeps a client that stopped reading
@@ -82,7 +87,8 @@ export interface StreamSummary {
  *
  * It is set as the stream is read, after the handler has returned, so it
  * replaces a timeout the handler set itself. The generator starts after
- * it, and a source that wants another timeout sets its own.
+ * it, and a source that wants another timeout — the server's longer one,
+ * or none — sets its own with `ctx.server.timeout()`.
  *
  * Bun ignores a request's own timeout on a unix socket and over HTTP/3,
  * and the server's `idleTimeout` decides there. Over HTTP/3 it has to sit
@@ -95,8 +101,8 @@ export interface StreamSummary {
 export interface KeepAlive {
   /**
    * How often, in milliseconds, at most 2³¹ − 1; `0` turns it off. `NaN`,
-   * `Infinity` or a negative is refused with a `TypeError` where the
-   * stream is made.
+   * `Infinity`, a negative or anything not a number is refused with a
+   * `TypeError` where the stream is made.
    */
   readonly everyMs: number;
 
@@ -127,8 +133,8 @@ export interface StreamOptions {
   readonly headers?: Record<string, string>;
 
   /**
-   * A filler written while nothing else is, which also raises the
-   * request's idle timeout above its interval — see {@link KeepAlive}.
+   * A filler written while nothing else is, which also sets the request's
+   * idle timeout above its interval — see {@link KeepAlive}.
    * Off by default, and then the server's `idleTimeout` ends a stream that
    * writes nothing for that long.
    */
@@ -313,8 +319,11 @@ export function openStream(
    * kept on the reasoning, not on a measurement, and this is the note
    * saying so.
    *
-   * Starting, it raises the request's idle timeout above the interval, so
-   * that Bun waits for the beats — see {@link KeepAlive}.
+   * Starting, it sets the request's idle timeout above the interval, so
+   * that Bun waits for the beats — see {@link KeepAlive}. A server that
+   * cannot take one — a stand-in in a unit test, a context built by hand,
+   * `testCtx()` from before 0.6.2 — has no connection to time out, and
+   * the stream goes on as it did before there was a timeout to set.
    */
   const keepAlive = (
     controller: ReadableStreamDefaultController<Uint8Array>,
@@ -325,7 +334,11 @@ export function openStream(
       return;
     }
 
-    ctx.server.timeout(ctx.req, idleTimeoutFor(alive.everyMs));
+    try {
+      ctx.server.timeout(ctx.req, idleTimeoutFor(alive.everyMs));
+    } catch {
+      // A stand-in server, with no connection to time out.
+    }
 
     beating = setInterval(() => {
       if ((controller.desiredSize ?? 0) < 0) {
@@ -524,9 +537,30 @@ export function interval(what: string, everyMs: number): number {
     return everyMs;
   }
 
+  const why = Number.isNaN(everyMs)
+    ? " — Number() of a variable that is not set is NaN"
+    : "";
+
   throw new TypeError(
-    `${what} must be 0, which turns it off, or a number of milliseconds up to 2147483647: ${everyMs} — Number() of a variable that is not set is NaN`,
+    `${what} must be 0, which turns it off, or a number of milliseconds up to 2147483647, not ${named(everyMs)}${why}`,
   );
+}
+
+/**
+ * A value as a message names it: a number as itself, and anything else
+ * with its type — a string from a JSON file prints as a number would, and
+ * the reader would be left wondering what was wrong with `50`.
+ */
+function named(value: unknown): string {
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "string") {
+    return `the string ${JSON.stringify(value)}`;
+  }
+
+  return `a value of type ${typeof value}`;
 }
 
 /**

@@ -45,7 +45,7 @@ const feed = route({
   default, passes each event on as it is written;
 - opens with a comment, `: open`, so the headers go out at once rather than
   with the first event;
-- sends a `: ping` comment every 15 seconds, and raises the request's idle
+- sends a `: ping` comment every 15 seconds, and sets the request's idle
   timeout above that, so neither Bun nor a proxy closes an idle connection
   (see [Idle connections](#idle-connections));
 - asks the generator for one event at a time, as the client reads. A client
@@ -152,16 +152,20 @@ see [Streams and sockets](/docs/guides/health-and-shutdown/#streams-and-sockets)
 
 Bun closes a connection that sends nothing for its `idleTimeout`, 10
 seconds unless the server sets another, and the first heartbeat of a quiet
-feed comes after 15. So when the stream starts, `sse()` raises its own
+feed comes after 15. So when the stream starts, `sse()` sets its own
 request's timeout to the heartbeat and ten seconds more, with
 `ctx.server.timeout()`. Every other request keeps the server's setting.
 
-The timeout is set as the stream is read, after the handler has returned,
-so it replaces one the handler set itself, such as the
+It sets the timeout rather than raising it: Bun does not say what the
+server's `idleTimeout` is, so a longer one, or `0`, is replaced for these
+requests too. A client that stops reading is then let go after the
+stream's timeout, and a heartbeat over four minutes is cut at 255
+seconds. The timeout is set as the stream is read, after the handler has
+returned, so it also replaces one the handler set itself, such as the
 `server.timeout(req, 0)` of Bun's own guide. A generator that wants
 another sets it, since it starts later.
 
-Where the stream cannot raise it, the server's `idleTimeout` decides. A
+Where the stream cannot set it, the server's `idleTimeout` decides. A
 feed with `heartbeatMs: 0` is closed once it stays quiet longer. Over
 HTTP/3, Bun ignores a request's own timeout: set `idleTimeout` above the
 heartbeat. On a unix socket it ignores it too, and its types do not take
@@ -247,7 +251,7 @@ declare function chunks(signal: AbortSignal): AsyncGenerator<string, void, undef
 const response = stream(ctx, chunks, { keepAlive: { everyMs: 15_000, chunk: "\n" } });
 ```
 
-A keep-alive raises the request's idle timeout, as the heartbeat of `sse()`
+A keep-alive sets the request's idle timeout, as the heartbeat of `sse()`
 does. Without one, Bun closes a stream that writes nothing for the server's
 `idleTimeout`. A stream that should arrive as it is written, behind nginx,
 sends `x-accel-buffering: no` in `headers`, as `sse()` does on its own.
