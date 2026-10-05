@@ -15,13 +15,21 @@ import type { App } from "../src/index.ts";
 import type { Client, ClientOptions } from "./client.ts";
 import { createClient } from "./client.ts";
 
-const running: { stop: (closeActiveConnections?: boolean) => void }[] = [];
+/** What stopped a server — the first thing a request to it is told. */
+type Stopper = "cleanup" | "stop" | "stopServers";
+
+/** How to stop each server {@link serve} started that is still running. */
+const running = new Set<(by: Stopper) => void>();
 
 /**
  * Sends a request to a served application.
  *
  * Carries the server's base URL, which a WebSocket client needs: `fetch`
  * takes a path, `new WebSocket(...)` does not.
+ *
+ * Once the server has stopped, a request, a client's request and `url`
+ * throw, saying what stopped it. A bare `ConnectionRefused` named neither
+ * the server nor the reason.
  *
  * @param path - Path with optional query string, e.g. `/users/1?full=true`.
  */
@@ -30,6 +38,18 @@ export interface RequestFn {
 
   /** Where the server is listening. */
   readonly url: URL;
+
+  /**
+   * Stops the server now. With `{ stop: false }`, this is what the test
+   * file calls in its own `afterAll`.
+   *
+   * It does not wait for the server to finish: Bun's `stop()` resolves
+   * only once every connection is gone, and a WebSocket the server itself
+   * closed never leaves that list — awaited, it would hold the hook until
+   * the runner's timeout. Reproduced on a bare `Bun.serve`, without this
+   * framework.
+   */
+  stop(): void;
 
   /**
    * A client of this server with its own default headers and a cookie
@@ -61,6 +81,32 @@ export interface ServeOptions {
    * address the server listens on.
    */
   readonly hostname?: string;
+
+  /**
+   * Whether the server stops by itself, with an `afterAll` registered
+   * where `serve()` is called. On by default.
+   *
+   * Off, the server runs until {@link RequestFn.stop} or
+   * {@link stopServers}. That is what a server started in `beforeAll`
+   * needs: Bun runs an `afterAll` registered inside a hook as soon as the
+   * hook returns, before any test. So does one a teardown of the file's own
+   * still talks to: Bun runs `afterAll` hooks in the order they were
+   * registered, and the one `serve()` registers comes first.
+   *
+   * @example
+   * ```ts
+   * let request: RequestFn;
+   *
+   * beforeAll(async () => {
+   *   request = serve(createApp({ routes: notes(await openDatabase()) }), {
+   *     stop: false,
+   *   });
+   * });
+   *
+   * afterAll(() => request.stop());
+   * ```
+   */
+  readonly stop?: boolean;
 }
 
 /**
@@ -68,9 +114,22 @@ export interface ServeOptions {
  * bound to it.
  *
  * Cleanup is automatic under `bun test`: each server registers its own
- * `afterAll`, scoped to wherever `serve` was called — a test file cannot
- * forget it. The stop is not awaited; see the note at the call. Outside the test runner `afterAll` throws; the error is
- * swallowed and the caller owns the lifetime via {@link stopServers}.
+ * `afterAll` where `serve` is called, and Bun runs it when that scope ends
+ * — the file, the `describe`, or the test, a `beforeEach` counting as its
+ * test. A test file cannot forget it.
+ *
+ * Two places meet that cleanup too early. In `beforeAll`: Bun runs an
+ * `afterAll` registered inside a hook as soon as the hook returns, so the
+ * server would stop before the first test — await the setup at the top
+ * level of the file and call `serve` after it. And in an `afterAll` of
+ * the file's own registered after `serve`: Bun runs `afterAll` hooks in
+ * the order they were registered, so it runs once the server has stopped.
+ * Either way, `{ stop: false }` leaves the stop to an `afterAll` of your
+ * own. A server used after it stopped says what stopped it.
+ *
+ * Outside the test runner `afterAll` throws; the error is swallowed and
+ * the caller owns the lifetime via {@link RequestFn.stop} or
+ * {@link stopServers}.
  *
  * @example
  * ```ts
@@ -95,34 +154,77 @@ export function serve(app: App, options: ServeOptions = {}): RequestFn {
     ...(options.hostname === undefined ? {} : { hostname: options.hostname }),
   });
 
-  running.push(server);
+  let stoppedBy: Stopper | undefined;
 
-  try {
-    afterAll(() => {
-      // Not returned on purpose: `stop()` resolves only once every
-      // connection is gone, and a WebSocket the server itself closed never
-      // leaves that list — awaiting it hangs the hook until the runner's
-      // timeout. Reproduced on a bare `Bun.serve`, without this framework.
-      void server.stop(true);
-    });
-  } catch {
-    void 0;
+  const stop = (by: Stopper): void => {
+    if (stoppedBy !== undefined) {
+      return;
+    }
+
+    stoppedBy = by;
+    running.delete(stop);
+
+    // Not awaited, for the reason `RequestFn.stop` gives.
+    void server.stop(true);
+  };
+
+  running.add(stop);
+
+  if (options.stop !== false) {
+    try {
+      afterAll(() => stop("cleanup"));
+    } catch {
+      void 0;
+    }
   }
 
-  const request = (path: string, init?: RequestInit): Promise<Response> =>
-    fetch(new URL(path, server.url).href, init);
+  /** The server's address, or, once it has stopped, what stopped it. */
+  const address = (): URL => {
+    if (stoppedBy !== undefined) {
+      throw new Error(stoppedMessage(server.url, stoppedBy));
+    }
 
-  return Object.assign(request, {
-    url: server.url,
-    client: (options?: ClientOptions) => createClient(server.url, options),
+    return server.url;
+  };
+
+  const request = async (path: string, init?: RequestInit) =>
+    fetch(new URL(path, address()).href, init);
+
+  const members = Object.assign(request, {
+    client: (clientOptions?: ClientOptions) =>
+      createClient(address, clientOptions),
+    stop: () => stop("stop"),
   });
+
+  return Object.defineProperty(members, "url", {
+    get: address,
+    enumerable: true,
+    configurable: true,
+  }) as RequestFn;
 }
 
 /** Stops every server started by {@link serve} that is still running. */
 export function stopServers(): void {
-  for (const server of running) {
-    server.stop(true);
+  for (const stop of [...running]) {
+    stop("stopServers");
   }
+}
 
-  running.length = 0;
+/**
+ * What a request to a stopped server is told: what stopped it, and, when
+ * it was the `afterAll` `serve()` registers, the two places that meet it
+ * too early — a `beforeAll` that calls `serve()`, and an `afterAll` of the
+ * test file's own, which Bun runs after it when it was registered later.
+ */
+function stoppedMessage(url: URL, by: Stopper): string {
+  const stopped = `serve(): the server at ${url.origin} has stopped`;
+
+  switch (by) {
+    case "stop":
+      return `${stopped}: request.stop() stopped it`;
+    case "stopServers":
+      return `${stopped}: stopServers() stopped it`;
+    case "cleanup":
+      return `${stopped}: the afterAll serve() registers stopped it when the file, describe, test or hook that called serve() ended — right after a beforeAll that calls serve(), before any test, and before an afterAll registered after serve(). Await the setup at the top level and call serve() after it, or pass { stop: false } and call request.stop() once you are done with the server`;
+  }
 }

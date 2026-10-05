@@ -76,11 +76,12 @@ area.
 
 | Helper | What it does |
 | --- | --- |
-| `serve(app, options?)` | Starts the application on a free port and returns a request function for it, with the server's address as `request.url`. Stopped when the tests around the call finish. |
+| `serve(app, options?)` | Starts the application on a free port and returns a request function for it, with the server's address as `request.url`. Stopped when the tests around the call finish, so not to be called in `beforeAll`; `{ stop: false }` leaves the stop to `request.stop()`. |
 | `request.client(options?)` | A client with default headers and a cookie jar, for a test that signs in and acts as that user. |
+| `request.stop()` | Stops the server now. A request to it afterwards throws, saying what stopped it. |
 | `testCtx(parts, options?)` | Builds a context for calling a handler directly, with no server. |
 | `captureErrors()` | Collects what the framework logs on `console.error`, so a test can assert on it. Call it in a `describe` body, not inside a test. |
-| `stopServers()` | Stops every server `serve` started. Needed only outside `bun test`. |
+| `stopServers()` | Stops every server `serve` started that is still running. Needed only outside `bun test`. |
 
 ```ts twoslash
 import { expect, test } from "bun:test";

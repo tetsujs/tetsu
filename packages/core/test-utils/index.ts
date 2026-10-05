@@ -5,7 +5,8 @@
  *
  * - `serve()` — integration: serves an application on an ephemeral port the
  *   way production does, because Bun's native router is unreachable in
- *   process. It stops the server when the test file finishes.
+ *   process. It stops the server when the file, `describe` or test that
+ *   called it ends, or when `request.stop()` is called.
  *   `serve(app).client()` adds default headers and a cookie jar, for a
  *   test that acts as one user across requests.
  * - `testCtx()` — unit: builds a typed context for calling a route handler

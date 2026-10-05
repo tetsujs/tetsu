@@ -99,7 +99,11 @@ interface Held {
 }
 
 /**
- * Builds a client of the server at `base`.
+ * Builds a client of the server whose address `base` returns.
+ *
+ * The address is asked for on every request rather than once: a client of
+ * a server that has stopped then says so, as the server's own request
+ * function does, instead of finding nothing at an old port.
  *
  * The jar follows what browsers do, where it matters to a test of one
  * server: a response's `set-cookie` headers are all kept; a cookie is sent
@@ -108,14 +112,17 @@ interface Held {
  * `Secure` goes over `http`, because a browser treats `localhost` as a
  * secure context.
  */
-export function createClient(base: URL, options: ClientOptions = {}): Client {
+export function createClient(
+  base: () => URL,
+  options: ClientOptions = {},
+): Client {
   const held: Held[] = [];
 
   const client = async (
     path: string,
     init: ClientInit = {},
   ): Promise<Response> => {
-    const url = new URL(path, base);
+    const url = new URL(path, base());
 
     const { json, body, headers, ...rest } = init;
 
