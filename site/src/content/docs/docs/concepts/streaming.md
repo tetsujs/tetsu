@@ -187,7 +187,7 @@ route({
   is where a cursor is closed or a subscription dropped.
 - **An idle connection.** Bun closes a connection that sends nothing for
   its `idleTimeout`, 10 seconds unless set. A stream that can stay quiet
-  longer writes something its format ignores on a timer, and raises its
+  longer writes something its format ignores on a timer, and sets its
   request's timeout above that with `ctx.server.timeout()`, as `sse()`
   does.
 

@@ -154,6 +154,13 @@ export function serve(app: App, options: ServeOptions = {}): RequestFn {
     ...(options.hostname === undefined ? {} : { hostname: options.hostname }),
   });
 
+  /**
+   * Read now, while the server listens: Bun works `server.url` out when it
+   * is first read, and a stopped server reads as port 0 — the one place
+   * the address is needed for is the error that says it stopped.
+   */
+  const url = server.url;
+
   let stoppedBy: Stopper | undefined;
 
   const stop = (by: Stopper): void => {
@@ -181,10 +188,10 @@ export function serve(app: App, options: ServeOptions = {}): RequestFn {
   /** The server's address, or, once it has stopped, what stopped it. */
   const address = (): URL => {
     if (stoppedBy !== undefined) {
-      throw new Error(stoppedMessage(server.url, stoppedBy));
+      throw new Error(stoppedMessage(url, stoppedBy));
     }
 
-    return server.url;
+    return url;
   };
 
   const request = async (path: string, init?: RequestInit) =>

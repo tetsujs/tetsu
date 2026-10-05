@@ -22,19 +22,24 @@ API.
 ### Fixed
 
 - `@tetsujs/sse`: a stream with a keep-alive — every `sse()` by default,
-  a `stream()` given one — raises its request's idle timeout to the
-  interval and ten seconds more once it is read
+  a `stream()` given one — sets its request's idle timeout to the interval
+  and ten seconds more once it is read
   ([#71](https://github.com/tetsujs/tetsu/issues/71)). Bun closes a
   connection that sends nothing for 10 seconds by default, and a quiet
   feed was cut before its first heartbeat at 15. The stream's timeout
-  replaces one the handler set itself, such as the
-  `server.timeout(req, 0)` of Bun's own guide. On a unix socket, where Bun
+  replaces the server's even where that one is longer, or `0`, and one
+  the handler set itself, such as the `server.timeout(req, 0)` of Bun's
+  own guide; a generator that wants another sets its own. A quiet feed
+  now stays open, so one without `until` holds a stopping server for its
+  whole grace period: end it on `draining`. On a unix socket, where Bun
   ignores a request's timeout, the heartbeat has to stay under 8 seconds.
 - `@tetsujs/sse`: a `heartbeatMs`, or a keep-alive's `everyMs`, that is
-  `NaN`, `Infinity`, a negative or over 2³¹ − 1 is refused with a
-  `TypeError` where the stream is made. Read as none, a `NaN` heartbeat —
-  what `Number()` of an unset variable gives — let Bun close every quiet
-  feed, and `Infinity` made a timer beat every millisecond.
+  `NaN`, `Infinity`, a negative, over 2³¹ − 1 or not a number at all is
+  refused with a `TypeError` where the stream is made. Read as none, a
+  `NaN` heartbeat — what `Number()` of an unset variable gives — let Bun
+  close every quiet feed, and `Infinity` made a timer beat every
+  millisecond. A string, read from JSON say, used to pass as the number
+  it spelled.
 - `@tetsujs/core`: a server `serve()` started says what stopped it — its
   own `afterAll`, `request.stop()` or `stopServers()` — when a request, a
   client or `request.url` reaches it afterwards. One started in
