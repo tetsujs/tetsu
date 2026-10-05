@@ -148,7 +148,8 @@ jobs:
     # against the packages of the same commit: a change that breaks an
     # example fails here, in the pull request that made it. The site is a
     # project of its own, with its own lockfile, so the framework's jobs do
-    # not install it.
+    # not install it. It goes out with a release, from site.yml, so that it
+    # describes what is on npm.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -169,53 +170,3 @@ jobs:
 
       - name: Build
         run: bun run --cwd site build
-
-      # What was just built and checked is what `deploy-site` publishes.
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: site
-          path: site/dist
-          retention-days: 1
-
-  deploy-site:
-    name: deploy site
-    needs: site
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    # The Cloudflare token lives in the `site` environment, which only
-    # `main` may use. Deploys run one after another; one in progress is
-    # never cut short.
-    environment:
-      name: site
-      url: https://tetsujs.com
-    concurrency:
-      group: deploy-site
-      cancel-in-progress: false
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.4.2"
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-
-      - name: Install
-        run: bun install --frozen-lockfile --cwd site
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: site
-          path: site/dist
-
-      - name: Deploy
-        run: bun run --cwd site deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_SEND_METRICS: "false"
