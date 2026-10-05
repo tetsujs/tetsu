@@ -13,6 +13,11 @@ API.
   as soon as the hook returns, so the one `serve()` registers stopped it
   before the first test
   ([#72](https://github.com/tetsujs/tetsu/issues/72)).
+- Every package's README links its page on the site, the same page as
+  Markdown, and `llms-full.txt`, the whole documentation in one file, and
+  says that the type definitions document every option. The core's
+  pointed at `llms.txt`, which is only the index
+  ([#75](https://github.com/tetsujs/tetsu/issues/75)).
 
 ### Fixed
 

@@ -64,8 +64,12 @@ Everything is on **[tetsujs.com](https://tetsujs.com/docs/)**: a
 [quick start](https://tetsujs.com/docs/quick-start/), the
 [key concepts](https://tetsujs.com/docs/key-concepts/), guides for
 testing, authentication, deploying and more, and a reference for every
-export. For AI tools, the whole documentation is in
-[llms.txt](https://tetsujs.com/llms.txt).
+export. For AI tools, the whole documentation is in one file,
+[llms-full.txt](https://tetsujs.com/llms-full.txt), and every page is also
+served as Markdown: add `.md` to its address, as in
+[docs/packages/core.md](https://tetsujs.com/docs/packages/core.md). Every
+export and option is also documented in the type definitions the packages
+ship, which editors and tools read from `node_modules`.
 
 ## Packages
 
