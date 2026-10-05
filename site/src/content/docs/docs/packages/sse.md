@@ -108,7 +108,30 @@ already gone, so the error goes to the application's `reportError` with
 A stopping server waits for every response in flight, and a stream never
 finishes on its own. `until` ends it from outside: pass the `draining`
 signal of `@tetsujs/lifecycle`, and clients reconnect to another server.
-See [Streams and sockets](/docs/guides/health-and-shutdown/#streams-and-sockets).
+
+`onShutdownSignals()` takes the server, and the server is built from the
+routes, so the handler reads the signal when a request comes in, after the
+server and the signal exist:
+
+```ts twoslash
+declare function feed(signal: AbortSignal): AsyncGenerator<{ data: string }>;
+// ---cut---
+import { createApp, route } from "@tetsujs/core";
+import { onShutdownSignals } from "@tetsujs/lifecycle";
+import { sse } from "@tetsujs/sse";
+
+const live = route({
+  method: "GET",
+  path: "/feed",
+  handler: (ctx) => sse(ctx, feed, { until: shutdown.draining }),
+});
+
+const server = Bun.serve({ ...createApp({ routes: { live } }), port: 3000 });
+const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+```
+
+A controller built from its dependencies takes the signal as a function;
+see [Streams and sockets](/docs/guides/health-and-shutdown/#streams-and-sockets).
 
 ## Idle connections
 

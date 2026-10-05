@@ -102,11 +102,20 @@ export interface SseOptions {
    * server that is stopping closes its streams on — see
    * {@link StreamOptions.until}.
    *
+   * `draining` exists only once the server does, and the server is built
+   * from the routes: the handler reads it when a request comes in, by
+   * which time it is there.
+   *
    * @example
    * ```ts
-   * const { draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+   * route({
+   *   method: "GET",
+   *   path: "/feed",
+   *   handler: (ctx) => sse(ctx, feed, { until: shutdown.draining }),
+   * });
    *
-   * sse(ctx, feed, { until: draining });
+   * const server = Bun.serve({ ...app });
+   * const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
    * ```
    */
   readonly until?: AbortSignal;

@@ -38,6 +38,12 @@ API.
   instead of throwing, since a unit test has no connection to time out. A
   handler that sets a timeout, or returns a stream with a keep-alive, can
   be called and read directly.
+- `@tetsujs/lifecycle`, `@tetsujs/sse`: the examples of `stopping` and
+  `draining` are written in the order an application can be: the route,
+  then the server, then `onShutdownSignals(server)`, with the handler
+  reading the signal when a request comes in. They took the signal from a
+  server the routes had to exist before
+  ([#73](https://github.com/tetsujs/tetsu/issues/73)).
 
 ## 0.6.1 — 2026-10-01
 
