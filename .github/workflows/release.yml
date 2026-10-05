@@ -1,10 +1,11 @@
 name: Release
 
 # A version tag publishes every package at that version, then turns the
-# version's CHANGELOG section into a GitHub release. The tag comes after a
-# "release x.y.z" pull request (`bun run release x.y.z`) has been merged:
-# the versions and the changelog are reviewed like any other change, and
-# the tag only says that this commit is the release.
+# version's CHANGELOG section into a GitHub release and deploys the site,
+# which describes what was just published. The tag comes after a "release
+# x.y.z" pull request (`bun run release x.y.z`) has been merged: the
+# versions and the changelog are reviewed like any other change, and the
+# tag only says that this commit is the release.
 on:
   push:
     tags: ["v*"]
@@ -102,3 +103,10 @@ jobs:
 
           bun run scripts/changelog.ts "${GITHUB_REF_NAME#v}" > notes.md
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+
+  # After the publish, not beside it: the publish waits for its reviewer,
+  # and the site must not describe a version npm does not have yet.
+  site:
+    name: site
+    needs: publish
+    uses: ./.github/workflows/site.yml

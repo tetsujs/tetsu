@@ -49,7 +49,9 @@ older compiler; CI does it for every TypeScript version it supports.
 The documentation is the site in `site/`: a change in behaviour updates its
 pages in the same pull request. Every TypeScript example there is compiled
 against the packages while the site is built, so `bun run --cwd site build`
-fails on one that no longer holds. The READMEs only point at the site; the
+fails on one that no longer holds. The site goes out with each release, so
+it describes the version on npm rather than `main`; a change to the site
+alone can go out sooner by running the Site workflow by hand. The READMEs only point at the site; the
 core's is generated from the root one — after editing that, run
 `bun run readme`; a test fails when they differ.
 
