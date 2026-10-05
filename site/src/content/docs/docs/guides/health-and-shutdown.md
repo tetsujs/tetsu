@@ -173,24 +173,43 @@ An event stream or a long poll never finishes on its own. Left open, it
 holds the stop for the whole of `graceMs`, and the process then exits with
 `1`. Close it on `draining`, which aborts after the delay, when the server
 starts to stop. An [event stream](/docs/packages/sse/) takes it as
-`until`:
+`until`.
+
+The signal exists only once the server does, and the server is built from
+the controllers, so a controller takes it as a function, as the health
+controller takes `stopping`, and calls it when a request comes in:
 
 ```ts twoslash
-import { onShutdownSignals } from "@tetsujs/lifecycle";
-declare const server: import("bun").Server<unknown>;
 declare function feed(signal: AbortSignal): AsyncGenerator<{ data: string }>;
 // ---cut---
-import { route } from "@tetsujs/core";
+import { controller, createApp, route } from "@tetsujs/core";
+import { onShutdownSignals } from "@tetsujs/lifecycle";
 import { sse } from "@tetsujs/sse";
 
-const { draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
+const feedController = controller(
+  "Feed",
+  ({ draining }: { draining: () => AbortSignal }) => ({
+    live: route({
+      method: "GET",
+      path: "/feed",
+      handler: (ctx) => sse(ctx, feed, { until: draining() }),
+    }),
+  }),
+);
 
-route({
-  method: "GET",
-  path: "/feed",
-  handler: (ctx) => sse(ctx, feed, { until: draining }),
+const server = Bun.serve({
+  ...createApp({
+    routes: feedController({ draining: () => shutdown.draining }),
+  }),
+  port: 3000,
 });
+
+const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
 ```
+
+By the time a request comes in, `shutdown` exists. A route written in the
+same file as the server can read `shutdown.draining` in its handler
+directly.
 
 Use `draining`, not `stopping`: during the delay the balancer still sends
 traffic here, and a client that reconnects at once would land on this

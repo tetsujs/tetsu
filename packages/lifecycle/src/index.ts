@@ -116,19 +116,25 @@ export interface ShutdownHandle {
    * takes one — a poll loop, a queue consumer, a `fetch` to an upstream
    * that is no longer worth waiting for.
    *
+   * It exists only once the server does, and the server is built from the
+   * routes: a handler reads it when a request comes in, by which time it
+   * is there, and a controller built from its dependencies takes it as a
+   * function.
+   *
    * @example
    * ```ts
-   * const { stopping } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
-   *
-   * ready = route({
+   * const ready = route({
    *   method: "GET",
    *   path: "/readyz",
    *   handler: () => {
-   *     if (stopping.aborted) throw new HttpError(503);
+   *     if (shutdown.stopping.aborted) throw new HttpError(503);
    *
    *     return { ok: true };
    *   },
    * });
+   *
+   * const server = Bun.serve({ ...createApp({ routes: { ready } }) });
+   * const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
    * ```
    */
   readonly stopping: AbortSignal;
@@ -149,15 +155,19 @@ export interface ShutdownHandle {
    * traffic, so a client that reconnects at once lands here again, to be
    * closed again, for as long as the delay runs.
    *
+   * Read, like `stopping`, when a request comes in: the routes are built
+   * before the server, and the signal only with it.
+   *
    * @example
    * ```ts
-   * const { draining } = onShutdownSignals(server, { preStopDelayMs: 5_000 });
-   *
-   * route({
+   * const live = route({
    *   method: "GET",
    *   path: "/feed",
-   *   handler: (ctx) => sse(ctx, feed, { until: draining }),
+   *   handler: (ctx) => sse(ctx, feed, { until: shutdown.draining }),
    * });
+   *
+   * const server = Bun.serve({ ...createApp({ routes: { live } }) });
+   * const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
    * ```
    */
   readonly draining: AbortSignal;
