@@ -46,15 +46,27 @@ function site(files: Record<string, string>): string {
 
 /**
  * The head of the response to a request sent as written: `fetch` would
- * resolve the path, and collapse the leading `//`, before sending it.
+ * resolve the path, and collapse the leading `//`, before sending it, and
+ * always sends a `Host`. `host: null` sends none.
  */
-function rawHead(url: URL, path: string): Promise<string> {
+function rawHead(
+  url: URL,
+  path: string,
+  written: {
+    readonly method?: string;
+    readonly version?: string;
+    readonly host?: string | null;
+  } = {},
+): Promise<string> {
+  const host =
+    written.host === null ? "" : `Host: ${written.host ?? "test"}\r\n`;
+
   return new Promise((resolve, reject) => {
     let received = "";
 
     const socket = connect(Number(url.port), url.hostname, () => {
       socket.write(
-        `GET ${path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n`,
+        `${written.method ?? "GET"} ${path} ${written.version ?? "HTTP/1.1"}\r\n${host}Connection: close\r\n\r\n`,
       );
     });
 
@@ -256,15 +268,55 @@ describe("a refused path", () => {
   });
 });
 
+describe("a request without a usable Host", () => {
+  test("is read as the path it is, as an HTTP/1.0 health check sends it", async () => {
+    expect(
+      await rawHead(request.url, "/", { version: "HTTP/1.0", host: null }),
+    ).toStartWith("HTTP/1.1 200");
+
+    const directory = await rawHead(request.url, "/docs?lang=en", {
+      version: "HTTP/1.0",
+      host: null,
+    });
+
+    expect(directory).toStartWith("HTTP/1.1 301");
+    expect(directory.toLowerCase()).toContain("location: /docs/?lang=en");
+  });
+
+  test("answers HAProxy's default check, OPTIONS / over HTTP/1.0", async () => {
+    expect(
+      await rawHead(request.url, "/", {
+        method: "OPTIONS",
+        version: "HTTP/1.0",
+        host: null,
+      }),
+    ).toStartWith("HTTP/1.1 204");
+  });
+
+  test("with a Host that makes no URL, names no file", async () => {
+    expect(await rawHead(request.url, "/app.js", { host: "[" })).toStartWith(
+      "HTTP/1.1 404",
+    );
+  });
+});
+
 describe("a method other than GET and HEAD", () => {
   test("is a 405 with Allow where a file is", async () => {
     const res = await request("/app.js", { method: "POST" });
 
     expect(res.status).toBe(405);
-    expect(res.headers.get("allow")).toBe("GET, HEAD");
+    expect(res.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
     expect(await res.json()).toMatchObject({ error: "METHOD_NOT_ALLOWED" });
     expect((await request("/docs", { method: "DELETE" })).status).toBe(405);
-    expect((await request("/app.js", { method: "OPTIONS" })).status).toBe(405);
+  });
+
+  test("is OPTIONS, a 204 with Allow where a file is, as a route answers it", async () => {
+    const res = await request("/app.js", { method: "OPTIONS" });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+    expect(await res.text()).toBe("");
+    expect((await request("/docs", { method: "OPTIONS" })).status).toBe(204);
   });
 
   test("is a 404 where no file is, as without files", async () => {
@@ -273,6 +325,7 @@ describe("a method other than GET and HEAD", () => {
     expect(res.status).toBe(404);
     expect(res.headers.get("allow")).toBeNull();
     expect((await request("/.env", { method: "PUT" })).status).toBe(404);
+    expect((await request("/missing", { method: "OPTIONS" })).status).toBe(404);
   });
 });
 

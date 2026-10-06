@@ -50,7 +50,8 @@ const assets = route({
 `/assets/app.css` is `public/app.css`. A route without `*`, such as
 `/robots.txt`, serves its own path from the root. The route's group, hooks
 and `docs` apply as to any other route, so files behind a sign-in are a
-group with the sign-in hook and a route `/*`.
+group with the sign-in hook and a route `/*`, with a root of their own
+([below](#files-behind-a-guard)).
 
 `root` is resolved against the working directory, as `Bun.file` resolves a
 path, not against the module that calls `staticFiles()`. For the module's
@@ -88,19 +89,52 @@ Symbolic links are followed, as nginx, Caddy and Express follow them: what
 the root links to is served as part of it. What the root holds is yours to
 decide. Serve a build's output, not a project's directory.
 
-A route serves everything below its root, including files that a narrower
-route guards. Bun's router matches a path as it arrives and resolves `..`
-only afterwards. So `/assets/x/../private/report.pdf` is answered by
-`/assets/*`, not by a `/assets/private/*` route with a sign-in hook, and
-the file goes out. Keep files that need a guard out of the root of a
-broader route, in a directory of their own.
+## Files behind a guard
+
+Everything below a root is public, however its path is written. Bun's
+router matches a path as it arrives, while the handler reads it resolved
+and decoded, and the disks of macOS and Windows ignore case. So
+`/x/../reports/q3`, `/%72eports/q3` and, on such a disk, `/REPORTS/q3`
+all miss a `/reports/*` route that requires a sign-in. They reach the
+fallback, or a broader route such as `/*`, and if that root holds
+`reports/q3`, the file goes out.
+
+Files that need a guard live in a directory of their own, served by a
+route with the guard, never below a root that is served without it:
+
+```ts twoslash
+import { createApp, group, hook, httpError, route } from "@tetsujs/core";
+import { staticFiles } from "@tetsujs/static";
+declare function isSignedIn(req: Request): boolean;
+// ---cut---
+const signedIn = hook.beforeParse((ctx) => {
+  if (!isSignedIn(ctx.req)) throw httpError(401);
+});
+
+const app = createApp({
+  routes: [
+    group("/reports", {
+      hooks: { beforeParse: [signedIn] },
+      children: [
+        route({ method: "GET", path: "/*", handler: staticFiles({ root: "./reports" }) }),
+      ],
+    }),
+  ],
+  fallback: staticFiles({ root: "./public" }),
+});
+```
+
+`./reports` is not inside `./public`, so no way of writing a path reaches
+a report through the fallback.
 
 ## Methods
 
-In `fallback`, `GET` and `HEAD` get the file. Another method gets `405`
-with `Allow: GET, HEAD` where a file exists, and `404` where none does, so
-a `POST` to a mistyped API address is the usual `404`. On a route, the
-core answers the other methods, as for any route.
+In `fallback`, `GET` and `HEAD` get the file, and `OPTIONS` gets `204`
+with `Allow: GET, HEAD, OPTIONS`, as a route answers it. Another method
+gets `405` with the same `Allow` where a file exists, and every method
+gets `404` where none does, so a `POST` to a mistyped API address is the
+usual `404`. On a route, the core answers the other methods, as for any
+route.
 
 ## Caching
 

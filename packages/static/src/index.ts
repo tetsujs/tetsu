@@ -172,16 +172,21 @@ export type StaticHandler = (ctx: BaseCtx) => Promise<Response>;
  *   `notFound` page or the `spa` shell. So is a path refused before the
  *   disk is touched: `..`, an encoded `/` or `\`, an empty segment, a NUL,
  *   and a dotfile other than `.well-known`.
- * - **A method other than `GET` and `HEAD`** is a `405` with `Allow` where a
- *   file exists, and a `404` where none does, so a `POST` to a mistyped
- *   API address is the `404` it would be without files. On a route, the
- *   core answers the other methods before the handler runs.
+ * - **`OPTIONS`** is a `204` with `Allow: GET, HEAD, OPTIONS` where a file
+ *   exists, as a route answers it, and any other method besides `GET` and
+ *   `HEAD` a `405` with the same `Allow`. Where no file exists, both are a
+ *   `404`, so a `POST` to a mistyped API address is the `404` it would be
+ *   without files. On a route, the core answers these methods before the
+ *   handler runs.
  * - **Symbolic links** are followed, as nginx, Caddy and Express follow
  *   them. What the root links to is served as part of it.
- * - **Files a narrower route guards** are served too when they are below
- *   the root. Bun's router matches a path as it arrives and resolves `..`
- *   afterwards, so `/assets/x/../private/a.pdf` reaches `/assets/*`, not a
- *   guarded `/assets/private/*`. Keep guarded files out of a broader root.
+ * - **Everything below the root is public**, however its path is written.
+ *   Bun's router matches a path as it arrives, the handler reads it
+ *   resolved and decoded, and the disks of macOS and Windows ignore case:
+ *   `/x/../reports/q3`, `/%72eports/q3` and `/REPORTS/q3` miss a guarded
+ *   `/reports/*` and reach the fallback or a broader route. Files behind a
+ *   guard live in a directory of their own, served by the route with the
+ *   guard, never below a root served without it.
  * - **A failure of the disk** other than a missing file, such as a
  *   permission, is thrown, and is a `500`.
  *
@@ -277,9 +282,24 @@ interface Copy {
   readonly encoding: Encoding;
 }
 
-/** What one request is answered with. */
+/** The methods a file answers, listed as for a route that serves `GET`. */
+const allow = "GET, HEAD, OPTIONS";
+
+/**
+ * What one request is answered with.
+ *
+ * `req.url` is not always a whole URL. Without a usable `Host`, as in an
+ * HTTP/1.0 health check, Bun leaves it relative, `/index.html`, and it is
+ * read against a placeholder origin, as the path it is. A `Host` such as
+ * `[` makes it no URL at all, and that names no file.
+ */
 async function answer(settings: Settings, ctx: BaseCtx): Promise<Response> {
-  const url = new URL(ctx.req.url);
+  const url = URL.parse(ctx.req.url, "http://localhost");
+
+  if (url === null) {
+    throw httpError(404);
+  }
+
   const path = filePath(url.pathname, ctx.route?.path);
   const found = path === undefined ? undefined : locate(settings, path);
   const method = ctx.req.method;
@@ -289,7 +309,11 @@ async function answer(settings: Settings, ctx: BaseCtx): Promise<Response> {
       throw httpError(404);
     }
 
-    ctx.out.headers.set("allow", "GET, HEAD");
+    if (method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: { allow } });
+    }
+
+    ctx.out.headers.set("allow", allow);
 
     throw httpError(405);
   }
