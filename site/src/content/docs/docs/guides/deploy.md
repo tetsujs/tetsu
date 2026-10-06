@@ -48,6 +48,13 @@ Without a `hostname`, Bun listens on every interface, which is what a
 container needs. A server on `localhost` only is unreachable from outside
 the container.
 
+Bun compresses no response. A proxy or a CDN in front can, on its own
+processor rather than the application's. nginx does with `gzip on`, and
+compresses only `text/html` until `gzip_types` names more types, such as
+`application/json`. Files can go out compressed without a proxy:
+[`@tetsujs/static`](/docs/packages/static/#compressed-copies) sends the
+copies a build compressed once.
+
 ## Configuration
 
 The core reads no environment variables. `main.ts` reads the environment

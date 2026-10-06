@@ -100,6 +100,7 @@ released together.
 | [`@tetsujs/request-log`](/docs/packages/request-log/) | access and arrival logs |
 | [`@tetsujs/secure-headers`](/docs/packages/secure-headers/) | security headers |
 | [`@tetsujs/sse`](/docs/packages/sse/) | server-sent events and streamed responses |
+| [`@tetsujs/static`](/docs/packages/static/) | static files: a built site, a single-page app or assets |
 | [`@tetsujs/lifecycle`](/docs/packages/lifecycle/) | graceful shutdown |
 
 Next: [Quick start](/docs/quick-start/).
