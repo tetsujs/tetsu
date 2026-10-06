@@ -118,13 +118,15 @@ export interface AppConfig<
   readonly validateResponses?: boolean;
 
   /**
-   * Maximum request body size in bytes for routes that declare a `body`
-   * schema. Defaults to 1 MiB.
+   * Maximum size in bytes of a request body the framework reads: a route's
+   * with a `body` schema, a `bodyType` or `rawBody`. Defaults to 1 MiB.
    *
    * A `content-length` above the limit is rejected with a `413` before a
    * single byte is read; a chunked request is dropped as soon as the
    * buffered stream crosses the limit. Either way an oversized body costs
-   * no parsing and no validation.
+   * no parsing and no validation. A `"stream"` body is the exception: it is
+   * counted as the handler reads it, so its `413` comes with the handler
+   * already running, and none comes if the handler stops reading first.
    *
    * The chunked rejection abandons the stream mid-flight, which leaves the
    * connection's framing broken: the client gets its `413`, but that
@@ -133,7 +135,7 @@ export interface AppConfig<
    *
    * The framework only guards the body it parses itself: a handler reading
    * `ctx.req` directly is not capped. The ceiling for everything else is
-   * Bun's own `maxRequestBodySize` (default 128 MB), set where the app is
+   * Bun's own `maxRequestBodySize` (default 128 MiB), set where the app is
    * served: `Bun.serve({ ...app, maxRequestBodySize })`.
    */
   readonly maxBodySize?: number;

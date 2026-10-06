@@ -144,8 +144,8 @@ export interface BaseCtx {
    *
    * The way to reach connection- and server-level facts a `Request` does
    * not carry: `ctx.server.requestIP(ctx.req)` for rate limiting by
-   * address, `ctx.server.upgrade(ctx.req)` for WebSockets,
-   * `ctx.server.timeout(ctx.req, seconds)` for a per-request idle timeout.
+   * address, `ctx.server.timeout(ctx.req, seconds)` for a per-request idle
+   * timeout.
    *
    * An address is in the form the socket reports it: a server listening on
    * both stacks — Bun's default — reports an IPv4 client as
@@ -157,9 +157,10 @@ export interface BaseCtx {
    * operations with no business inside a request — calling
    * `ctx.server.stop()` from a hook takes the whole listener down.
    *
-   * `upgrade` works only when a `websocket` handler was passed to
-   * `Bun.serve` alongside the app: `Bun.serve({ ...app, websocket })`;
-   * without one it throws.
+   * `upgrade` is for the endpoints `ws()` declares, which the application
+   * upgrades itself. A socket upgraded by hand reaches the application's
+   * `websocket` handler with no endpoint on it: the connection drops, and
+   * each of its events is reported as a failure.
    */
   readonly server: Server<unknown>;
 
