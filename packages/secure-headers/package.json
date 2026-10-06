@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/secure-headers",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Security headers for every Tetsu response: HSTS, CSP, frame and referrer policies",
   "keywords": [
     "bun",
