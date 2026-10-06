@@ -388,3 +388,112 @@ describe("a validator of your own", () => {
     expect(Object.keys(schema.$defs as object)).toContain("NoSuchUser");
   });
 });
+
+describe("a body under a range of media types", () => {
+  const stylesheet = () =>
+    new Response("a{}", {
+      headers: { "content-type": "text/css; charset=utf-8" },
+    });
+
+  const ranged = createApp({
+    routes: {
+      any: route({
+        method: "GET",
+        path: "/any",
+        schema: { response: { 200: { contentType: "*/*" } } },
+        handler: stylesheet,
+      }),
+      text: route({
+        method: "GET",
+        path: "/text",
+        schema: { response: { 200: { contentType: "text/*" } } },
+        handler: stylesheet,
+      }),
+      images: route({
+        method: "GET",
+        path: "/images",
+        schema: { response: { 200: { contentType: "image/*" } } },
+        handler: stylesheet,
+      }),
+      css: route({
+        method: "GET",
+        path: "/css",
+        schema: { response: { 200: { contentType: "Text/CSS" } } },
+        handler: stylesheet,
+      }),
+    },
+  });
+
+  const paths = openapi(ranged, {
+    info: { title: "Ranges", version: "1" },
+  }).document;
+  const call = serve(ranged);
+
+  test.each([
+    ["any type", "/any"],
+    ["a type of the range's own", "/text"],
+    ["a type spelled in another case", "/css"],
+  ])("takes %s", async (_, path) => {
+    expect(
+      await failure(assertDescribed(paths, `GET ${path}`, await call(path))),
+    ).toBeUndefined();
+  });
+
+  test("refuses a type outside the range", async () => {
+    expect(
+      await failure(
+        assertDescribed(paths, "GET /images", await call("/images")),
+      ),
+    ).toContain('a body of type "text/css", where its 200 describes image/*');
+  });
+});
+
+describe("a body of a type other than JSON", () => {
+  const Line = described<string>({ type: "string" });
+
+  const exported = createApp({
+    routes: {
+      empty: route({
+        method: "GET",
+        path: "/empty.csv",
+        schema: { response: { 200: { contentType: "text/csv" } } },
+        handler: () =>
+          new Response("", { headers: { "content-type": "text/csv" } }),
+      }),
+      rows: route({
+        method: "GET",
+        path: "/rows",
+        schema: {
+          response: {
+            200: { contentType: "application/x-ndjson", body: Line },
+          },
+        },
+        handler: () =>
+          new Response('{"id":1}\n{"id":2}\n', {
+            headers: { "content-type": "application/x-ndjson" },
+          }),
+      }),
+      file: route({
+        method: "GET",
+        path: "/file",
+        schema: { response: { 200: { contentType: "*/*", body: Line } } },
+        handler: () => Response.json({ id: 1 }),
+      }),
+    },
+  });
+
+  const paths = openapi(exported, {
+    info: { title: "Files", version: "1" },
+  }).document;
+  const call = serve(exported);
+
+  test.each([
+    ["empty, as an export with no rows", "/empty.csv"],
+    ["lines of JSON, not one value to parse", "/rows"],
+    ["JSON under a range, whose schema describes bytes", "/file"],
+  ])("passes when it is %s", async (_, path) => {
+    expect(
+      await failure(assertDescribed(paths, `GET ${path}`, await call(path))),
+    ).toBeUndefined();
+  });
+});

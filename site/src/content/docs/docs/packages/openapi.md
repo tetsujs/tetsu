@@ -61,9 +61,11 @@ const list = route({
 ```
 
 `docs` also takes `description`, `deprecated`, and `hidden: true`, which
-leaves the route out of the document while it is still served. WebSocket
-endpoints are never in the document: OpenAPI cannot describe what happens
-after the handshake.
+leaves the route out of the document while it is still served.
+`hidden: false` keeps a route in when its handler would hide it, see
+[Documenting a handler](#documenting-a-handler). WebSocket endpoints are
+never in the document: OpenAPI cannot describe what happens after the
+handshake.
 
 ## Options
 
@@ -93,7 +95,7 @@ and the page finds the document there.
 | `summary`, `description`, `tags`, `deprecated` | the route's `docs` |
 | parameters | `schema.params`, `query`, `headers` and `cookies`, required as the schema says |
 | the request body | `schema.body` and `bodyType`; required unless `bodyType` is `text` or `stream` |
-| responses | `schema.response`, hooks annotated with [`documented()` and `secured()`](#documenting-hooks), and the [failures the framework adds](#responses-the-framework-adds) |
+| responses | `schema.response`, hooks annotated with [`documented()` and `secured()`](#documenting-hooks), a handler annotated with [`documented()`](#documenting-a-handler), and the [failures the framework adds](#responses-the-framework-adds) |
 | `security` | `secured()` hooks on the route, its groups and the application |
 
 Schemas are converted through Standard Schema's JSON Schema support, which
@@ -104,13 +106,22 @@ Responses follow the route's response map (see
 [Responses](/docs/concepts/responses/)):
 
 - One schema is a `200`. A map gives its statuses. `null`, or an entry
-  without `body`, is a status without a body.
+  without `body` or a `contentType` other than JSON, is a status without a
+  body.
 - A route with no `schema.response` is documented as `200`. If its handler
   can answer `204`, declare `204: null`.
 - An entry `{ body, headers, cookies }` documents its headers, required as
   its schema says, and its cookies as one `set-cookie` header.
-- When several sources answer with one status, the body is one flat
-  `anyOf`, the route's own schema first.
+- An entry with `contentType` documents its body under that media type
+  instead of `application/json`, with `body` as its schema, or by the type
+  alone without one: a CSV export, a file, `"text/event-stream"` for
+  [`sse()`](/docs/packages/sse/#in-the-openapi-document). See
+  [Responses](/docs/concepts/responses/#a-body-that-is-not-json). OpenAPI
+  3.1 cannot describe the events of a stream one by one, so a stream is
+  documented by its type alone.
+- When several sources answer with one status, the JSON body is one flat
+  `anyOf`, the route's own schema first. A body of another type is listed
+  next to it under its own media type.
 
 ## Operation ids
 
@@ -238,6 +249,9 @@ come documented already.
 
 A response in `documented()` takes:
 
+- `contentType`: the media type of a body that is not JSON, such as
+  `"text/html"`, without parameters. `documented()` throws on anything but
+  a bare type or a range.
 - `error`: the envelope's code, documented as a `const`.
 - `fields`: what the hook adds next to `status`, `message` and `error`,
   always present.
@@ -245,6 +259,9 @@ A response in `documented()` takes:
   required.
 - `message`: an example of the envelope's message.
 - `schema`: the body, for a hook that does not answer with the envelope.
+
+Without `schema` or `contentType`, an error status is the envelope and any
+other status, such as a redirect, has no body.
 
 `fields` and `headers` are JSON Schema typed keyword by keyword
 (`JsonSchema`), so a misspelled keyword does not compile.
@@ -283,6 +300,47 @@ export const caller = secured(hook.beforeParse((ctx) => ({ user: sessionOrToken(
 
 With a CSRF check on the same route, the document says
 `security: [{ session: [], csrf: [] }, { bearer: [], csrf: [] }]`.
+
+## Documenting a handler
+
+A handler a package hands out, such as one serving a directory of files,
+can describe every route it is mounted on, the way a hook describes the
+routes it guards. `documented()` takes the handler and returns a copy that
+answers the same way:
+
+```ts twoslash
+import type { BaseCtx } from "@tetsujs/core";
+declare function readFile(ctx: BaseCtx): Promise<Response>;
+// ---cut---
+import { documented } from "@tetsujs/openapi";
+
+export const files = documented(readFile, {
+  hidden: true,
+  responses: [
+    {
+      status: 200,
+      description: "The file",
+      contentType: "*/*",
+      headers: { etag: { schema: { type: "string" } } },
+    },
+    { status: 304, description: "Not modified" },
+    { status: 404, description: "No such file", error: "NOT_FOUND" },
+  ],
+});
+```
+
+- Its responses are the route's own: a route that mounts it needs no
+  `schema.response`, and gets no placeholder `200`.
+- `hidden: true` keeps every route that mounts it out of the document,
+  unless the route says `docs: { hidden: false }`. The route's own word
+  wins either way.
+- An arrow that wraps the handler is what the route then mounts, and it
+  says nothing. Hide such a route, or describe it, on the route itself.
+
+Annotate a handler whose type is already settled, such as a package's. An
+arrow written inside `documented()` on a route does not get the route's
+context and does not compile; a route of your own describes its statuses
+in its response map.
 
 ## An error format of your own
 
@@ -378,7 +436,11 @@ POST /session answered 403, which the document does not describe:
 
 The second argument is the method and the path the test requested, such as
 `"GET /users/42"`; it is matched against the document's path templates. The
-body is read from a clone, so the test can still read the response.
+body is read from a clone, so the test can still read the response. Its
+media type is compared without regard to case, and a range in the document,
+such as `image/*` or `*/*`, takes every type in it. The body is parsed and
+checked only under `application/json` or a `+json` type; under any other
+type, an empty body passes, as an export with no rows does.
 
 | Option | Default | |
 | --- | --- | --- |
@@ -487,9 +549,9 @@ leaves the page blank. That page shows how to lift the policy for this route.
 - `docs` and `DocsController`, with `DocsOptions`.
 - `openapi`, with `OpenApiOptions`, `GeneratorResult` and `GeneratorWarning`.
 - `docsPage`, with `DocsPageOptions`, `DocsUi` and `DocsAssets`.
-- `documented` and `secured`, with `HookDocs`, `DocumentedResponse`,
-  `DocumentedHeader`, `SecurityRequirement`, `SecurityAlternatives`,
-  `SecurityScheme` and `HookContributions`.
+- `documented` and `secured`, with `HookDocs`, `HandlerDocs`,
+  `DocumentedResponse`, `DocumentedHeader`, `SecurityRequirement`,
+  `SecurityAlternatives`, `SecurityScheme` and `HookContributions`.
 - `ErrorFormat` and `DocumentedFailure`, for an error format of your own.
 - `JsonSchema`, `JsonSchemaKeywords` and `JsonSchemaType`, for JSON Schema
   written by hand.
