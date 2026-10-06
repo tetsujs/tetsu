@@ -88,6 +88,10 @@ describe("a route of files", () => {
     expect(responses["301"]?.content).toBeUndefined();
     expect(Object.keys(responses["301"]?.headers ?? {})).toEqual(["location"]);
     expect(responses["304"]?.content).toBeUndefined();
+    expect(Object.keys(responses["304"]?.headers ?? {})).toEqual([
+      "etag",
+      "cache-control",
+    ]);
     expect(Object.keys(responses["404"]?.content ?? {})).toEqual([
       "application/json",
     ]);
@@ -114,6 +118,11 @@ describe("a route of files", () => {
       "content-encoding",
     );
     expect(Object.keys(responses["200"]?.headers ?? {})).toContain("vary");
+    expect(Object.keys(responses["304"]?.headers ?? {})).toEqual([
+      "etag",
+      "cache-control",
+      "vary",
+    ]);
   });
 
   test("wrapped in an arrow, tells the document nothing", () => {

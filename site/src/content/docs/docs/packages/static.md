@@ -88,6 +88,13 @@ Symbolic links are followed, as nginx, Caddy and Express follow them: what
 the root links to is served as part of it. What the root holds is yours to
 decide. Serve a build's output, not a project's directory.
 
+A route serves everything below its root, including files that a narrower
+route guards. Bun's router matches a path as it arrives and resolves `..`
+only afterwards. So `/assets/x/../private/report.pdf` is answered by
+`/assets/*`, not by a `/assets/private/*` route with a sign-in hook, and
+the file goes out. Keep files that need a guard out of the root of a
+broader route, in a directory of their own.
+
 ## Methods
 
 In `fallback`, `GET` and `HEAD` get the file. Another method gets `405`

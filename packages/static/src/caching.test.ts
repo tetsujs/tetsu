@@ -154,6 +154,7 @@ describe("Range", () => {
     expect(await res.text()).toBe("01234");
     expect(res.headers.get("content-range")).toBe("bytes 0-4/20");
     expect(res.headers.get("etag")).toBe(tag);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
   test("outside the file is a 416", async () => {
@@ -163,6 +164,7 @@ describe("Range", () => {
 
     expect(res.status).toBe(416);
     expect(res.headers.get("content-range")).toBe("bytes */20");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
   test("holds with If-Range naming the file's Last-Modified", async () => {

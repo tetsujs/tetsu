@@ -178,6 +178,10 @@ export type StaticHandler = (ctx: BaseCtx) => Promise<Response>;
  *   core answers the other methods before the handler runs.
  * - **Symbolic links** are followed, as nginx, Caddy and Express follow
  *   them. What the root links to is served as part of it.
+ * - **Files a narrower route guards** are served too when they are below
+ *   the root. Bun's router matches a path as it arrives and resolves `..`
+ *   afterwards, so `/assets/x/../private/a.pdf` reaches `/assets/*`, not a
+ *   guarded `/assets/private/*`. Keep guarded files out of a broader root.
  * - **A failure of the disk** other than a missing file, such as a
  *   permission, is thrown, and is a `500`.
  *
@@ -401,6 +405,10 @@ function missing(settings: Settings, ctx: BaseCtx): Response {
  * Bun cuts a `Range` out of any file sent with `200`. When `If-Range` says
  * the client's part belongs to another file, the whole one goes out as a
  * stream, which Bun leaves whole, without a length.
+ *
+ * `Accept-Ranges` goes only to a request without `Range`. Bun sends its own
+ * with the `206` or `416` it makes of one, and the header would be there
+ * twice.
  */
 function send(
   settings: Settings,
@@ -437,9 +445,13 @@ function send(
     return new Response(body, { status, headers });
   }
 
-  headers.set("accept-ranges", "bytes");
+  if (!req.headers.has("range")) {
+    headers.set("accept-ranges", "bytes");
 
-  if (req.headers.has("range") && !rangeHolds(req, sent.stats.mtimeMs)) {
+    return new Response(body, { status, headers });
+  }
+
+  if (!rangeHolds(req, sent.stats.mtimeMs)) {
     return new Response(body.stream().pipeThrough(new TransformStream()), {
       status,
       headers,
@@ -725,13 +737,16 @@ function describe(settings: Settings): HandlerDocs {
       schema: text,
     },
   };
+  const varied: Record<string, DocumentedHeader> = settings.precompressed
+    ? { vary: { description: "Accept-Encoding", schema: text } }
+    : {};
   const compression: Record<string, DocumentedHeader> = settings.precompressed
     ? {
         "content-encoding": {
           description: "The compression of the copy sent, when one was",
           schema: { type: "string", enum: Object.keys(encodings) },
         },
-        vary: { description: "Accept-Encoding", schema: text },
+        ...varied,
       }
     : {};
 
@@ -775,7 +790,7 @@ function describe(settings: Settings): HandlerDocs {
     {
       status: 304,
       description: "The client's copy is still the file",
-      headers: validators,
+      headers: { ...validators, ...varied },
     },
     { status: 404, description: "No such file", error: "NOT_FOUND" },
   );
