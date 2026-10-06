@@ -1038,7 +1038,9 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
  * by the code it is about, so a reader sees which description goes with
  * which code — descriptions are CommonMark, and every renderer draws the
  * list. The same code said the same way twice, by the route and a hook,
- * is one item. With nothing said at all, the route's placeholder stands.
+ * is one item, and so are words with no code that a coded item already
+ * says — the page of a 404 described as its envelope is. With nothing said
+ * at all, the route's placeholder stands.
  */
 function wording(list: readonly Answer[]): string {
   const seen = new Set<string>();
@@ -1055,14 +1057,21 @@ function wording(list: readonly Answer[]): string {
     }
   }
 
-  const [only] = items;
+  const coded = new Set(
+    items.flatMap((item) => (item.code === undefined ? [] : [item.text])),
+  );
+  const said = items.filter(
+    (item) => item.code !== undefined || !coded.has(item.text),
+  );
 
-  if (items.length === 1 && only) {
+  const [only] = said;
+
+  if (said.length === 1 && only) {
     return only.text;
   }
 
-  if (items.length > 1) {
-    return items
+  if (said.length > 1) {
+    return said
       .map((item) =>
         item.code === undefined
           ? `- ${item.text}`

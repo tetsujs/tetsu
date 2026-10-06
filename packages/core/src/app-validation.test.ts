@@ -1556,6 +1556,20 @@ describe("a status declared with a content type of its own", () => {
     ).toThrow('A response map is keyed by status, got "contentType"');
   });
 
+  test.each([
+    ["a schema factory left uncalled", () => Public, "a function"],
+    ["a bigint", 200n, "a bigint"],
+  ])("names %s by its kind when refusing it", (_, entry, kind) => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/kind",
+        schema: { response: { 200: entry } as never },
+        handler: () => new Response(""),
+      }),
+    ).toThrow(`The 200 entry of a response map is ${kind}`);
+  });
+
   test("refuses an entry that is neither a schema, null nor its parts", () => {
     expect(() =>
       route({

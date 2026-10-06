@@ -981,6 +981,7 @@ export type responseEntryCases = [
     >
   >,
   Expect<
+    // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
     Equal<Exclude<EntryResult, Response | undefined | void>, { id: number }>
   >,
   Expect<
@@ -1039,6 +1040,7 @@ export type maybeBodyCases = [
     Equal<
       Exclude<
         HandlerResult<{ response: { 201: typeof maybeBody } }>,
+        // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
         Response | undefined | void
       >,
       { id: number }
@@ -1056,6 +1058,7 @@ export type maybeBodyCases = [
     Equal<
       Exclude<
         HandlerResult<{ response: { 201: typeof nullableBody } }>,
+        // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
         Response | undefined | void
       >,
       { id: number }

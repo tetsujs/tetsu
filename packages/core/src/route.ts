@@ -579,7 +579,7 @@ function assertResponseEntries(response: unknown): void {
 
     if (typeof entry !== "object") {
       throw new Error(
-        `The ${status} entry of a response map is ${JSON.stringify(entry)} — a status takes a schema, null, or { body, headers, cookies, contentType }`,
+        `The ${status} entry of a response map is ${shown(entry)} — a status takes a schema, null, or { body, headers, cookies, contentType }`,
       );
     }
 
@@ -604,6 +604,27 @@ function assertResponseEntries(response: unknown): void {
       );
     }
   }
+}
+
+/**
+ * A value as an error message can show it: a string quoted, a number or a
+ * boolean as written, anything else by its kind — a schema factory left
+ * uncalled is "a function", and a bigint does not break the message.
+ */
+function shown(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === undefined
+  ) {
+    return String(value);
+  }
+
+  return `a ${typeof value}`;
 }
 
 /**

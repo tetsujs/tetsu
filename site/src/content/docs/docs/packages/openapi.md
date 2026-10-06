@@ -105,9 +105,9 @@ Valibot needs `toStandardJsonSchema` from `@valibot/to-json-schema`.
 Responses follow the route's response map (see
 [Responses](/docs/concepts/responses/)):
 
-- One schema is a `200`. A map gives its statuses. `null`, or an entry
-  without `body` or a `contentType` other than JSON, is a status without a
-  body.
+- One schema is a `200`. A map gives its statuses. `null` is a status
+  without a body, and so is an entry with neither `body` nor a
+  `contentType` of its own.
 - A route with no `schema.response` is documented as `200`. If its handler
   can answer `204`, declare `204: null`.
 - An entry `{ body, headers, cookies }` documents its headers, required as
@@ -193,9 +193,9 @@ alternative of a status is an envelope, the status gets a `discriminator` on
 
 A status's description comes from what answers with it: the `description`
 of the route's schema (`.describe()` in Zod and ArkType, `v.description()`
-in Valibot, `{ description }` in TypeBox), a hook's `documented()`
-description, or the framework's own. Several descriptions become a list led
-by each code:
+in Valibot, `{ description }` in TypeBox), a hook's or a handler's
+`documented()` description, or the framework's own. Several descriptions
+become a list led by each code:
 
 ```md
 - `ACCOUNT_DISABLED`: this account is disabled

@@ -11,9 +11,10 @@ API.
   body that is not JSON — `{ 200: { contentType: "text/csv", body } }` —
   for a status the handler answers with a `Response` it builds: a file, a
   CSV export, `sse()`. Returning a value for it, or nothing, is a compile
-  error, since a value would leave as JSON and nothing as an empty body;
-  where the compiler cannot see the type, it is a `500` when responses
-  are validated. `route()` refuses a content type that is not a bare
+  error, since a value would leave as JSON and nothing as an empty body; a
+  type the compiler knows only as a `string` counts as not JSON, and where
+  it does not see the key at all, it is a `500` when responses are
+  validated. `route()` refuses a content type that is not a bare
   type or range, such as one with a charset.
 - `@tetsujs/openapi`: such a status is documented under its own media
   type, with its `body` as the schema, instead of `application/json`.
@@ -32,9 +33,11 @@ API.
 
 - `@tetsujs/core`: a response map keyed by anything but a status, or with
   an entry that is neither a schema, `null` nor an object of parts, is
-  refused where the route is declared. It passed, and every response then
-  failed with "Handler answered 200, which its response map does not
-  declare", while `openapi()` threw a `TypeError`.
+  refused where the route is declared. It passed: a key that is not a
+  status matched no response and was documented as one, an entry such as a
+  bare string made every validated response of its status a `500`, an
+  `undefined` entry went unchecked, and `openapi()` threw a `TypeError` on
+  either of the last two.
 - `@tetsujs/openapi`: a response a hook documents below `400` without a
   `schema` has no body in the document — a redirect, or the refusal of a
   `secured()` hook that sends to a sign-in page. It was described as the

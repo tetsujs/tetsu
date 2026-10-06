@@ -330,6 +330,101 @@ describe("what a hook says about a response", () => {
   test("a hook names a media type the same way a handler does", () => {
     expect(answers["406"]?.content).toEqual({ "text/html": {} });
   });
+
+  test("two bodies of one status and one description are both described", () => {
+    const both = documented(
+      hook.beforeParse(() => undefined),
+      {
+        responses: [
+          { status: 404, description: "Not found", error: "NOT_FOUND" },
+          { status: 404, description: "Not found", contentType: "text/html" },
+        ],
+      },
+    );
+
+    const missing = responsesOf(
+      generate(
+        createApp({
+          routes: {
+            page: route({
+              method: "GET",
+              path: "/page",
+              hooks: { beforeParse: [both] },
+              handler: () => ({ ok: true }),
+            }),
+          },
+        }),
+      ),
+      "/page",
+    )["404"];
+
+    expect(Object.keys(missing?.content ?? {})).toEqual([
+      "application/json",
+      "text/html",
+    ]);
+    expect(missing?.description).toBe("Not found");
+  });
+
+  test("two guards answering one status with their own codes are both described", () => {
+    const owner = documented(
+      hook.beforeParse(() => undefined),
+      {
+        responses: [
+          { status: 403, description: "Forbidden", error: "NOT_OWNER" },
+        ],
+      },
+    );
+    const admin = documented(
+      hook.beforeParse(() => undefined),
+      {
+        responses: [
+          { status: 403, description: "Forbidden", error: "NOT_ADMIN" },
+        ],
+      },
+    );
+
+    const forbidden = responsesOf(
+      generate(
+        createApp({
+          routes: {
+            post: route({
+              method: "GET",
+              path: "/posts/:id",
+              hooks: { beforeParse: [owner, admin] },
+              handler: () => ({ ok: true }),
+            }),
+          },
+        }),
+      ),
+      "/posts/{id}",
+    )["403"];
+
+    expect(forbidden?.description).toBe(
+      "- `NOT_OWNER`: Forbidden\n- `NOT_ADMIN`: Forbidden",
+    );
+  });
+});
+
+describe("what documented() takes", () => {
+  test("refuses hidden for a hook, which hides no route", () => {
+    expect(() =>
+      documented(
+        hook.beforeParse(() => undefined),
+        { hidden: true },
+      ),
+    ).toThrow("documented() was given hidden for a hook");
+  });
+
+  test("refuses security for a handler, as a hook enforces it", () => {
+    expect(() =>
+      documented(file, {
+        security: {
+          name: "bearer",
+          scheme: { type: "http", scheme: "bearer" },
+        },
+      }),
+    ).toThrow("documented() was given security for a handler");
+  });
 });
 
 describe("a content type given to documented()", () => {

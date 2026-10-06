@@ -228,6 +228,14 @@ const handlerDocsKey = "~tetsu/handler-docs";
  * `route()` would have given it, and does not compile; its statuses belong
  * in the route's response map.
  *
+ * One signature, for a hook and a handler alike, and one shape of what is
+ * said about either. An overload for each would keep `hidden` off a hook
+ * and `security` off a handler in the types, but TypeScript before 7
+ * reports a call no overload matches on the whole call, and a misspelled
+ * keyword deep in a response would no longer be pointed at. Those two are
+ * refused here instead, when `documented()` is called — as a module loads,
+ * before anything is served.
+ *
  * @example A hook
  * ```ts
  * export const limiter = documented(hook.beforeParse(check), {
@@ -248,15 +256,24 @@ const handlerDocsKey = "~tetsu/handler-docs";
  * });
  * ```
  */
-export function documented<H extends AnyHook>(hook: H, docs: HookDocs): H;
 export function documented<T extends AnyHook | AnyHandler>(
   target: T,
-  docs: DocsFor<T>,
-): T;
-export function documented<T extends AnyHook | AnyHandler>(
-  target: T,
-  docs: DocsFor<T>,
+  docs: HookDocs & HandlerDocs,
 ): T {
+  const handled = typeof target === "function";
+
+  if (handled && docs.security !== undefined) {
+    throw new Error(
+      "documented() was given security for a handler — security is stated on the hook that enforces it, with secured()",
+    );
+  }
+
+  if (!handled && docs.hidden !== undefined) {
+    throw new Error(
+      "documented() was given hidden for a hook — a route is hidden by its own docs, or by its handler's annotation, not by a hook it mounts",
+    );
+  }
+
   for (const response of docs.responses ?? []) {
     if (
       response.contentType !== undefined &&
@@ -268,7 +285,7 @@ export function documented<T extends AnyHook | AnyHandler>(
     }
   }
 
-  if (typeof target === "function") {
+  if (handled) {
     const handler = target as AnyHandler;
     const copy: AnyHandler = (ctx) => handler(ctx);
 
@@ -290,17 +307,6 @@ export function documented<T extends AnyHook | AnyHandler>(
 
   return annotated as T;
 }
-
-/**
- * What can be said about a hook, or about a handler.
- *
- * The general signature comes last, and that is what keeps an error where
- * it is: when no signature matches, the compiler reports the last one,
- * and this one points at the misspelled keyword, for a hook and a handler
- * alike. The hook's own signature comes first for a helper generic in the
- * hook, as `secured()` is, for which `DocsFor` would stay unresolved.
- */
-type DocsFor<T> = T extends AnyHook ? HookDocs : HandlerDocs;
 
 /**
  * Annotates a hook with the security it enforces — {@link documented} for
@@ -386,11 +392,12 @@ export interface HookContributions {
 /**
  * Collects the contributions of a route's chains.
  *
- * A scheme is registered once per name and a response once per status and
- * description: the same guard on the application and on a group is one
- * requirement, not two. Two hooks of one scheme asking for different
- * scopes both run, so the requirement asks for the scopes of both — each
- * once, in the order they were first asked for.
+ * A scheme is registered once per name: two hooks of one scheme asking for
+ * different scopes both run, so the requirement asks for the scopes of
+ * both — each once, in the order they were first asked for. Responses are
+ * kept as the hooks give them. Two guards may answer one status with one
+ * description and different codes, and both are what the route sends;
+ * answers that say the same are folded when the document is written.
  *
  * Deduplicating by name means two hooks claiming one name with different
  * schemes lose one of them, and that is not a duplicate being collapsed —
@@ -403,7 +410,7 @@ export function contributionsOf(
 ): HookContributions {
   const security = new Map<string, SecurityRequirement>();
   const conditions = new Map<string, readonly SecurityRequirement[]>();
-  const responses = new Map<string, DocumentedResponse>();
+  const responses: DocumentedResponse[] = [];
 
   for (const slot of Object.values(chains)) {
     for (const hook of slot) {
@@ -439,20 +446,14 @@ export function contributionsOf(
         }
       }
 
-      for (const response of docs.responses ?? []) {
-        const key = `${response.status} ${response.description}`;
-
-        if (!responses.has(key)) {
-          responses.set(key, response);
-        }
-      }
+      responses.push(...(docs.responses ?? []));
     }
   }
 
   return {
     security: [...security.values()],
     conditions: [...conditions.values()],
-    responses: [...responses.values()],
+    responses,
   };
 }
 

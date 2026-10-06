@@ -473,11 +473,23 @@ describe("a body of a type other than JSON", () => {
             headers: { "content-type": "application/x-ndjson" },
           }),
       }),
+      untyped: route({
+        method: "GET",
+        path: "/untyped",
+        schema: { response: { 200: { contentType: "*/*" } } },
+        handler: () => new Response(null),
+      }),
       file: route({
         method: "GET",
         path: "/file",
         schema: { response: { 200: { contentType: "*/*", body: Line } } },
         handler: () => Response.json({ id: 1 }),
+      }),
+      json: route({
+        method: "GET",
+        path: "/json",
+        schema: { response: { 200: Line } },
+        handler: () => new Response(null),
       }),
     },
   });
@@ -491,9 +503,16 @@ describe("a body of a type other than JSON", () => {
     ["empty, as an export with no rows", "/empty.csv"],
     ["lines of JSON, not one value to parse", "/rows"],
     ["JSON under a range, whose schema describes bytes", "/file"],
+    ["empty and of no type, under a range of every type", "/untyped"],
   ])("passes when it is %s", async (_, path) => {
     expect(
       await failure(assertDescribed(paths, `GET ${path}`, await call(path))),
     ).toBeUndefined();
+  });
+
+  test("an empty body of no type still fails under JSON, which has no empty value", async () => {
+    expect(
+      await failure(assertDescribed(paths, "GET /json", await call("/json"))),
+    ).toContain("an empty body, where its 200 describes application/json");
   });
 });

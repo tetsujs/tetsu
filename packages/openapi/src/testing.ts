@@ -223,10 +223,17 @@ async function bodyProblems(
 
   /**
    * An empty export, a file of no bytes, a stream that yielded nothing:
-   * empty is content of every type but JSON, which has no empty value.
+   * empty is content of every type but JSON, which has no empty value. An
+   * empty body may carry no type at all, and still be one a status of
+   * another type than JSON describes.
    */
   if (text === "") {
-    return mediaTypes.length === 0 || (key !== undefined && !parsesAsJson(key))
+    const empty =
+      mediaTypes.length === 0 ||
+      (key !== undefined && !parsesAsJson(key)) ||
+      (mediaType === "" && mediaTypes.some((each) => !parsesAsJson(each)));
+
+    return empty
       ? []
       : [
           `an empty body, where its ${status} describes ${mediaTypes.join(", ")}`,

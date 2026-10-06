@@ -98,14 +98,9 @@ export const annotatedHandler: typeof serveFile = documented(serveFile, {
 
 export const handlerTypeKept: (ctx: BaseCtx) => Response = annotatedHandler;
 
-export const hiddenHook = documented(refusal, {
-  // @ts-expect-error a hook does not hide a route: the route and its handler do
-  hidden: true,
-});
-
-export const securedHandler = documented(serveFile, {
-  // @ts-expect-error security is a hook's to state, as the hook enforces it
-  security: { name: "bearer", scheme: { type: "http", scheme: "bearer" } },
+export const misspelledHidden = documented(serveFile, {
+  // @ts-expect-error `hiden` is not a field: the check reaches the top level
+  hiden: true,
 });
 
 export const handlerMisspelledHeader = documented(serveFile, {
@@ -129,6 +124,13 @@ export const contentTypeNumber = documented(serveFile, {
     },
   ],
 });
+
+/** A helper generic in the handler compiles, and can hide what it serves. */
+export function hiddenFiles<F extends (ctx: BaseCtx) => Promise<Response>>(
+  handler: F,
+): F {
+  return documented(handler, { hidden: true });
+}
 
 /** A helper generic in the hook compiles, as `secured()` itself is one. */
 export function withScheme<H extends AnyHook>(

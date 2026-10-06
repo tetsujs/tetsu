@@ -104,9 +104,9 @@ bare type or range makes `route()` throw. See
 
 | Return | Result |
 | --- | --- |
-| `undefined` | `204`, or `ctx.out.status`. A `500` under a status whose `contentType` is not JSON |
+| `undefined` | `204`, or `ctx.out.status`. Under a status whose `contentType` is not JSON, a compile error, or a `500` when responses are validated |
 | a `Response` | sent unchecked; `ctx.out.status` is ignored |
-| another value | JSON, checked by the response schema of its status; `200`, or `ctx.out.status`. A `500` under a status whose `contentType` is not JSON |
+| another value | JSON, checked by the response schema of its status; `200`, or `ctx.out.status`. Under a status whose `contentType` is not JSON, a compile error, or a `500` when responses are validated |
 | a `ReadableStream`, generator or async iterable | compile error; `500` at runtime |
 
 With `response`, the value must be the schema's output or a `Response`.

@@ -258,9 +258,10 @@ sends `x-accel-buffering: no` in `headers`, as `sse()` does on its own.
 
 ## In the OpenAPI document
 
-The [generated document](/docs/packages/openapi/) calls a body JSON unless
-the route says otherwise. Name the stream's type in the response map, and
-the same for `stream()`, with its own type:
+Without a response map, the [generated document](/docs/packages/openapi/)
+says only that the route answers `200`, and nothing of what it sends.
+Name the stream's type in the map, and the same for `stream()`, with its
+own type:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";

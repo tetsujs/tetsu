@@ -223,8 +223,10 @@ route({
   `"*/*"` for a file of any type.
 - Returning a value for such a status is a compile error, and so is
   returning nothing: a value would leave as JSON, nothing as an empty body.
-  Where the compiler cannot see the type, the response is a `500` when
-  responses are validated.
+  A type the compiler knows only as a `string`, in a map declared apart
+  from the route, counts as not JSON; `as const` keeps the literal. Where
+  the compiler does not see the key at all, as in an entry typed as
+  `ResponseEntry`, the response is a `500` when responses are validated.
 - Its `headers` and `cookies` are documented, not checked: only a
   `Response` answers such a status, and a `Response` is not checked.
 - The type goes alone, `"text/csv"` and not `"text/csv; charset=utf-8"`:
