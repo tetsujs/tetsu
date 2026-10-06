@@ -85,12 +85,94 @@ export function releaseNotes(
   const start = sectionStart(changelog, version);
   const after = changelog.slice(changelog.indexOf("\n", start) + 1);
   const previous = /^## (\d+\.\d+\.\d+)/m.exec(after)?.[1];
+  const notes = unwrapped(section);
 
   if (previous === undefined) {
-    return section;
+    return notes;
   }
 
-  return `${section}\n\n**Full Changelog**: ${repository}/compare/v${previous}...v${version}`;
+  return `${notes}\n\n**Full Changelog**: ${repository}/compare/v${previous}...v${version}`;
+}
+
+/**
+ * Markdown with the lines of each paragraph and list item joined into one.
+ *
+ * The changelog is wrapped, which Markdown reads as one paragraph: GitHub
+ * shows `CHANGELOG.md` as written. The text of a release is read as a
+ * comment is, where every line break is kept, and an entry wrapped over
+ * three lines showed as three.
+ *
+ * A line is joined to the one before when it continues it. It does not if
+ * it starts a block of its own (a heading, an item, a quote, a table row,
+ * HTML, a rule, a link definition), or if the line before ends one (blank,
+ * a heading, a table row, HTML, a rule, a break written with two spaces or
+ * a backslash). A block fenced with backticks or tildes stays as it is.
+ * Indented code is not told apart from the lines of an item, and the
+ * changelog fences its code.
+ */
+export function unwrapped(markdown: string): string {
+  const lines: string[] = [];
+  let fence: string | undefined;
+
+  for (const line of markdown.split("\n")) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+
+    if (marker !== undefined && closes(fence, marker)) {
+      fence = fence === undefined ? marker : undefined;
+      lines.push(line);
+
+      continue;
+    }
+
+    const previous = lines.at(-1);
+
+    if (
+      fence === undefined &&
+      previous !== undefined &&
+      continues(line) &&
+      takesMore(previous)
+    ) {
+      lines[lines.length - 1] = `${previous} ${line.trim()}`;
+
+      continue;
+    }
+
+    lines.push(line);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Whether a fence marker opens a block, outside one, or closes the one
+ * `open` began: the same character, at least as many times.
+ */
+function closes(open: string | undefined, marker: string): boolean {
+  return (
+    open === undefined ||
+    (marker[0] === open[0] && marker.length >= open.length)
+  );
+}
+
+/** A line that starts a block of its own. */
+const blockStart =
+  /^(#{1,6}(\s|$)|[|><]|([-*+]|\d+[.)])\s|\[[^\]]+\]:|(-{3,}|\*{3,}|_{3,}|={3,})$)/;
+
+/** A line after which a block has ended. */
+const blockEnd = /^(#{1,6}(\s|$)|[|<]|(-{3,}|\*{3,}|_{3,}|={3,})$|`{3,}|~{3,})/;
+
+/** Whether a line carries on the text of the one before it. */
+function continues(line: string): boolean {
+  const text = line.trim();
+
+  return text !== "" && !blockStart.test(text);
+}
+
+/** Whether the text of a line may go on in the next one. */
+function takesMore(line: string): boolean {
+  const text = line.trim();
+
+  return text !== "" && !blockEnd.test(text) && !/( {2}|\\)$/.test(line);
 }
 
 /**

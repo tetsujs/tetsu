@@ -5,7 +5,12 @@
  */
 
 import { expect, test } from "bun:test";
-import { releaseNotes, releaseSection, stampRelease } from "./changelog.ts";
+import {
+  releaseNotes,
+  releaseSection,
+  stampRelease,
+  unwrapped,
+} from "./changelog.ts";
 
 const changelog = `# Changelog
 
@@ -73,4 +78,92 @@ test("the first release has nothing before it to compare with", () => {
   expect(
     releaseNotes(changelog, "0.1.0", "https://github.com/tetsujs/tetsu"),
   ).toBe("First release.");
+});
+
+test("the notes join the lines of a wrapped entry, which a release would break", () => {
+  const wrapped = `# Changelog
+
+## 0.2.0 — 2026-10-07
+
+### Added
+
+- \`@tetsujs/static\`: serves the files of a directory, a built site or
+  assets, inside the pipeline.
+- A list inside an entry:
+  - one item, wrapped
+    over two lines;
+  - another.
+
+### Changed
+Right under its heading.
+### Fixed
+
+A paragraph, wrapped
+over two lines.
+
+A second paragraph.
+
+\`\`\`ts
+const kept = "as it is";
+  indented(code);
+\`\`\`
+
+## 0.1.0 — 2026-09-24
+
+First release.
+`;
+
+  expect(
+    releaseNotes(wrapped, "0.2.0", "https://github.com/tetsujs/tetsu"),
+  ).toBe(`### Added
+
+- \`@tetsujs/static\`: serves the files of a directory, a built site or assets, inside the pipeline.
+- A list inside an entry:
+  - one item, wrapped over two lines;
+  - another.
+
+### Changed
+Right under its heading.
+### Fixed
+
+A paragraph, wrapped over two lines.
+
+A second paragraph.
+
+\`\`\`ts
+const kept = "as it is";
+  indented(code);
+\`\`\`
+
+**Full Changelog**: https://github.com/tetsujs/tetsu/compare/v0.1.0...v0.2.0`);
+});
+
+test("the notes leave alone the blocks a line does not join", () => {
+  const blocks = [
+    "~~~ts",
+    "const a = 1;",
+    "const b = 2;",
+    "~~~",
+    "",
+    "| a | b |",
+    "| - | - |",
+    "| 1 | 2 |",
+    "",
+    "> one line,",
+    "> and another.",
+    "",
+    "1) first",
+    "2) second",
+    "",
+    "A line ends in a break\\",
+    "and the next stays.",
+    "",
+    "A title",
+    "---",
+    "",
+    "Fixed in the issue",
+    "#42, which a line may begin with.",
+  ].join("\n");
+
+  expect(unwrapped(blocks)).toBe(blocks.replace("issue\n#42", "issue #42"));
 });
