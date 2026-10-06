@@ -1553,7 +1553,35 @@ describe("a status declared with a content type of its own", () => {
         schema: { response: { contentType: "text/csv" } as never },
         handler: () => new Response(""),
       }),
-    ).toThrow('A response map is keyed by status, got "contentType"');
+    ).toThrow(
+      'A response map is keyed by status, by a range such as 4XX, or by default, got "contentType"',
+    );
+  });
+
+  test("takes default and a range of statuses, OpenAPI's own keys, as 0.6.2 did", () => {
+    for (const key of ["default", "4XX", "5xx", "2XX"]) {
+      expect(() =>
+        route({
+          method: "GET",
+          path: "/openapi-keys",
+          schema: { response: { 200: Public, [key]: Public } as never },
+          handler: () => new Response(""),
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  test("refuses a key that is no status, range or default", () => {
+    for (const key of ["0", "600", "4XXX", "6XX", "Default"]) {
+      expect(() =>
+        route({
+          method: "GET",
+          path: "/not-a-status",
+          schema: { response: { [key]: Public } as never },
+          handler: () => new Response(""),
+        }),
+      ).toThrow(`got "${key}"`);
+    }
   });
 
   test.each([

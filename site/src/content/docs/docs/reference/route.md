@@ -95,9 +95,11 @@ status. Any [Standard Schema](https://standardschema.dev) validator works.
 
 With a map, the handler may set only a declared status. With
 `validateResponses` on, a response that leaves with an undeclared status
-is a `500`. A key that is not a status, an entry key other than `body`,
-`headers`, `cookies` and `contentType`, or a `contentType` other than a
-bare type or range makes `route()` throw. See
+is a `500`. `default` and a range such as `4XX`, OpenAPI's own keys, are
+taken for the document and declare no status. Any other key that is not a
+status, an entry key other than `body`, `headers`, `cookies` and
+`contentType`, or a `contentType` other than a bare type or range makes
+`route()` throw. See
 [Responses](/docs/concepts/responses/#the-response-map).
 
 ### What the handler may return

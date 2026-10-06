@@ -1307,6 +1307,34 @@ describe("responses contributed by hooks", () => {
     expect(responses["499"]?.description).toBe("HTTP 499");
   });
 
+  test("default and a range of statuses are named for what they are", () => {
+    class RangeController {
+      find = route({
+        method: "GET",
+        path: "/ranged",
+        schema: {
+          response: {
+            200: TooMany,
+            "4XX": TooMany,
+            "5xx": TooMany,
+            default: TooMany,
+          },
+        },
+        handler: () => ({ retryAfter: 1 }),
+      });
+    }
+
+    const { document: own } = generate(
+      createApp({ routes: new RangeController() }),
+    );
+
+    const responses = own.paths["/ranged"]?.get?.responses ?? {};
+
+    expect(responses["4XX"]?.description).toBe("Client error");
+    expect(responses["5xx"]?.description).toBe("Server error");
+    expect(responses.default?.description).toBe("Any other response");
+  });
+
   test("secured is documented with a security requirement", () => {
     const auth = secured(
       hook.beforeParse(() => undefined),

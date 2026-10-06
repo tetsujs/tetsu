@@ -51,17 +51,28 @@ API.
   instead of reporting a failure. The path is read from a relative
   `req.url` too, and a `req.url` that is no URL is written as it came, up
   to its query.
-- `@tetsujs/core`: a response map keyed by anything but a status, or with
-  an entry that is neither a schema, `null` nor an object of parts, is
-  refused where the route is declared. It passed: a key that is not a
-  status matched no response and was documented as one, an entry such as a
-  bare string made every validated response of its status a `500`, an
-  `undefined` entry went unchecked, and `openapi()` threw a `TypeError` on
-  either of the last two.
+- `@tetsujs/core`: a response map keyed by anything but a status, a range
+  such as `4XX` or `default`, or with an entry that is neither a schema,
+  `null` nor an object of parts, is refused where the route is declared.
+  It passed: a key such as `600` matched no response and was documented as
+  one, an entry such as a bare string made every validated response of its
+  status a `500`, an `undefined` entry went unchecked, and `openapi()`
+  threw a `TypeError` on either of the last two. `default` and the ranges,
+  OpenAPI's own keys, are taken as before: they are documented, and
+  declare no status a response may leave with.
 - `@tetsujs/openapi`: a response a hook documents below `400` without a
   `schema` has no body in the document — a redirect, or the refusal of a
   `secured()` hook that sends to a sign-in page. It was described as the
   error envelope.
+- `@tetsujs/openapi`: the responses hooks document are no longer merged by
+  status and description. Two guards that answer `403 Forbidden` with codes
+  of their own, such as `NOT_OWNER` and `PLAN_LIMIT`, are both documented,
+  where the second was dropped; a description that a coded response already
+  gives is said once; and two definitions of one code with different
+  `fields` give a warning, where one was dropped without a word.
+- `@tetsujs/openapi`: `default` and a range such as `4XX` in a response map
+  are described as what they are, `Any other response` and `Client error`,
+  not as `HTTP NaN`.
 
 ## 0.6.2 — 2026-10-05
 
