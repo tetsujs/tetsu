@@ -41,6 +41,16 @@ API.
 
 ### Fixed
 
+- `@tetsujs/core`: a route with a `query` schema answers a request without
+  a usable `Host`, such as an HTTP/1.0 health check, instead of failing it
+  with a `500`. Bun leaves `req.url` relative then, and the query is read
+  against a placeholder origin. A `Host` such as `[` makes `req.url` no URL
+  at all, and such a request has no query.
+- `@tetsujs/request-log`: for the same requests, `arrivalLog()` no longer
+  turns the request into a `500`, and `accessLog()` writes its record
+  instead of reporting a failure. The path is read from a relative
+  `req.url` too, and a `req.url` that is no URL is written as it came, up
+  to its query.
 - `@tetsujs/core`: a response map keyed by anything but a status, or with
   an entry that is neither a schema, `null` nor an object of parts, is
   refused where the route is declared. It passed: a key that is not a

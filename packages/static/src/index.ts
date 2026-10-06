@@ -289,12 +289,15 @@ const allow = "GET, HEAD, OPTIONS";
  * What one request is answered with.
  *
  * `req.url` is not always a whole URL. Without a usable `Host`, as in an
- * HTTP/1.0 health check, Bun leaves it relative, `/index.html`, and it is
- * read against a placeholder origin, as the path it is. A `Host` such as
+ * HTTP/1.0 health check, Bun leaves it relative, `/index.html`, and a
+ * placeholder origin goes in front of it. In front, not as a base: against
+ * a base, `//x/app.js` would be another host's `/app.js`, where with a
+ * `Host` it is a path with an empty segment, and refused. A `Host` such as
  * `[` makes it no URL at all, and that names no file.
  */
 async function answer(settings: Settings, ctx: BaseCtx): Promise<Response> {
-  const url = URL.parse(ctx.req.url, "http://localhost");
+  const raw = ctx.req.url;
+  const url = URL.parse(raw.startsWith("/") ? `http://localhost${raw}` : raw);
 
   if (url === null) {
     throw httpError(404);

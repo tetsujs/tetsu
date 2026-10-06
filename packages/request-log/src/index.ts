@@ -96,7 +96,7 @@ export function arrivalLog(options: ArrivalLogOptions = {}) {
 
     write({
       method: ctx.req.method,
-      path: new URL(ctx.req.url).pathname,
+      path: pathOf(ctx.req.url),
       ...(id === undefined ? {} : { requestId: id }),
     });
   });
@@ -207,7 +207,7 @@ export function accessLog(options: AccessLogOptions = {}) {
 
     write({
       method: ctx.req.method,
-      path: new URL(ctx.req.url).pathname,
+      path: pathOf(ctx.req.url),
       ...(ctx.route === undefined ? {} : { route: ctx.route.path }),
       status: carrying.res.status,
       durationMs: elapsed(ctx.startedAt),
@@ -216,6 +216,24 @@ export function accessLog(options: AccessLogOptions = {}) {
       ...(id === undefined ? {} : { requestId: id }),
     });
   });
+}
+
+/**
+ * The path a record names: the request's, without its query.
+ *
+ * `req.url` is not always a whole URL. Without a usable `Host`, as in an
+ * HTTP/1.0 health check, Bun leaves it relative, and a placeholder origin
+ * goes in front of it. In front, not as a base: against a base,
+ * `//evil.example/health` would be read as another host and log `/health`.
+ * A `Host` such as `[` makes it no URL at all, and the record carries it as
+ * it came, cut at its query, which no record carries. `new URL()` threw on
+ * both: the arrival log turned every such request into a `500`, and the
+ * access log failed to write it.
+ */
+function pathOf(url: string): string {
+  const whole = url.startsWith("/") ? `http://localhost${url}` : url;
+
+  return URL.parse(whole)?.pathname ?? url.split(/[?#]/, 1)[0] ?? url;
 }
 
 /**

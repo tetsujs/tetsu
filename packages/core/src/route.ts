@@ -356,8 +356,9 @@ export interface RouteConfig<
   readonly schema?: S;
 
   /**
-   * The wire shape of the request body: `"json"` (the default), `"form"`
-   * or `"text"`.
+   * The wire shape of the request body: `"json"` (the default), `"form"`,
+   * `"text"`, or `"stream"` for a `ReadableStream` the handler reads itself,
+   * counted against `maxBodySize`.
    *
    * Declaring it makes the body be read even without a `body` schema — a
    * form of files alone needs no schema to be parsed. The declaration also

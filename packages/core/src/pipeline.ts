@@ -141,8 +141,8 @@ export interface PipelineOptions {
   readonly validateResponses: boolean;
 
   /**
-   * Maximum request body size in bytes, enforced by `parseBody` for routes
-   * that declare a `body` schema.
+   * Maximum size in bytes of a body the pipeline reads: a route's with
+   * `schema.body`, a `bodyType` or `rawBody`.
    */
   readonly maxBodySize: number;
 
@@ -750,10 +750,11 @@ function deliver(
 }
 
 /**
- * The last response the pipeline can produce: a bare 500 for a request
- * whose error path kept failing. It still carries `ctx.out` headers — a
- * response decorated by nothing else is exactly where a CORS header
- * decides whether the client sees the status at all.
+ * The last response the pipeline can produce: the `500` envelope,
+ * `errorBody(500)`, for a request whose error path kept failing. It still
+ * carries `ctx.out` headers — a response decorated by nothing else is
+ * exactly where a CORS header decides whether the client sees the status
+ * at all.
  *
  * `failure` is what used up the last attempt, reported here because no
  * attempt is left to report it: an `HttpError` whose body throws when

@@ -62,10 +62,13 @@ An empty or missing `secret` throws a `TypeError` at startup. See
 
 ### `maxBodySize`
 
-A `content-length` above the limit is a `413` before any byte is read. A
-body without one is cut at the chunk that crosses the limit, and a
-`"stream"` body errors with the same `413`. A route's own `maxBodySize`
-overrides this one. A handler that reads `ctx.req` itself is not capped.
+A `content-length` above the limit is a `413` before any byte is read, and
+a body without one is cut at the chunk that crosses the limit. A
+`"stream"` body is counted as the handler reads it: crossing the limit
+errors the stream with the same `413`, with the handler already running,
+and a handler that stops reading first gets none. A route's own
+`maxBodySize` overrides this one. A handler that reads `ctx.req` itself is
+not capped.
 
 ### `validateResponses`
 

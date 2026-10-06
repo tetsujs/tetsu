@@ -962,19 +962,23 @@ function decodeSegment(segment: string): string {
  * ```ts
  * const Env = tb(Type.Object({ PORT: Type.Integer() }), { convert: true });
  *
- * try {
- *   export const env = parse(Env, Bun.env);
- * } catch (error) {
- *   if (error instanceof ValidationError) {
- *     for (const issue of error.issues) {
- *       console.error(`${issue.path.join(".")}: ${issue.message}`);
+ * function readEnv() {
+ *   try {
+ *     return parse(Env, Bun.env);
+ *   } catch (error) {
+ *     if (error instanceof ValidationError) {
+ *       for (const issue of error.issues) {
+ *         console.error(`${issue.path.join(".")}: ${issue.message}`);
+ *       }
+ *
+ *       process.exit(1);
  *     }
  *
- *     process.exit(1);
+ *     throw error;
  *   }
- *
- *   throw error;
  * }
+ *
+ * export const env = readEnv();
  * ```
  */
 export function parse<T extends TSchema>(
