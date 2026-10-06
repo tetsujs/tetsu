@@ -70,7 +70,7 @@ export default defineConfig({
             "- `ctx` is never annotated. A field exists only when declared: path parameters from the path, `ctx.body` only when the route declares a body, a hook's field only after that hook.",
             "- Validation goes through Standard Schema (Zod, Valibot, ArkType; TypeBox via `@tetsujs/typebox`). A failure is a 422 listing every issue. Every error the framework answers has the body `{ status, message, error }`; an application `onError` hook can change it.",
             "- Handlers are unit-tested with `testCtx()` and applications through a real server with `serve()`, both from `@tetsujs/core/testing`.",
-            "- Packages, all released together under one version: `@tetsujs/core`, `openapi`, `typebox`, `cors`, `rate-limit`, `request-id`, `request-log`, `secure-headers`, `sse`, `lifecycle`.",
+            "- Packages, all released together under one version: `@tetsujs/core`, `openapi`, `typebox`, `cors`, `rate-limit`, `request-id`, `request-log`, `secure-headers`, `sse`, `static`, `lifecycle`.",
             "",
             "Every documentation page is also served as Markdown: add `.md` to its path, e.g. https://tetsujs.com/docs/concepts/errors.md.",
           ].join("\n"),

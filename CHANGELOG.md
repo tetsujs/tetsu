@@ -7,6 +7,16 @@ API.
 
 ### Added
 
+- `@tetsujs/static`, a new package: `staticFiles()` serves the files of a
+  directory from `fallback` or a route, a built site, a single-page app or
+  assets, inside the pipeline, so the application's hooks apply to them.
+  A path is checked before the disk is touched, a directory is redirected
+  to its trailing slash, a file has `ETag` and `Last-Modified` with `304`,
+  and Bun answers `Range`. `notFound` sends a page of the site to a
+  browser, `spa` the app's shell, and `precompressed` the `.br` or `.gz`
+  copy beside a file. The route stays out of the OpenAPI document unless
+  it says `docs: { hidden: false }`
+  ([#74](https://github.com/tetsujs/tetsu/issues/74)).
 - `@tetsujs/core`: a status of a response map can name the media type of a
   body that is not JSON — `{ 200: { contentType: "text/csv", body } }` —
   for a status the handler answers with a `Response` it builds: a file, a

@@ -2,7 +2,7 @@
 title: "@tetsujs/lifecycle"
 description: Graceful shutdown for a Bun server — stop accepting requests, let the ones in flight finish, then close what the server was using.
 sidebar:
-  order: 10
+  order: 11
   label: "@tetsujs/lifecycle"
 ---
 

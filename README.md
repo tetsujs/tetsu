@@ -84,6 +84,7 @@ ship, which editors and tools read from `node_modules`.
 | [`@tetsujs/request-log`](https://tetsujs.com/docs/packages/request-log/) | request logs |
 | [`@tetsujs/secure-headers`](https://tetsujs.com/docs/packages/secure-headers/) | security headers |
 | [`@tetsujs/sse`](https://tetsujs.com/docs/packages/sse/) | server-sent events and streamed responses |
+| [`@tetsujs/static`](https://tetsujs.com/docs/packages/static/) | static files: a built site, a single-page app or assets |
 | [`@tetsujs/typebox`](https://tetsujs.com/docs/packages/typebox/) | TypeBox schemas with compiled validation |
 
 ## Contributing

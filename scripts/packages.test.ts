@@ -51,14 +51,17 @@ test("a cycle is refused rather than guessed", () => {
   );
 });
 
-test("this repository publishes the core first and openapi before rate-limit", async () => {
+test("this repository publishes the core first and openapi before the packages using it", async () => {
   const names = (await publishedPackages()).map((p) => p.name);
 
   expect(names[0]).toBe("@tetsujs/core");
   expect(names.indexOf("@tetsujs/openapi")).toBeLessThan(
     names.indexOf("@tetsujs/rate-limit"),
   );
-  expect(names).toHaveLength(10);
+  expect(names.indexOf("@tetsujs/openapi")).toBeLessThan(
+    names.indexOf("@tetsujs/static"),
+  );
+  expect(names).toHaveLength(11);
 });
 
 test("every published package shares one version", async () => {

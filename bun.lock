@@ -132,6 +132,19 @@
         "@tetsujs/core": "workspace:^",
       },
     },
+    "packages/static": {
+      "name": "@tetsujs/static",
+      "version": "0.6.2",
+      "dependencies": {
+        "@tetsujs/openapi": "workspace:^",
+      },
+      "devDependencies": {
+        "@tetsujs/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@tetsujs/core": "workspace:^",
+      },
+    },
     "packages/typebox": {
       "name": "@tetsujs/typebox",
       "version": "0.6.2",
@@ -208,6 +221,8 @@
     "@tetsujs/secure-headers": ["@tetsujs/secure-headers@workspace:packages/secure-headers"],
 
     "@tetsujs/sse": ["@tetsujs/sse@workspace:packages/sse"],
+
+    "@tetsujs/static": ["@tetsujs/static@workspace:packages/static"],
 
     "@tetsujs/typebox": ["@tetsujs/typebox@workspace:packages/typebox"],
 

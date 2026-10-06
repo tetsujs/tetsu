@@ -1,0 +1,56 @@
+{
+  "name": "@tetsujs/static",
+  "version": "0.6.2",
+  "description": "Static files for Tetsu: a built site, a single-page app or assets, with caching headers and precompressed copies",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "static",
+    "files",
+    "spa",
+    "assets"
+  ],
+  "author": "tetsuodev",
+  "license": "MIT",
+  "homepage": "https://tetsujs.com/docs/packages/static/",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/static"
+  },
+  "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "dependencies": {
+    "@tetsujs/openapi": "workspace:^"
+  },
+  "peerDependencies": {
+    "@tetsujs/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@tetsujs/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}
