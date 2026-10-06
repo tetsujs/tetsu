@@ -557,6 +557,11 @@ function assertMethod(method: unknown): void {
  * misspelled part would be neither checked nor documented, with nothing to
  * say so. So would a part written one level too high, in place of a
  * status: `{ contentType: "text/csv" }`.
+ *
+ * `default` and a range such as `4XX` are keys of OpenAPI's own, which
+ * 0.6.2 took and documented: they stay, and declare no status a response
+ * may leave with. The range is taken in either case, `4xx` as Fastify
+ * writes it.
  */
 function assertResponseEntries(response: unknown): void {
   if (typeof response !== "object" || response === null) {
@@ -568,9 +573,9 @@ function assertResponseEntries(response: unknown): void {
   }
 
   for (const [status, entry] of Object.entries(response)) {
-    if (!/^[1-5]\d\d$/.test(status)) {
+    if (!/^([1-5]\d\d|[1-5][Xx]{2}|default)$/.test(status)) {
       throw new Error(
-        `A response map is keyed by status, got "${status}" — what a status says goes inside it, as in { 200: { contentType: "text/csv" } }`,
+        `A response map is keyed by status, by a range such as 4XX, or by default, got "${status}" — what a status says goes inside it, as in { 200: { contentType: "text/csv" } }`,
       );
     }
 

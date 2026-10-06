@@ -1147,15 +1147,39 @@ function distinct(
   });
 }
 
+/**
+ * The description of a status nothing else describes. `default` and a range
+ * such as `4XX`, OpenAPI's own keys, are no number: a reason phrase of one
+ * read as `HTTP NaN`.
+ */
 function describeStatus(status: string): string {
   if (status === "204") {
     return "No content";
+  }
+
+  if (status === "default") {
+    return "Any other response";
+  }
+
+  const range = ranges[status.toUpperCase()];
+
+  if (range !== undefined) {
+    return range;
   }
 
   return status.startsWith("2")
     ? "Successful response"
     : errorBody(Number(status)).message;
 }
+
+/** What a range of statuses is, by its key. */
+const ranges: Readonly<Record<string, string>> = {
+  "1XX": "Informational response",
+  "2XX": "Successful response",
+  "3XX": "Redirection",
+  "4XX": "Client error",
+  "5XX": "Server error",
+};
 
 /**
  * What a validation failure carries besides the code and the message: every

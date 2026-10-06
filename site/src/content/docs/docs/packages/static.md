@@ -51,7 +51,9 @@ const assets = route({
 `/robots.txt`, serves its own path from the root. The route's group, hooks
 and `docs` apply as to any other route, so files behind a sign-in are a
 group with the sign-in hook and a route `/*`, with a root of their own
-([below](#files-behind-a-guard)).
+([below](#files-behind-a-guard)). A route `/assets/*` does not answer
+`/assets` itself: Bun's router wants the slash, and the bare address goes
+to the fallback.
 
 `root` is resolved against the working directory, as `Bun.file` resolves a
 path, not against the module that calls `staticFiles()`. For the module's
@@ -71,11 +73,15 @@ Every file goes out with:
 
 ## Paths
 
-A path is checked before the disk is touched, and refused rather than
+Bun resolves `.` and `..` before the handler reads the path, so
+`/css/../app.js` is `/app.js`, and no `..` climbs above the root. What is
+left is checked before the disk is touched, and refused rather than
 repaired. These get a `404`:
 
-- `..`, `.` and an empty segment, as in `//`;
-- an encoded `/` or `\`, and a NUL;
+- a path that leaves a route's prefix once resolved, such as
+  `/assets/../config.json` under `/assets/*`;
+- an empty segment, as in `//`;
+- an encoded `/` or `\`, so `..%2f` is no way out either, and a NUL;
 - a dotfile or a dot-directory, so `.env` and `.git` are never served.
   `.well-known` is the one exception.
 
@@ -285,9 +291,9 @@ it that needs none of that.
 | `precompressed` | `false` | `true` sends the `.br` or `.gz` copy to a client that takes it |
 
 `spa` with `notFound`, and `spa` with `index: false`, are compile errors.
-`staticFiles()` throws on them too, and on a `root` that is not a
-directory or a `notFound` or index file that is missing, so a mistake stops
-the application at startup rather than on a request.
+`staticFiles()` throws on them too, on a `root` that is not a directory,
+and on a `notFound` file, or with `spa` the index file, that is missing,
+so a mistake stops the application at startup rather than on a request.
 
 The package also exports the types `StaticOptions`, `StaticHandler`,
 `NotFoundPage` and `SinglePageApp`.
