@@ -11,8 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RouteDocs } from "@tetsujs/core";
 import { createApp, route } from "@tetsujs/core";
+import { serve } from "@tetsujs/core/testing";
 import type { OpenApiDocument, ResponseObject } from "@tetsujs/openapi";
 import { openapi } from "@tetsujs/openapi";
+import { assertDescribed } from "@tetsujs/openapi/testing";
 import type { StaticOptions } from "./index.ts";
 import { staticFiles } from "./index.ts";
 
@@ -155,5 +157,52 @@ describe("a route of files", () => {
     );
 
     expect(responses["301"]).toBeUndefined();
+  });
+});
+
+describe("a route of files shown in the document", () => {
+  const app = createApp({
+    routes: [
+      route({
+        method: "GET",
+        path: "/downloads/*",
+        docs: { hidden: false },
+        handler: staticFiles({ root, notFound: "404.html" }),
+      }),
+    ],
+  });
+  const { document } = openapi(app, { info });
+  const request = serve(app);
+
+  test("declares the headers each answer carries", async () => {
+    const answers: [RequestInit, readonly string[]][] = [
+      [{}, ["etag", "cache-control", "last-modified", "accept-ranges"]],
+      [
+        { headers: { range: "bytes=0-3" } },
+        ["etag", "last-modified", "content-range"],
+      ],
+      [
+        { headers: { range: "bytes=100-200" } },
+        ["etag", "last-modified", "content-range"],
+      ],
+    ];
+
+    for (const [init, headers] of answers) {
+      await assertDescribed(
+        document,
+        "GET /downloads/index.html",
+        await request("/downloads/index.html", init),
+        { headers },
+      );
+    }
+
+    await assertDescribed(
+      document,
+      "GET /downloads/missing.html",
+      await request("/downloads/missing.html", {
+        headers: { accept: "text/html" },
+      }),
+      { headers: ["vary", "etag", "last-modified"] },
+    );
   });
 });

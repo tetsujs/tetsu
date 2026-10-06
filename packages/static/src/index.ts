@@ -170,8 +170,9 @@ export type StaticHandler = (ctx: BaseCtx) => Promise<Response>;
  * - **A path with no file** is a `404`: the application's, thrown as an
  *   `HttpError` through its error handling, or, to a browser, the
  *   `notFound` page or the `spa` shell. So is a path refused before the
- *   disk is touched: `..`, an encoded `/` or `\`, an empty segment, a NUL,
- *   and a dotfile other than `.well-known`.
+ *   disk is touched: one that leaves the route's prefix once Bun has
+ *   resolved its `.` and `..`, an encoded `/` or `\`, an empty segment, a
+ *   NUL, and a dotfile other than `.well-known`.
  * - **`OPTIONS`** is a `204` with `Allow: GET, HEAD, OPTIONS` where a file
  *   exists, as a route answers it, and any other method besides `GET` and
  *   `HEAD` a `405` with the same `Allow`. Where no file exists, both are a
@@ -758,6 +759,17 @@ function describe(settings: Settings): HandlerDocs {
       schema: text,
     },
   };
+  const file: Record<string, DocumentedHeader> = {
+    ...validators,
+    "last-modified": {
+      description: "When the file last changed",
+      schema: text,
+    },
+    "accept-ranges": {
+      description: "A part of the file can be asked for with Range",
+      schema: { type: "string", const: "bytes" },
+    },
+  };
   const range: Record<string, DocumentedHeader> = {
     "content-range": {
       description: "Which bytes of the file are sent, and its length",
@@ -776,30 +788,29 @@ function describe(settings: Settings): HandlerDocs {
         ...varied,
       }
     : {};
+  const byAccept: Record<string, DocumentedHeader> =
+    settings.page === undefined
+      ? {}
+      : {
+          vary: {
+            description:
+              "Accept: a browser gets a page, another client the error",
+            schema: text,
+          },
+        };
 
   const responses: DocumentedResponse[] = [
     {
       status: 200,
       description: "The file",
       contentType: "*/*",
-      headers: {
-        ...validators,
-        "last-modified": {
-          description: "When the file last changed",
-          schema: text,
-        },
-        "accept-ranges": {
-          description: "A part of the file can be asked for with Range",
-          schema: { type: "string", const: "bytes" },
-        },
-        ...compression,
-      },
+      headers: { ...file, ...compression },
     },
     {
       status: 206,
       description: "The part of the file that Range asked for",
       contentType: "*/*",
-      headers: { ...range, ...validators, ...compression },
+      headers: { ...range, ...file, ...compression },
     },
   ];
 
@@ -819,7 +830,12 @@ function describe(settings: Settings): HandlerDocs {
       description: "The client's copy is still the file",
       headers: { ...validators, ...varied },
     },
-    { status: 404, description: "No such file", error: "NOT_FOUND" },
+    {
+      status: 404,
+      description: "No such file",
+      error: "NOT_FOUND",
+      ...(settings.page === undefined ? {} : { headers: byAccept }),
+    },
   );
 
   if (settings.page?.status === 404) {
@@ -827,6 +843,7 @@ function describe(settings: Settings): HandlerDocs {
       status: 404,
       description: "The site's not-found page, to a browser",
       contentType: settings.page.type,
+      headers: { ...file, ...compression, ...byAccept },
     });
   }
 
@@ -834,7 +851,7 @@ function describe(settings: Settings): HandlerDocs {
     status: 416,
     description: "The range asked for lies outside the file",
     contentType: "*/*",
-    headers: range,
+    headers: { ...range, ...file, ...compression },
   });
 
   return { hidden: true, responses };
