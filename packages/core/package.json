@@ -11,11 +11,16 @@
     "server",
     "router",
     "controller",
-    "standard-schema"
+    "standard-schema",
+    "api",
+    "rest",
+    "type-safe",
+    "websocket",
+    "openapi"
   ],
   "author": "tetsuodev",
   "license": "MIT",
-  "homepage": "https://tetsujs.com/docs/packages/core/",
+  "homepage": "https://tetsujs.com",
   "bugs": {
     "url": "https://github.com/tetsujs/tetsu/issues"
   },
