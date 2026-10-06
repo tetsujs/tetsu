@@ -192,6 +192,12 @@ export function checkAnswer(
 
   const entry = contract as ResponseEntry;
 
+  if (entry.contentType !== undefined && !isJson(entry.contentType)) {
+    throw new ResponseContractError(
+      `Handler returned ${result === undefined ? "nothing" : "a value"} for ${status}, which its response map declares as ${entry.contentType} — return a Response that carries it`,
+    );
+  }
+
   const body = (): unknown | PromiseLike<unknown> =>
     entry.body ? checkResponse(entry.body, result) : bodiless(result, status);
 
@@ -219,6 +225,14 @@ export function checkAnswer(
   const checked = cookies();
 
   return isThenable(checked) ? checked.then(body) : body();
+}
+
+/**
+ * Whether a status's content type is the one a returned value is sent
+ * with. Media types are compared without regard to case.
+ */
+function isJson(contentType: string): boolean {
+  return contentType.toLowerCase() === "application/json";
 }
 
 /**

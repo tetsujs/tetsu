@@ -17,6 +17,9 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "complexity": {
+        "useLiteralKeys": "off"
+      },
       "correctness": {
         "noUnusedFunctionParameters": "error",
         "noUnusedVariables": "error"

@@ -256,6 +256,30 @@ does. Without one, Bun closes a stream that writes nothing for the server's
 `idleTimeout`. A stream that should arrive as it is written, behind nginx,
 sends `x-accel-buffering: no` in `headers`, as `sse()` does on its own.
 
+## In the OpenAPI document
+
+Without a response map, the [generated document](/docs/packages/openapi/)
+says only that the route answers `200`, and nothing of what it sends.
+Name the stream's type in the map, and the same for `stream()`, with its
+own type:
+
+```ts twoslash
+import { route } from "@tetsujs/core";
+import { sse } from "@tetsujs/sse";
+
+declare function feed(signal: AbortSignal): AsyncGenerator<{ data: string }>;
+// ---cut---
+const live = route({
+  method: "GET",
+  path: "/feed",
+  schema: { response: { 200: { contentType: "text/event-stream" } } },
+  handler: (ctx) => sse(ctx, feed),
+});
+```
+
+OpenAPI 3.1 cannot describe the events one by one, so the stream is
+documented by its type alone.
+
 ## Options
 
 | `sse()` | Default | |

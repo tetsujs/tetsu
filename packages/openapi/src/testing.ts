@@ -29,6 +29,7 @@
  */
 
 import type { OpenApiDocument, ResponseObject } from "./document.ts";
+import { parsesAsJson } from "./media.ts";
 
 /** What `assertDescribed` checks besides the status and the body's shape. */
 export interface AssertDescribedOptions {
@@ -178,6 +179,29 @@ function isParameter(segment: string): boolean {
   return segment.startsWith("{") && segment.endsWith("}");
 }
 
+/**
+ * The media type of the document that describes a response's body: its
+ * own, then the range of its type, then the range of every type — the
+ * order in which OpenAPI lets the more specific one win. Compared without
+ * regard to case, as media types are.
+ */
+function keyFor(
+  described: readonly string[],
+  mediaType: string,
+): string | undefined {
+  const [type] = mediaType.split("/");
+
+  for (const wanted of [mediaType, `${type}/*`, "*/*"]) {
+    const key = described.find((each) => each.toLowerCase() === wanted);
+
+    if (key !== undefined) {
+      return key;
+    }
+  }
+
+  return undefined;
+}
+
 async function bodyProblems(
   document: OpenApiDocument,
   status: string,
@@ -189,8 +213,27 @@ async function bodyProblems(
   const content = described.content ?? {};
   const mediaTypes = Object.keys(content);
 
+  const mediaType =
+    (response.headers.get("content-type") ?? "")
+      .split(";")[0]
+      ?.trim()
+      .toLowerCase() ?? "";
+
+  const key = mediaType === "" ? undefined : keyFor(mediaTypes, mediaType);
+
+  /**
+   * An empty export, a file of no bytes, a stream that yielded nothing:
+   * empty is content of every type but JSON, which has no empty value. An
+   * empty body may carry no type at all, and still be one a status of
+   * another type than JSON describes.
+   */
   if (text === "") {
-    return mediaTypes.length === 0
+    const empty =
+      mediaTypes.length === 0 ||
+      (key !== undefined && !parsesAsJson(key)) ||
+      (mediaType === "" && mediaTypes.some((each) => !parsesAsJson(each)));
+
+    return empty
       ? []
       : [
           `an empty body, where its ${status} describes ${mediaTypes.join(", ")}`,
@@ -201,19 +244,15 @@ async function bodyProblems(
     return [`a body, where its ${status} describes none`];
   }
 
-  const mediaType = (response.headers.get("content-type") ?? "")
-    .split(";")[0]
-    ?.trim();
-
-  if (mediaType === undefined || !mediaTypes.includes(mediaType)) {
+  if (key === undefined) {
     return [
-      `a body of type "${mediaType ?? ""}", where its ${status} describes ${mediaTypes.join(", ")}`,
+      `a body of type "${mediaType}", where its ${status} describes ${mediaTypes.join(", ")}`,
     ];
   }
 
-  const schema = content[mediaType]?.schema;
+  const schema = content[key]?.schema;
 
-  if (schema === undefined || !mediaType.endsWith("json")) {
+  if (schema === undefined || !parsesAsJson(key)) {
     return [];
   }
 

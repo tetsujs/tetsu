@@ -1,10 +1,12 @@
 /**
- * Type-level tests for what a hook says about itself.
+ * Type-level tests for what a hook, or a handler, says about itself.
  *
  * @module
  */
 
+import type { AnyHook, BaseCtx } from "@tetsujs/core";
 import { hook } from "@tetsujs/core";
+import type { SecurityRequirement } from "./annotations.ts";
 import { documented } from "./annotations.ts";
 
 const refusal = hook.beforeParse(() => undefined);
@@ -77,3 +79,63 @@ export const headerWithoutSchema = documented(refusal, {
     },
   ],
 });
+
+/** A handler is annotated as a hook is, and keeps its type. */
+const serveFile = (ctx: BaseCtx) => new Response(ctx.req.url);
+
+export const annotatedHandler: typeof serveFile = documented(serveFile, {
+  hidden: true,
+  responses: [
+    {
+      status: 200,
+      description: "The file",
+      contentType: "image/*",
+      headers: { etag: { schema: { type: "string" } } },
+    },
+    { status: 304, description: "Not modified" },
+  ],
+});
+
+export const handlerTypeKept: (ctx: BaseCtx) => Response = annotatedHandler;
+
+export const misspelledHidden = documented(serveFile, {
+  // @ts-expect-error `hiden` is not a field: the check reaches the top level
+  hiden: true,
+});
+
+export const handlerMisspelledHeader = documented(serveFile, {
+  responses: [
+    {
+      status: 200,
+      description: "The file",
+      // @ts-expect-error the check reaches a handler's headers as a hook's
+      headers: { etag: { schema: { type: "string", maxLenght: 3 } } },
+    },
+  ],
+});
+
+export const contentTypeNumber = documented(serveFile, {
+  responses: [
+    {
+      status: 200,
+      description: "The file",
+      // @ts-expect-error a media type is a string
+      contentType: 415,
+    },
+  ],
+});
+
+/** A helper generic in the handler compiles, and can hide what it serves. */
+export function hiddenFiles<F extends (ctx: BaseCtx) => Promise<Response>>(
+  handler: F,
+): F {
+  return documented(handler, { hidden: true });
+}
+
+/** A helper generic in the hook compiles, as `secured()` itself is one. */
+export function withScheme<H extends AnyHook>(
+  hook: H,
+  requirement: SecurityRequirement,
+): H {
+  return documented(hook, { security: requirement });
+}

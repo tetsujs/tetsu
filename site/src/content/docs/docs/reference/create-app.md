@@ -71,8 +71,9 @@ overrides this one. A handler that reads `ctx.req` itself is not capped.
 
 When `true`, a serialized result is checked against the schema of its
 status. A status the response map does not declare, a body under a
-bodiless status, and response `headers` or `cookies` that fail their schema
-are refused too. Each failure is a `500` and a report with
+bodiless status, a value or nothing under a status whose `contentType` is
+not JSON, and response `headers` or `cookies` that fail their schema are
+refused too. Each failure is a `500` and a report with
 `source: "response"`. A `Response` built by the handler is never checked.
 
 `false` turns every response check off. The framework never reads

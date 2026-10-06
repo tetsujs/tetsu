@@ -1380,3 +1380,230 @@ describe("a status declared without a body", () => {
     expect(res.status).toBe(202);
   });
 });
+
+describe("a status declared with a content type of its own", () => {
+  const reports: FailureReport<object>[] = [];
+
+  const Text: StandardSchemaV1<unknown, string> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => ({ value: String(value) }),
+    },
+  };
+
+  const Public: StandardSchemaV1<unknown, { id: string }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value) => ({ value: { id: (value as { id: string }).id } }),
+    },
+  };
+
+  const csv = (body: string) =>
+    new Response(body, { headers: { "content-type": "text/csv" } });
+
+  const app = (validateResponses: boolean) =>
+    createApp({
+      reportError: (report) => reports.push(report),
+      validateResponses,
+      routes: {
+        built: route({
+          method: "GET",
+          path: "/built",
+          schema: {
+            response: { 200: { contentType: "text/csv", body: Text } },
+          },
+          handler: () => csv("id\n7"),
+        }),
+        value: route({
+          method: "GET",
+          path: "/value",
+          schema: {
+            response: { 200: { contentType: "text/csv", body: Text } },
+          },
+          handler: (() => "id\n7") as never,
+        }),
+        nothing: route({
+          method: "GET",
+          path: "/nothing",
+          schema: { response: { 200: { contentType: "text/csv" } } },
+          handler: ((ctx: { out: { status: number } }) => {
+            ctx.out.status = 200;
+          }) as never,
+        }),
+        json: route({
+          method: "GET",
+          path: "/json",
+          schema: {
+            response: {
+              200: { contentType: "Application/JSON", body: Public },
+            },
+          },
+          handler: () => ({ id: "u1" }),
+        }),
+      },
+    });
+
+  const request = serve(app(true));
+  const unchecked = serve(app(false));
+
+  const get = (path: string, via = request) => {
+    reports.length = 0;
+
+    return via(path);
+  };
+
+  test("is answered with the Response the handler builds", async () => {
+    const res = await get("/built");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/csv");
+    expect(await res.text()).toBe("id\n7");
+    expect(reports).toEqual([]);
+  });
+
+  test.each([
+    ["a value", "/value"],
+    ["nothing", "/nothing"],
+  ])(
+    "refuses %s returned for it, which only a Response can carry",
+    async (what, path) => {
+      const res = await get(path);
+
+      expect(res.status).toBe(500);
+      expect(reports.map((report) => report.source)).toEqual(["response"]);
+      expect((reports[0]?.error as Error | undefined)?.message).toBe(
+        `Handler returned ${what} for 200, which its response map declares as text/csv — return a Response that carries it`,
+      );
+    },
+  );
+
+  test("takes a value under application/json, in any case", async () => {
+    const res = await get("/json");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "u1" });
+    expect(reports).toEqual([]);
+  });
+
+  test("validateResponses: false leaves it unchecked, as every response check", async () => {
+    const res = await get("/value", unchecked);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toBe("id\n7");
+  });
+
+  test.each([
+    ["a range of any type", "*/*"],
+    ["a range of one type", "text/*"],
+    ["a structured suffix", "application/vnd.api+json"],
+  ])("takes %s", (_, contentType) => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/ok",
+        schema: { response: { 200: { contentType } } },
+        handler: () => new Response(""),
+      }),
+    ).not.toThrow();
+  });
+
+  test.each([
+    ["no subtype", "csv"],
+    ["an empty subtype", "text/"],
+    ["parameters", "text/csv; charset=utf-8"],
+    ["a range with a subtype", "*/csv"],
+    ["an empty string", ""],
+    ["a number", 415],
+  ])(
+    "refuses a content type with %s where the route is declared",
+    (_, contentType) => {
+      expect(() =>
+        route({
+          method: "GET",
+          path: "/bad",
+          schema: { response: { 200: { contentType } as never } },
+          handler: () => new Response(""),
+        }),
+      ).toThrow(
+        `The 200 entry of a response map has the content type ${JSON.stringify(contentType)}`,
+      );
+    },
+  );
+
+  test("names every part an entry may have when one is misspelled", () => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/typo",
+        schema: { response: { 200: { content: "text/csv" } as never } },
+        handler: () => new Response(""),
+      }),
+    ).toThrow(
+      'The 200 entry of a response map has "content", which is none of body, headers, cookies and contentType',
+    );
+  });
+
+  test("refuses a part written in place of a status", () => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/no-status",
+        schema: { response: { contentType: "text/csv" } as never },
+        handler: () => new Response(""),
+      }),
+    ).toThrow('A response map is keyed by status, got "contentType"');
+  });
+
+  test.each([
+    ["a schema factory left uncalled", () => Public, "a function"],
+    ["a bigint", 200n, "a bigint"],
+  ])("names %s by its kind when refusing it", (_, entry, kind) => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/kind",
+        schema: { response: { 200: entry } as never },
+        handler: () => new Response(""),
+      }),
+    ).toThrow(`The 200 entry of a response map is ${kind}`);
+  });
+
+  test("refuses an entry that is neither a schema, null nor its parts", () => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/bare-type",
+        schema: { response: { 200: "text/csv" } as never },
+        handler: () => new Response(""),
+      }),
+    ).toThrow('The 200 entry of a response map is "text/csv"');
+  });
+
+  test("takes a schema that is a function, as an ArkType type is", () => {
+    const callable = Object.assign((value: unknown) => value, {
+      "~standard": Public["~standard"],
+    }) as unknown as typeof Public;
+
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/callable",
+        schema: { response: { 200: callable } },
+        handler: () => ({ id: "u1" }),
+      }),
+    ).not.toThrow();
+  });
+
+  test("takes a content type left undefined, as any part", () => {
+    expect(() =>
+      route({
+        method: "GET",
+        path: "/undefined-type",
+        schema: { response: { 200: { body: Public, contentType: undefined } } },
+        handler: () => ({ id: "u1" }),
+      }),
+    ).not.toThrow();
+  });
+});

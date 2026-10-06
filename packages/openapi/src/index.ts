@@ -19,8 +19,8 @@
  * @module
  */
 
-import type { App } from "@tetsujs/core";
-import { contributionsOf } from "./annotations.ts";
+import type { App, RouteTableEntry } from "@tetsujs/core";
+import { contributionsOf, handlerDocsOf } from "./annotations.ts";
 import { schemaComponents } from "./components.ts";
 import type { OpenApiDocument, PathItemObject, TagObject } from "./document.ts";
 import { envelopes as envelopeDefinitions } from "./envelopes.ts";
@@ -33,6 +33,7 @@ import { unresolvedRefs } from "./refs.ts";
 export type {
   DocumentedHeader,
   DocumentedResponse,
+  HandlerDocs,
   HookContributions,
   HookDocs,
   SecurityAlternatives,
@@ -157,7 +158,9 @@ export interface GeneratorResult {
  *
  * So are routes marked `docs: { hidden: true }`, and everything they would
  * have contributed with them: a security scheme only a hidden route
- * requires has nothing left to describe.
+ * requires has nothing left to describe. A route that says nothing either
+ * way is hidden when its handler was annotated so — see {@link documented}
+ * — and `docs: { hidden: false }` shows it all the same.
  *
  * Every route of the table becomes an operation under its path template,
  * with the parameters, body and responses its schemas describe. What the
@@ -175,9 +178,7 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
     resolveFormat(options.errors),
   );
   const ids = operationIds();
-  const described = app.entries.filter(
-    (entry) => !entry.ws && !entry.def.docs?.hidden,
-  );
+  const described = app.entries.filter((entry) => !entry.ws && !hidden(entry));
 
   for (const entry of described) {
     declareEnvelopes(entry, envelopes);
@@ -272,6 +273,16 @@ export function openapi(app: App, options: OpenApiOptions): GeneratorResult {
   refsOf(document, occupied, warnings);
 
   return { document, warnings };
+}
+
+/**
+ * Whether a route stays out of the document: by its own word when it said
+ * one, `true` or `false`, and by its handler's when it said nothing.
+ */
+function hidden(entry: RouteTableEntry): boolean {
+  return (
+    entry.def.docs?.hidden ?? handlerDocsOf(entry.def.handler)?.hidden ?? false
+  );
 }
 
 /**

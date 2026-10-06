@@ -23,7 +23,7 @@ import type {
   HookContributions,
   SecurityRequirement,
 } from "./annotations.ts";
-import { contributionsOf } from "./annotations.ts";
+import { contributionsOf, handlerDocsOf } from "./annotations.ts";
 import type { SchemaComponents } from "./components.ts";
 import { failureName } from "./components.ts";
 import type {
@@ -37,6 +37,7 @@ import { emitted } from "./emit.ts";
 import type { Envelopes } from "./envelopes.ts";
 import { branchesOf } from "./envelopes.ts";
 import type { JsonSchema } from "./json-schema.ts";
+import { isJson } from "./media.ts";
 import { partParameters, pathParameters } from "./parameters.ts";
 
 /** Describes one route. */
@@ -92,25 +93,44 @@ export function operationOf(
 
 /**
  * Records the envelopes a route declares, so that its definitions are the
- * ones the document keeps — whichever operation refers to them first.
+ * ones the document keeps — whichever operation refers to them first. What
+ * its handler was annotated with is the route's own too, and declares the
+ * same way.
  *
  * Runs before any operation is built. A schema that cannot describe itself
- * is skipped without a word: building the operation says so, once.
+ * is skipped without a word: building the operation says so, once. A body
+ * of another type than JSON is no envelope.
  */
 export function declareEnvelopes(
   entry: RouteTableEntry,
   envelopes: Envelopes,
 ): void {
-  for (const [status, { body }] of declaredResponses(entry)) {
-    const described = body === null ? undefined : emitted(body, "", () => {});
+  const own: [status: number, body: AnySchema][] = [];
 
-    const code = envelopes.format.code;
+  for (const [status, { body, contentType }] of declaredResponses(entry)) {
+    if (body !== null && (contentType === undefined || isJson(contentType))) {
+      own.push([Number(status), body]);
+    }
+  }
+
+  for (const response of handlerDocsOf(entry.def.handler)?.responses ?? []) {
+    const { contentType, schema, status } = response;
+
+    if (schema && (contentType === undefined || isJson(contentType))) {
+      own.push([status, schema]);
+    }
+  }
+
+  const code = envelopes.format.code;
+
+  for (const [status, body] of own) {
+    const described = emitted(body, "", () => {});
 
     for (const branch of described ? branchesOf(described, code) : []) {
       const found = code(branch);
 
       if (found !== undefined) {
-        envelopes.declare(Number(status), found, branch);
+        envelopes.declare(status, found, branch);
       }
     }
   }
@@ -121,6 +141,7 @@ interface Declared {
   readonly body: AnySchema | null;
   readonly headers?: AnySchema;
   readonly cookies?: AnySchema;
+  readonly contentType?: string;
 }
 
 /** The route's response map as pairs; a single schema is its `200`. */
@@ -152,6 +173,9 @@ function asDeclared(value: AnySchema | ResponseEntry | null): Declared {
     body: value.body ?? null,
     ...(value.headers === undefined ? {} : { headers: value.headers }),
     ...(value.cookies === undefined ? {} : { cookies: value.cookies }),
+    ...(value.contentType === undefined
+      ? {}
+      : { contentType: value.contentType }),
   };
 }
 
@@ -562,29 +586,49 @@ function responses(
 
   const declared = declaredResponses(entry);
 
-  for (const [status, { body, ...rest }] of declared) {
+  for (const [status, { body, contentType, ...rest }] of declared) {
     const described =
       body === null ? undefined : emitted(body, "a response", warn);
 
     const headers = declaredHeaders({ body, ...rest }, warn);
+    const own = contentType !== undefined && !isJson(contentType);
 
     add(status, {
       placeholder: describeStatus(status),
       said: described ? wordsOf(described, envelopes) : [],
-      schemas: described
-        ? branchesFor(unionOnly(described), Number(status), envelopes, warn)
-        : [],
+      schemas:
+        described && !own
+          ? branchesFor(unionOnly(described), Number(status), envelopes, warn)
+          : [],
+      ...(own ? { media: [mediaOf(contentType, described)] } : {}),
       ...(headers === undefined ? {} : { headers }),
     });
+  }
+
+  const handled = handlerDocsOf(entry.def.handler)?.responses ?? [];
+  const envelopeRef = envelopeRefs(components, envelopes, warn);
+
+  for (const response of handled) {
+    add(
+      String(response.status),
+      documentedAnswer(
+        response,
+        "a handler's response",
+        envelopeRef,
+        envelopes,
+        warn,
+      ),
+    );
   }
 
   /**
    * A route that declares nothing answers with something: a `200`, as far
    * as the document can tell. One that declares only a `303`, or only its
    * failures, has said what it answers with, and a success it never sends
-   * would be a response a generated client waits for in vain.
+   * would be a response a generated client waits for in vain. So has a
+   * route whose handler describes what it answers with.
    */
-  if (declared.length === 0) {
+  if (declared.length === 0 && handled.length === 0) {
     add("200", { placeholder: "Successful response", said: [], schemas: [] });
   }
 
@@ -622,32 +666,7 @@ function failures(
 ): [status: number, answer: Answer][] {
   const schema = entry.def.schema;
   const found: [number, Answer][] = [];
-
-  /**
-   * Refers to the definition of one failure: the one of its status and
-   * code, or — for a failure whose code only the hook knows and did not
-   * declare — one of its own, named after the status.
-   */
-  const envelopeRef = (
-    status: number,
-    error?: string,
-    message?: string,
-    fields?: DocumentedResponse["fields"],
-  ): Record<string, unknown> => {
-    const described = envelopes.format.describe({
-      status,
-      ...(error === undefined ? {} : { error }),
-      ...(message === undefined ? {} : { message }),
-      fields: fields ?? {},
-    });
-
-    const ref =
-      error === undefined
-        ? components.ref(failureName(status), described)
-        : envelopes.ref(status, error, described, warn);
-
-    return ref as unknown as Record<string, unknown>;
-  };
+  const envelopeRef = envelopeRefs(components, envelopes, warn);
 
   if (
     schema?.params ||
@@ -695,32 +714,24 @@ function failures(
               `Request did not satisfy ${requirement.name}`,
           ),
         ],
-        schemas: [envelopeRef(status, requirement.error, requirement.message)],
+        schemas:
+          status >= 400
+            ? [envelopeRef(status, requirement.error, requirement.message)]
+            : [],
       },
     ]);
   }
 
   for (const response of contributed.responses) {
-    const described = response.schema
-      ? emitted(response.schema, "a hook's response", warn)
-      : undefined;
-
     found.push([
       response.status,
-      {
-        said: [said(response.error, response.description)],
-        schemas: described
-          ? branchesFor(described, response.status, envelopes, warn)
-          : [
-              envelopeRef(
-                response.status,
-                response.error,
-                response.message,
-                response.fields,
-              ),
-            ],
-        ...(response.headers ? { headers: response.headers } : {}),
-      },
+      documentedAnswer(
+        response,
+        "a hook's response",
+        envelopeRef,
+        envelopes,
+        warn,
+      ),
     ]);
   }
 
@@ -778,12 +789,116 @@ function failures(
 }
 
 /**
+ * Refers to the definition of one failure: the one of its status and code,
+ * or — for a failure whose code only its hook knows and did not declare —
+ * one of its own, named after the status.
+ */
+type EnvelopeRef = (
+  status: number,
+  error?: string,
+  message?: string,
+  fields?: DocumentedResponse["fields"],
+) => Record<string, unknown>;
+
+function envelopeRefs(
+  components: SchemaComponents,
+  envelopes: Envelopes,
+  warn: (message: string) => void,
+): EnvelopeRef {
+  return (status, error, message, fields) => {
+    const described = envelopes.format.describe({
+      status,
+      ...(error === undefined ? {} : { error }),
+      ...(message === undefined ? {} : { message }),
+      fields: fields ?? {},
+    });
+
+    const ref =
+      error === undefined
+        ? components.ref(failureName(status), described)
+        : envelopes.ref(status, error, described, warn);
+
+    return ref as unknown as Record<string, unknown>;
+  };
+}
+
+/**
+ * What a hook or a handler said it answers with, as an answer of its
+ * status.
+ *
+ * A body of a type of its own is described under that type. A schema
+ * without one is JSON. Neither is the framework's envelope for an error
+ * status — a hook refuses by throwing, and what it throws leaves in the
+ * envelope — and no body at all for any other: a handler's `304`, a hook's
+ * redirect.
+ */
+function documentedAnswer(
+  response: DocumentedResponse,
+  subject: string,
+  envelopeRef: EnvelopeRef,
+  envelopes: Envelopes,
+  warn: (message: string) => void,
+): Answer {
+  const described = response.schema
+    ? emitted(response.schema, subject, warn)
+    : undefined;
+
+  const answer = {
+    said: [said(response.error, response.description)],
+    ...(response.headers ? { headers: response.headers } : {}),
+  };
+
+  if (response.contentType !== undefined && !isJson(response.contentType)) {
+    return {
+      ...answer,
+      schemas: [],
+      media: [mediaOf(response.contentType, described)],
+    };
+  }
+
+  if (described) {
+    return {
+      ...answer,
+      schemas: branchesFor(described, response.status, envelopes, warn),
+    };
+  }
+
+  return {
+    ...answer,
+    schemas:
+      response.status >= 400
+        ? [
+            envelopeRef(
+              response.status,
+              response.error,
+              response.message,
+              response.fields,
+            ),
+          ]
+        : [],
+  };
+}
+
+/** A body of a type other than JSON, and its schema when there is one. */
+interface Media {
+  readonly type: string;
+  readonly schema?: Record<string, unknown>;
+}
+
+function mediaOf(type: string, schema: JsonSchemaObject | undefined): Media {
+  return schema === undefined
+    ? { type }
+    : { type, schema: schema as Record<string, unknown> };
+}
+
+/**
  * One way a route can answer with a status: what the route declared, what
  * a hook declared, or what the framework answers by itself.
  *
  * `schemas` are the alternatives of the body, each envelope already a
  * reference to its definition; empty when the answer has no body to
- * describe.
+ * describe. `media` are bodies of other types than JSON, each described
+ * under its own.
  *
  * `said` is what the answer says about itself, with the code each part is
  * about when it is known: a hook's description, the framework's, what a
@@ -795,6 +910,7 @@ interface Answer {
   readonly said: readonly Said[];
   readonly placeholder?: string;
   readonly schemas: readonly Record<string, unknown>[];
+  readonly media?: readonly Media[];
   readonly headers?: Readonly<Record<string, HeaderObject>>;
 }
 
@@ -862,27 +978,56 @@ function unionOnly(schema: JsonSchemaObject): JsonSchemaObject {
  *
  * Headers are gathered the same way, the first description of a name
  * standing for all of them; descriptions as {@link wording} words them.
+ *
+ * A body of another type is not an alternative of the JSON one but a
+ * second content of the same status, under its own media type: the
+ * envelope an API client gets for a `404` sits next to the page a
+ * browser does. JSON comes first; the others in the order they were said,
+ * each type once in lower case, as media types compare. A type one answer
+ * left undescribed takes any body, and is described by its type alone.
  */
 function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
   const schemas = distinct(list.flatMap((answer) => answer.schemas));
   const headers: Record<string, HeaderObject> = {};
+  const media = new Map<string, Record<string, unknown>[]>();
+  const unconstrained = new Set<string>();
 
   for (const answer of list) {
     for (const [name, header] of Object.entries(answer.headers ?? {})) {
       headers[name] ??= header;
     }
+
+    for (const { type, schema } of answer.media ?? []) {
+      const key = type.toLowerCase();
+      const alternatives = media.get(key) ?? [];
+
+      media.set(key, schema ? [...alternatives, schema] : alternatives);
+
+      if (!schema) {
+        unconstrained.add(key);
+      }
+    }
+  }
+
+  const content: ContentMap = {};
+
+  if (schemas.length > 0) {
+    content["application/json"] = { schema: unionOf(schemas, envelopes) };
+  }
+
+  for (const [type, alternatives] of media) {
+    const [only, ...others] = distinct(alternatives);
+
+    content[type] =
+      only === undefined || unconstrained.has(type)
+        ? {}
+        : { schema: others.length === 0 ? only : { anyOf: [only, ...others] } };
   }
 
   return {
     description: wording(list),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
-    ...(schemas.length > 0
-      ? {
-          content: {
-            "application/json": { schema: unionOf(schemas, envelopes) },
-          },
-        }
-      : {}),
+    ...(Object.keys(content).length > 0 ? { content } : {}),
   };
 }
 
@@ -893,7 +1038,9 @@ function merge(list: readonly Answer[], envelopes: Envelopes): ResponseObject {
  * by the code it is about, so a reader sees which description goes with
  * which code — descriptions are CommonMark, and every renderer draws the
  * list. The same code said the same way twice, by the route and a hook,
- * is one item. With nothing said at all, the route's placeholder stands.
+ * is one item, and so are words with no code that a coded item already
+ * says — the page of a 404 described as its envelope is. With nothing said
+ * at all, the route's placeholder stands.
  */
 function wording(list: readonly Answer[]): string {
   const seen = new Set<string>();
@@ -910,14 +1057,21 @@ function wording(list: readonly Answer[]): string {
     }
   }
 
-  const [only] = items;
+  const coded = new Set(
+    items.flatMap((item) => (item.code === undefined ? [] : [item.text])),
+  );
+  const said = items.filter(
+    (item) => item.code !== undefined || !coded.has(item.text),
+  );
 
-  if (items.length === 1 && only) {
+  const [only] = said;
+
+  if (said.length === 1 && only) {
     return only.text;
   }
 
-  if (items.length > 1) {
-    return items
+  if (said.length > 1) {
+    return said
       .map((item) =>
         item.code === undefined
           ? `- ${item.text}`

@@ -896,6 +896,71 @@ route({
   },
 });
 
+/**
+ * An entry with a content type of its own declares a body of that type,
+ * which only a `Response` can carry.
+ */
+route({
+  method: "GET",
+  path: "/entry-csv",
+  schema: { response: { 200: { contentType: "text/csv" } } },
+  handler: () =>
+    new Response("id\n7", { headers: { "content-type": "text/csv" } }),
+});
+
+route({
+  method: "GET",
+  path: "/entry-csv-nothing",
+  schema: { response: { 200: { contentType: "text/csv" } } },
+  // @ts-expect-error a status with a content type carries a body
+  handler: () => undefined,
+});
+
+route({
+  method: "GET",
+  path: "/entry-csv-headers-only",
+  schema: { response: { 200: { contentType: "text/csv", headers: Location } } },
+  // @ts-expect-error headers do not make it a status without a body
+  handler: () => {},
+});
+
+route({
+  method: "GET",
+  path: "/entry-csv-number",
+  // @ts-expect-error a content type is a string
+  schema: { response: { 200: { contentType: 415 } } },
+  handler: () => new Response("id\n7"),
+});
+
+const CsvText = mockSchema<string>();
+
+route({
+  method: "GET",
+  path: "/entry-csv-value",
+  schema: { response: { 200: { contentType: "text/csv", body: CsvText } } },
+  // @ts-expect-error the body of a status of its own type leaves in a Response, never as a value
+  handler: () => "id\n7",
+});
+
+/** JSON written out is what a status without the key already is. */
+route({
+  method: "GET",
+  path: "/entry-json-stated",
+  schema: {
+    response: {
+      200: { contentType: "application/json", body: CreatedSession },
+    },
+  },
+  handler: () => ({ id: 7 }),
+});
+
+route({
+  method: "GET",
+  path: "/entry-json-stated-bodiless",
+  schema: { response: { 204: { contentType: "Application/JSON" } } },
+  handler: () => undefined,
+});
+
 type EntryResult = HandlerResult<{
   response: {
     201: { body: typeof CreatedSession; headers: typeof Location };
@@ -916,7 +981,48 @@ export type responseEntryCases = [
     >
   >,
   Expect<
+    // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
     Equal<Exclude<EntryResult, Response | undefined | void>, { id: number }>
+  >,
+  Expect<
+    Equal<
+      HandlerResult<{ response: { 200: { contentType: string } } }>,
+      Response
+    >
+  >,
+  Expect<
+    Equal<
+      HandlerResult<{
+        response: { 200: { contentType: string }; 204: null };
+      }>,
+      // biome-ignore lint/suspicious/noConfusingVoidType: the 204 is the one answered with nothing
+      Response | undefined | void
+    >
+  >,
+  Expect<
+    Equal<
+      HandlerResult<{
+        response: { 200: { contentType: "text/csv"; body: typeof CsvText } };
+      }>,
+      Response
+    >
+  >,
+  Expect<
+    Equal<
+      HandlerResult<{
+        response: {
+          200: { contentType: "application/json"; body: typeof CreatedSession };
+        };
+      }>,
+      { id: number } | Response
+    >
+  >,
+  Expect<
+    Equal<
+      HandlerResult<{ response: { 204: { contentType: "Application/JSON" } } }>,
+      // biome-ignore lint/suspicious/noConfusingVoidType: JSON without a body is a status that carries none
+      Response | undefined | void
+    >
   >,
 ];
 
@@ -934,6 +1040,7 @@ export type maybeBodyCases = [
     Equal<
       Exclude<
         HandlerResult<{ response: { 201: typeof maybeBody } }>,
+        // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
         Response | undefined | void
       >,
       { id: number }
@@ -951,6 +1058,7 @@ export type maybeBodyCases = [
     Equal<
       Exclude<
         HandlerResult<{ response: { 201: typeof nullableBody } }>,
+        // biome-ignore lint/suspicious/noConfusingVoidType: a handler that ends without a return produces void, which the result type carries and the check removes
         Response | undefined | void
       >,
       { id: number }

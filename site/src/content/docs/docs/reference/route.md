@@ -91,26 +91,28 @@ status. Any [Standard Schema](https://standardschema.dev) validator works.
 | --- | --- |
 | a schema | the body of that status |
 | `null` | the status has no body |
-| `{ body?, headers?, cookies? }` | the body, and the headers and cookies the response carries; without `body`, no body |
+| `{ body?, headers?, cookies?, contentType? }` | the body, the headers and cookies the response carries, and the media type of a body that is not JSON; without `body` or `contentType`, no body |
 
 With a map, the handler may set only a declared status. With
 `validateResponses` on, a response that leaves with an undeclared status
-is a `500`. An entry key other than `body`, `headers` and `cookies` makes
-`route()` throw. See
+is a `500`. A key that is not a status, an entry key other than `body`,
+`headers`, `cookies` and `contentType`, or a `contentType` other than a
+bare type or range makes `route()` throw. See
 [Responses](/docs/concepts/responses/#the-response-map).
 
 ### What the handler may return
 
 | Return | Result |
 | --- | --- |
-| `undefined` | `204`, or `ctx.out.status` |
+| `undefined` | `204`, or `ctx.out.status`. Under a status whose `contentType` is not JSON, a compile error, or a `500` when responses are validated |
 | a `Response` | sent unchecked; `ctx.out.status` is ignored |
-| another value | JSON, checked by the response schema of its status; `200`, or `ctx.out.status` |
+| another value | JSON, checked by the response schema of its status; `200`, or `ctx.out.status`. Under a status whose `contentType` is not JSON, a compile error, or a `500` when responses are validated |
 | a `ReadableStream`, generator or async iterable | compile error; `500` at runtime |
 
 With `response`, the value must be the schema's output or a `Response`.
-With a map, it may be any declared body, or `undefined` when a status has
-no body.
+With a map, it may be any declared JSON body, or `undefined` when a status
+has no body. A status whose `contentType` is not JSON takes a `Response`
+only.
 
 ### Body
 
@@ -137,7 +139,9 @@ Two combinations are compile errors:
 `docs` takes `summary`, `description` and `tags`, plus:
 
 - `deprecated`: the route stays in the document, marked deprecated;
-- `hidden`: the route is left out of the document and still served;
+- `hidden`: `true` leaves the route out of the document, still served;
+  `false` keeps it in when its handler was
+  [annotated](/docs/packages/openapi/#documenting-a-handler) to hide it;
 - `operationId`: replaces the default, the controller's name joined with
   the field's.
 

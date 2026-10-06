@@ -159,8 +159,9 @@ const app = createApp({
 ### Headers and cookies of a status
 
 An entry can check headers and cookies too, with the keys `body`, `headers`
-and `cookies`. Any other key is refused at startup, so a misspelled part is
-not silently left unchecked:
+and `cookies`, and name a body that is not JSON with `contentType`
+([below](#a-body-that-is-not-json)). Any other key is refused at startup,
+so a misspelled part is not silently left unchecked:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
@@ -190,9 +191,47 @@ route({
   the schema should allow keys it does not name.
 - `cookies` sees each cookie the response sets, by name, with the value as
   the handler wrote it: opened when signed, `""` when deleted.
-- An entry without `body` has no body, like `null`.
+- An entry without `body` has no body, like `null`, unless it has a
+  `contentType`.
 
 A response that breaks them is a `500`.
+
+### A body that is not JSON
+
+A value the handler returns always leaves as JSON. A CSV export, a file or
+an event stream is a `Response` the handler builds, and `contentType` on its
+entry says what it carries:
+
+```ts twoslash
+import { route } from "@tetsujs/core";
+import { z } from "zod";
+declare function toCsv(rows: object[]): string;
+declare const orders: { all(): object[] };
+// ---cut---
+route({
+  method: "GET",
+  path: "/orders.csv",
+  schema: { response: { 200: { contentType: "text/csv", body: z.string() } } },
+  handler: () =>
+    new Response(toCsv(orders.all()), { headers: { "content-type": "text/csv" } }),
+});
+```
+
+- The [document](/docs/packages/openapi/) describes the status under
+  `text/csv` instead of `application/json`, with `body` as its schema.
+  Without `body`, by the type alone: `"application/pdf"`, `"image/*"`, or
+  `"*/*"` for a file of any type.
+- Returning a value for such a status is a compile error, and so is
+  returning nothing: a value would leave as JSON, nothing as an empty body.
+  A type the compiler knows only as a `string`, in a map declared apart
+  from the route, counts as not JSON; `as const` keeps the literal. Where
+  the compiler does not see the key at all, as in an entry typed as
+  `ResponseEntry`, the response is a `500` when responses are validated.
+- Its `headers` and `cookies` are documented, not checked: only a
+  `Response` answers such a status, and a `Response` is not checked.
+- The type goes alone, `"text/csv"` and not `"text/csv; charset=utf-8"`:
+  the charset belongs on the `Response`. `route()` throws on anything but a
+  bare type or a range.
 
 ## Redirects
 

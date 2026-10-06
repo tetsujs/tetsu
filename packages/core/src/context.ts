@@ -449,14 +449,25 @@ export interface DeclaredOutgoing<Status extends number> extends Outgoing {
  *   },
  * }
  * ```
+ *
+ * @example A status whose body is not JSON
+ * ```ts
+ * schema: {
+ *   response: {
+ *     200: { contentType: "text/csv", body: CsvText },
+ *   },
+ * }
+ * ```
  */
 export type ResponseMap = Record<number, AnySchema | null | ResponseEntry>;
 
 /**
  * One status of a {@link ResponseMap} that says more than its body: the
- * headers and the cookies it leaves with. Written in place of the body's
- * schema, which becomes `body`; without `body` the status carries none,
- * as with `null`.
+ * headers and the cookies it leaves with, and the type of its body when
+ * that is not JSON. Written in place of the body's schema, which becomes
+ * `body`; without `body` the status carries none, as with `null` — unless
+ * it has a `contentType` other than JSON, which says it carries a body of
+ * that type.
  *
  * The response is the request's mirror, and so are its parts: `headers`
  * and `cookies` are checked as the request's are, and documented from the
@@ -466,7 +477,7 @@ export type ResponseMap = Record<number, AnySchema | null | ResponseEntry>;
  * does not name refuses theirs too. `cookies` sees the cookies the
  * response sets — through `ctx.out` or `ctx.req.cookies` — by name, each
  * value as the handler wrote it: opened when signed, `""` when deleted.
- * An entry has these three keys and no others: a misspelled one is
+ * An entry has these four keys and no others: a misspelled one is
  * refused at startup rather than never checked.
  *
  * Checked with the body, when responses are validated, and a response
@@ -481,6 +492,30 @@ export interface ResponseEntry {
   readonly body?: AnySchema | null;
   readonly headers?: AnySchema;
   readonly cookies?: AnySchema;
+
+  /**
+   * The media type of the body when it is not JSON — `"text/csv"`,
+   * `"text/event-stream"`, `"application/pdf"` — or a range, such as
+   * `"image/*"` or the range of every type, for a file whose type is not
+   * known in advance. `body`, when there is one, describes the content
+   * under this type, and the generated document says both.
+   *
+   * The framework sends a value a handler returns as JSON, always, so
+   * such a status is answered with a `Response` the handler builds —
+   * `sse()`, `stream()`, a file. A value returned for it is refused with a
+   * `500` when responses are validated, and so is nothing: a value would
+   * leave as JSON and nothing as an empty body, under a status that says
+   * otherwise. The compiler refuses both already when the type is written
+   * in the entry. `"application/json"`, in any case, is what a status
+   * without the key already is.
+   *
+   * Its `headers` and `cookies` are documented, not checked: only a
+   * `Response` answers such a status, and a `Response` is not checked.
+   *
+   * The type alone, without parameters: the charset belongs on the
+   * response the handler builds. Checked when the route is declared.
+   */
+  readonly contentType?: string;
 }
 
 /**

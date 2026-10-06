@@ -62,6 +62,11 @@ export interface RouteDocs {
    * statement about the document, not about access, and a hidden route is
    * as reachable as any other.
    *
+   * `false` says the opposite out loud: the route is in the document even
+   * when its handler was annotated to keep the routes it answers out of
+   * it — a package's handler serving files, say. Left out, the handler
+   * decides; written, the route does.
+   *
    * `deprecated` is the other half of the pair: an endpoint on its way out
    * stays in the document and says so, an endpoint that was never public
    * is simply absent.
@@ -102,6 +107,10 @@ export interface RouteDocs {
  * pairs a body with its contract, and only the runtime knows it. So does
  * a value returned under a status declared without a body.
  *
+ * A status whose `contentType` is not JSON adds no shape at all: its body
+ * leaves in a `Response`, and a value would leave as JSON. That much the
+ * compiler knows from the entry alone, when the type is written in it.
+ *
  * The other side of that rule: a status the map does not declare cannot
  * be answered with. Writing it into `ctx.out.status` is a compile error,
  * and a response that leaves with it anyway — the implicit `200` of a map
@@ -123,30 +132,49 @@ export type HandlerResult<S extends SchemaConfig> =
 /**
  * The body schema of a response map entry, whichever form it takes — a
  * `body` that may be absent or `null` included, which may still be a
- * schema the body is checked against.
+ * schema the body is checked against. An entry of a type of its own has
+ * none a handler can return: its `body` describes what a `Response`
+ * carries.
  */
 type BodyOf<E> = E extends AnySchema
   ? E
-  : E extends { readonly body?: infer B }
-    ? Extract<B, AnySchema>
-    : never;
+  : OwnType<E> extends true
+    ? never
+    : E extends { readonly body?: infer B }
+      ? Extract<B, AnySchema>
+      : never;
 
 /**
  * Whether a response map entry may declare a status without a body: a
  * `null`, an entry without `body`, or one whose `body` may be absent or
- * `null`.
+ * `null`. An entry of a type of its own declares a body of that type,
+ * schema or not, and a handler answers it with a `Response`.
  */
 type Bodiless<E> = E extends null
   ? true
   : E extends AnySchema
     ? false
-    : E extends ResponseEntry
-      ? undefined extends E["body"]
-        ? true
-        : null extends E["body"]
+    : OwnType<E> extends true
+      ? false
+      : E extends ResponseEntry
+        ? undefined extends E["body"]
           ? true
-          : false
-      : false;
+          : null extends E["body"]
+            ? true
+            : false
+        : false;
+
+/**
+ * Whether a response map entry declares a body whose type is not JSON.
+ * `"application/json"`, in any case, is what an entry without the key
+ * already is; a `contentType` the compiler knows only as a `string` is
+ * taken as another type, which asks for a `Response` — the stricter side.
+ */
+type OwnType<E> = E extends { readonly contentType: infer C extends string }
+  ? Lowercase<C> extends "application/json"
+    ? false
+    : true
+  : false;
 
 declare const bodyTypeErrorBrand: unique symbol;
 
@@ -520,11 +548,14 @@ function assertMethod(method: unknown): void {
 }
 
 /**
- * Refuses a response map entry with a key other than its three parts. The
+ * Refuses a response map that is not one: a key that is not a status, an
+ * entry that is neither a schema, `null` nor an object of parts, a part
+ * other than the four, and a content type that is not a bare type. The
  * compiler lets `{ body, header }` through — an object literal inferred
  * into a generic is not checked for keys it does not know — and a
- * misspelled part would be neither checked nor documented, with nothing
- * to say so.
+ * misspelled part would be neither checked nor documented, with nothing to
+ * say so. So would a part written one level too high, in place of a
+ * status: `{ contentType: "text/csv" }`.
  */
 function assertResponseEntries(response: unknown): void {
   if (typeof response !== "object" || response === null) {
@@ -536,18 +567,105 @@ function assertResponseEntries(response: unknown): void {
   }
 
   for (const [status, entry] of Object.entries(response)) {
-    if (typeof entry !== "object" || entry === null || "~standard" in entry) {
+    if (!/^[1-5]\d\d$/.test(status)) {
+      throw new Error(
+        `A response map is keyed by status, got "${status}" — what a status says goes inside it, as in { 200: { contentType: "text/csv" } }`,
+      );
+    }
+
+    if (entry === null || isSchema(entry)) {
       continue;
     }
 
+    if (typeof entry !== "object") {
+      throw new Error(
+        `The ${status} entry of a response map is ${shown(entry)} — a status takes a schema, null, or { body, headers, cookies, contentType }`,
+      );
+    }
+
     for (const key of Object.keys(entry)) {
-      if (key !== "body" && key !== "headers" && key !== "cookies") {
+      if (
+        key !== "body" &&
+        key !== "headers" &&
+        key !== "cookies" &&
+        key !== "contentType"
+      ) {
         throw new Error(
-          `The ${status} entry of a response map has "${key}", which is none of body, headers and cookies — a misspelled part is neither checked nor documented`,
+          `The ${status} entry of a response map has "${key}", which is none of body, headers, cookies and contentType — a misspelled part is neither checked nor documented`,
         );
       }
     }
+
+    const { contentType } = entry as { readonly contentType?: unknown };
+
+    if (contentType !== undefined && !isMediaType(contentType)) {
+      throw new Error(
+        `The ${status} entry of a response map has the content type ${JSON.stringify(contentType)}, which is not a type such as text/csv or a range such as image/* — the type alone, without parameters: the charset belongs on the response`,
+      );
+    }
   }
+}
+
+/**
+ * A value as an error message can show it: a string quoted, a number or a
+ * boolean as written, anything else by its kind — a schema factory left
+ * uncalled is "a function", and a bigint does not break the message.
+ */
+function shown(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === undefined
+  ) {
+    return String(value);
+  }
+
+  return `a ${typeof value}`;
+}
+
+/**
+ * Whether a value is a Standard Schema: an object, or a function — an
+ * ArkType type is called to validate — carrying `~standard`.
+ */
+function isSchema(value: unknown): boolean {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "~standard" in value
+  );
+}
+
+/** One part of a media type: HTTP's token characters, a range's star aside. */
+const mediaTypePart = /^[!#$%&'+.^_`|~0-9a-z-]+$/i;
+
+/**
+ * Whether a value is a media type or a range of them, written as a
+ * document's `content` names it: `text/csv`, `image/*`, the range of
+ * every type — and no parameters, which a key there would carry into
+ * every comparison with what a response says.
+ */
+function isMediaType(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const [type, subtype, ...rest] = value.split("/");
+
+  if (type === undefined || subtype === undefined || rest.length > 0) {
+    return false;
+  }
+
+  if (type === "*") {
+    return subtype === "*";
+  }
+
+  return (
+    mediaTypePart.test(type) && (subtype === "*" || mediaTypePart.test(subtype))
+  );
 }
 
 /**

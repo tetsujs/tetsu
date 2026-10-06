@@ -1,9 +1,10 @@
 /**
  * Error envelopes, one definition per status and code.
  *
- * An envelope reaches a document from four directions: a route's response
- * map, a hook's annotation, a guard's security requirement, and the
- * framework's own failures. Each used to be described where it arrived —
+ * An envelope reaches a document from five directions: a route's response
+ * map, its handler's annotation, a hook's annotation, a guard's security
+ * requirement, and the framework's own failures. Each used to be described
+ * where it arrived —
  * a route's inline, the rest by reference — so one `UNAUTHORIZED` could be
  * listed twice under one status, once as a `$ref` and once as the same
  * shape without a name, and a generated client got a named type next to an
@@ -14,11 +15,12 @@
  * discriminable: a client can branch on `error` only if every code under
  * the status has exactly one shape.
  *
- * The route's definition wins. It is the author's own contract — usually
- * the stricter one, a validator's `additionalProperties: false` — where a
- * hook's is the framework's generic envelope. The routes are therefore
- * read first, before any operation is built, so the winner does not depend
- * on which route happens to come first in the table.
+ * The route's definition wins, its handler's annotation counting as the
+ * route's own. It is the author's own contract — usually the stricter one,
+ * a validator's `additionalProperties: false` — where a hook's is the
+ * framework's generic envelope. The routes are therefore read first,
+ * before any operation is built, so the winner does not depend on which
+ * route happens to come first in the table.
  *
  * What an envelope looks like — how one is described, where its code is,
  * what a client discriminates on — is the document's error format, which
