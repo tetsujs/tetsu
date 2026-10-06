@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { connect } from "node:net";
 import {
   createApp,
   HttpError,
@@ -470,5 +471,91 @@ describe("a client that left", () => {
 
     expect(records).toHaveLength(1);
     expect("aborted" in (records[0] as object)).toBe(false);
+  });
+});
+
+/** The status of a request written exactly as given, which `fetch` cannot send. */
+function statusOf(url: URL, written: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let received = "";
+
+    const socket = connect(Number(url.port), url.hostname, () => {
+      socket.write(written);
+    });
+
+    socket.on("data", (chunk) => {
+      received += chunk.toString();
+    });
+    socket.on("close", () => resolve(Number(received.split(" ")[1])));
+    socket.on("error", reject);
+  });
+}
+
+describe("a request without a usable Host", () => {
+  const records: (ArrivalRecord | AccessRecord)[] = [];
+
+  const request = serve(
+    createApp({
+      hooks: {
+        beforeParse: [arrivalLog({ write: (record) => records.push(record) })],
+        afterResponse: [accessLog({ write: (record) => records.push(record) })],
+      },
+      routes: [
+        route({
+          method: "GET",
+          path: "/health",
+          handler: () => ({ ok: true }),
+        }),
+      ],
+    }),
+  );
+
+  const errors = captureErrors();
+
+  test("is logged by its path, over HTTP/1.0 without a Host", async () => {
+    records.length = 0;
+
+    expect(
+      await statusOf(request.url, "GET /health?full=1 HTTP/1.0\r\n\r\n"),
+    ).toBe(200);
+    await Bun.sleep(20);
+
+    expect(records.map((record) => record.path)).toEqual([
+      "/health",
+      "/health",
+    ]);
+    expect(errors.lines).toEqual([]);
+  });
+
+  test("is logged as it came with a Host that makes no URL, without its query", async () => {
+    records.length = 0;
+
+    expect(
+      await statusOf(
+        request.url,
+        "GET /health?token=secret HTTP/1.1\r\nHost: [\r\nConnection: close\r\n\r\n",
+      ),
+    ).toBe(200);
+    await Bun.sleep(20);
+
+    expect(records.map((record) => record.path)).toEqual([
+      "http://[/health",
+      "http://[/health",
+    ]);
+    expect(errors.lines).toEqual([]);
+  });
+
+  test("keeps a path that begins with two slashes, as with a Host", async () => {
+    records.length = 0;
+
+    expect(
+      await statusOf(request.url, "GET //evil.example/health HTTP/1.0\r\n\r\n"),
+    ).toBe(404);
+    await Bun.sleep(20);
+
+    expect(records.map((record) => record.path)).toEqual([
+      "//evil.example/health",
+      "//evil.example/health",
+    ]);
   });
 });

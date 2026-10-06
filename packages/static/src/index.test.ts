@@ -283,6 +283,15 @@ describe("a request without a usable Host", () => {
     expect(directory.toLowerCase()).toContain("location: /docs/?lang=en");
   });
 
+  test("refuses a path that begins with two slashes, as with a Host", async () => {
+    expect(
+      await rawHead(request.url, "//x/app.js", {
+        version: "HTTP/1.0",
+        host: null,
+      }),
+    ).toStartWith("HTTP/1.1 404");
+  });
+
   test("answers HAProxy's default check, OPTIONS / over HTTP/1.0", async () => {
     expect(
       await rawHead(request.url, "/", {

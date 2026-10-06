@@ -328,13 +328,24 @@ async function bufferWithinLimit(
  * setter instead of creating a property — silently dropping the value and,
  * when repeated, re-pointing the object's prototype. With no prototype,
  * every key is an own data property and nothing is inherited.
+ *
+ * The query is read the way the URL standard reads it, so a proxy or a
+ * hook that reads it too sees the same keys. `req.url` is not always a
+ * whole URL: without a usable `Host`, as in an HTTP/1.0 health check, Bun
+ * leaves it relative, and it is read against a placeholder origin. A
+ * `Host` such as `[` makes it no URL at all, and it has no query. `new
+ * URL()` threw on both, and the route answered `500`.
  */
 export function materializeQuery(
   req: Request,
 ): Record<string, string | string[]> {
   const query: Record<string, string | string[]> = Object.create(null);
 
-  for (const [key, value] of new URL(req.url).searchParams) {
+  const params =
+    URL.parse(req.url, "http://localhost")?.searchParams ??
+    new URLSearchParams();
+
+  for (const [key, value] of params) {
     const existing = query[key];
 
     if (existing === undefined) {
