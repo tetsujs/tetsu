@@ -1,5 +1,6 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
+import starlightBlog from "starlight-blog";
 import starlightLlmsTxt from "starlight-llms-txt";
 
 export default defineConfig({
@@ -57,6 +58,30 @@ export default defineConfig({
         },
       ],
       plugins: [
+        starlightBlog({
+          // The header is our own, and it links the blog itself.
+          navigation: "none",
+          authors: {
+            tetsuodev: {
+              name: "tetsuodev",
+              url: "https://github.com/tetsuodev",
+            },
+          },
+          metrics: { readingTime: true },
+        }),
+        {
+          // starlight-blog adds its feed to the social links the header shows.
+          // The feed already has its link in <head> and in the blog's sidebar,
+          // so the header keeps the icons it had.
+          name: "tetsu-social-links",
+          hooks: {
+            "config:setup"({ config, updateConfig }) {
+              updateConfig({
+                social: config.social?.filter((link) => link.icon !== "rss"),
+              });
+            },
+          },
+        },
         starlightLlmsTxt({
           details: [
             "Facts that are easy to get wrong:",
@@ -85,6 +110,8 @@ export default defineConfig({
             ],
           },
           projectName: "Tetsu",
+          // The short version is for coding agents: the posts are not documentation.
+          exclude: ["blog/**"],
           description:
             "Tetsu is an HTTP framework for Bun: named controllers, lifecycle hooks in fixed slots and types inferred from end to end, without decorators, a DI container or dependencies in the core.",
         }),

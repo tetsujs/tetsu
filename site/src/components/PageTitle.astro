@@ -1,14 +1,17 @@
 ---
 import Default from "@astrojs/starlight/components/PageTitle.astro";
+import { markdownPath } from "./markdown";
 
-const { entry, hasSidebar } = Astro.locals.starlightRoute;
-const markdown = `/${entry.id}.md`;
-const prompt = `Read ${new URL(markdown, Astro.site)} so I can ask questions about it.`;
-const claude = `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
+const markdown = await markdownPath(Astro.locals.starlightRoute.entry.id);
+const prompt =
+  markdown &&
+  `Read ${new URL(markdown, Astro.site)} so I can ask questions about it.`;
+const claude =
+  prompt && `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
 ---
 
 {
-  hasSidebar ? (
+  markdown ? (
     <div class="title-row">
       <Default />
       <copy-page class="not-content" data-markdown={markdown}>
