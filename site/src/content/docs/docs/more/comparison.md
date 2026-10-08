@@ -77,7 +77,7 @@ inferred.
 - **Bun only.** No Node, no Deno, no edge runtimes.
 - **Explicit over DRY.** Each route lists its hooks. A set several routes
   share is a constant you spread into their slots.
-- **A young ecosystem.** Ten official packages; beyond them, you write the
+- **A young ecosystem.** Eleven official packages; beyond them, you write the
   hook yourself.
 - **`0.x`.** The API may change between minor versions until `1.0`, and
   every such change comes with how to move. See

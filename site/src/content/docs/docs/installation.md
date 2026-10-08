@@ -49,6 +49,9 @@ and check `tsconfig.json` against this one:
 - Stricter flags such as `noUncheckedIndexedAccess` and
   `exactOptionalPropertyTypes` work: the packages are checked under
   `@tsconfig/strictest`.
+- Bun runs TypeScript without checking its types. The mistakes Tetsu's
+  types catch show up only when the type checker runs, so run
+  `tsc --noEmit` in CI.
 
 Bun's types also describe what Bun adds to the platform's globals. Their
 `fetch` has `preconnect`, so `typeof fetch` requires it too, and a

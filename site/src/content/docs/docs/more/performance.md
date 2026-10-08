@@ -58,9 +58,11 @@ of 200 routes and fails if it goes over budget:
 | 800 | 92 057 | 866 322 | 166 MB | 0.45 s |
 
 TypeScript 7.0.2. The cost grows linearly, about 800 instantiations a route.
-The same application written as one chain, the shape Elysia's and Hono's
-typed clients need, costs 330–408 thousand instantiations at 200 routes and
-2.75–3.04 million at 800.
+The comparison with other frameworks uses an earlier version of these routes,
+without an `afterResponse` observer and an `onError` mapper. Written as one
+chain, the shape Elysia's and Hono's typed clients need, they cost 330–408
+thousand instantiations at 200 routes and 2.75–3.04 million at 800, against
+196 and 733 thousand in Tetsu.
 
 ## Validation
 

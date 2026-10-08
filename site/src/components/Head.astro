@@ -1,8 +1,9 @@
 ---
 import Default from "@astrojs/starlight/components/Head.astro";
+import { markdownPath } from "./markdown";
 
-const { entry, hasSidebar } = Astro.locals.starlightRoute;
+const markdown = await markdownPath(Astro.locals.starlightRoute.entry.id);
 ---
 
 <Default />
-{hasSidebar && <link rel="alternate" type="text/markdown" href={`/${entry.id}.md`} />}
+{markdown && <link rel="alternate" type="text/markdown" href={markdown} />}
