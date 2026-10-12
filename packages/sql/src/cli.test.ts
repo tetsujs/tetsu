@@ -1,0 +1,577 @@
+/**
+ * The `tetsu-sql` command, run as a `package.json` script runs it: in a
+ * process of its own, with what it prints and the code it exits with.
+ *
+ * @module
+ */
+
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { testDatabase } from "../test-utils/database.ts";
+
+const cli = join(import.meta.dir, "cli.ts");
+const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-cli-"));
+const { url, sql } = testDatabase();
+
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
+});
+
+/** What a run of the command printed, and how it ended. */
+interface Run {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** Runs the command with these arguments, in `cwd`, with this environment. */
+function run(
+  args: readonly string[],
+  options: { cwd?: string; env?: Record<string, string | undefined> } = {},
+): Run {
+  const { DATABASE_URL: _, ...env } = Bun.env;
+  const result = Bun.spawnSync(["bun", cli, ...args], {
+    cwd: options.cwd ?? scratch,
+    env: { ...env, ...options.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
+
+/** A directory of its own, empty. */
+function directory(): Promise<string> {
+  return mkdtemp(join(scratch, "dir-"));
+}
+
+/** What a run printed, with each duration as `N`: how long a step takes varies. */
+function timeless(stdout: string): string {
+  return stdout.replaceAll(/ in \d+ ms$/gm, " in N ms");
+}
+
+/** The JSON lines a run printed, each parsed. */
+function lines(stdout: string): Record<string, unknown>[] {
+  return stdout
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+}
+
+describe("migrations:new", () => {
+  test("creates an empty migration named with the current UTC time, and says where", async () => {
+    const dir = await directory();
+    const result = run(["migrations:new", "add_orders", "--dir", dir]);
+    const [file] = await readdir(dir);
+
+    expect(result.exitCode).toBe(0);
+    expect(file).toMatch(/^\d{14}_add_orders\.sql$/);
+    expect(result.stdout).toBe(`created ${join(dir, file ?? "")}\n`);
+    expect(await Bun.file(join(dir, file ?? "")).text()).toBe("");
+  });
+
+  test("puts it in ./migrations when no --dir is given", async () => {
+    const cwd = await directory();
+    const result = run(["migrations:new", "first"], { cwd });
+
+    expect(result.exitCode).toBe(0);
+    expect(await readdir(join(cwd, "migrations"))).toHaveLength(1);
+  });
+
+  test("refuses a name that cannot name a migration", async () => {
+    const dir = await directory();
+    const result = run(["migrations:new", "Add-Orders", "--dir", dir]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith(
+      'error: "Add-Orders" cannot name a migration',
+    );
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  test("needs exactly one name", () => {
+    for (const args of [["migrations:new"], ["migrations:new", "a", "b"]]) {
+      const result = run(args);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toStartWith("migrations:new takes one name");
+      expect(result.stderr).toContain("Usage: tetsu-sql");
+    }
+  });
+});
+
+describe("migrations:run", () => {
+  test("applies the pending migrations and names them, then finds nothing to apply", async () => {
+    const cwd = await directory();
+
+    await mkdir(join(cwd, "migrations"));
+    await Bun.write(
+      join(cwd, "migrations", "20261010120000_first.sql"),
+      "create table cli_first (x int);",
+    );
+    await Bun.write(
+      join(cwd, "migrations", "20261011120000_second.sql"),
+      "create table cli_second (x int);",
+    );
+
+    const applied = run(["migrations:run", "--url", url], { cwd });
+
+    expect({ ...applied, stdout: timeless(applied.stdout) }).toEqual({
+      exitCode: 0,
+      stdout: [
+        "applying 20261010120000_first.sql",
+        "applied 20261010120000_first.sql in N ms",
+        "applying 20261011120000_second.sql",
+        "applied 20261011120000_second.sql in N ms",
+        "",
+      ].join("\n"),
+      stderr: "",
+    });
+
+    const again = run(["migrations:run"], {
+      cwd,
+      env: { DATABASE_URL: url },
+    });
+
+    expect(again).toEqual({
+      exitCode: 0,
+      stdout: "nothing to apply\n",
+      stderr: "",
+    });
+  });
+
+  test("passes --table and --lock-timeout-ms on", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_first.sql"),
+      "create table cli_named (x int);",
+    );
+
+    const result = run([
+      "migrations:run",
+      "--dir",
+      dir,
+      "--url",
+      url,
+      "--table",
+      "cli_journal",
+      "--lock-timeout-ms",
+      "100",
+    ]);
+
+    const journal: { name: string }[] = await sql`select name from cli_journal`;
+
+    expect(result.exitCode).toBe(0);
+    expect(journal).toEqual([{ name: "20261010120000_first.sql" }]);
+
+    const outOfRange = run([
+      "migrations:run",
+      "--dir",
+      dir,
+      "--url",
+      url,
+      "--table",
+      "cli_journal",
+      "--lock-timeout-ms",
+      "3000000000",
+    ]);
+
+    expect(outOfRange.exitCode).toBe(1);
+    expect(outOfRange.stderr).toStartWith("error: lockTimeoutMs must be");
+  });
+
+  test.each([["soon"], [""], ["1.5"], ["-1"]])(
+    "refuses --lock-timeout-ms=%j, with the usage",
+    async (value) => {
+      const result = run([
+        "migrations:run",
+        "--dir",
+        await directory(),
+        "--url",
+        url,
+        `--lock-timeout-ms=${value}`,
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toStartWith(
+        `--lock-timeout-ms takes a whole number of milliseconds, not "${value}"`,
+      );
+      expect(result.stderr).toContain("Usage: tetsu-sql");
+    },
+  );
+
+  test("says each step as it takes it, then what failed, and exits with 1", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_good.sql"),
+      "create table cli_good (x int);",
+    );
+    await Bun.write(join(dir, "20261011120000_broken.sql"), "select 1 / 0;");
+
+    const result = run([
+      "migrations:run",
+      "--dir",
+      dir,
+      "--url",
+      url,
+      "--table",
+      "cli_broken",
+    ]);
+
+    expect({ ...result, stdout: timeless(result.stdout) }).toEqual({
+      exitCode: 1,
+      stdout: [
+        "applying 20261010120000_good.sql",
+        "applied 20261010120000_good.sql in N ms",
+        "applying 20261011120000_broken.sql",
+        "",
+      ].join("\n"),
+      stderr: "error: 20261011120000_broken.sql failed: division by zero\n",
+    });
+  });
+
+  test("says when the database is ahead of the files, as after a rollback", async () => {
+    const dir = await directory();
+    const flags = ["--dir", dir, "--url", url, "--table", "cli_ahead"];
+
+    await Bun.write(
+      join(dir, "20261010120000_first.sql"),
+      "create table cli_kept (x int);",
+    );
+    await Bun.write(
+      join(dir, "20261011120000_second.sql"),
+      "create table cli_rolled_back (x int);",
+    );
+
+    expect(run(["migrations:run", ...flags]).exitCode).toBe(0);
+
+    await rm(join(dir, "20261011120000_second.sql"));
+
+    expect(run(["migrations:run", ...flags])).toEqual({
+      exitCode: 0,
+      stdout:
+        "20261011120000_second.sql is applied, and newer than every file here\nnothing to apply\n",
+      stderr: "",
+    });
+  });
+
+  test("says when it waits for another run, then goes on", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_first.sql"),
+      "create table cli_waited (x int);",
+    );
+
+    const holder = await sql.reserve();
+    const { DATABASE_URL: _, ...env } = Bun.env;
+    const child = Bun.spawn(
+      [
+        "bun",
+        cli,
+        "migrations:run",
+        ...["--dir", dir, "--url", url, "--table", "cli_waiting"],
+      ],
+      { cwd: scratch, env, stdout: "pipe", stderr: "pipe" },
+    );
+
+    try {
+      await holder`select pg_advisory_lock(1953722732, hashtext('public.cli_waiting'))`;
+
+      const reader = child.stdout.getReader();
+      const decoder = new TextDecoder();
+      let stdout = "";
+
+      while (!stdout.includes("\n")) {
+        const chunk = await reader.read();
+
+        if (chunk.done) {
+          break;
+        }
+
+        stdout += decoder.decode(chunk.value);
+      }
+
+      expect(stdout).toBe("waiting for another migration run to finish\n");
+
+      await holder`select pg_advisory_unlock(1953722732, hashtext('public.cli_waiting'))`;
+
+      for (let chunk = await reader.read(); !chunk.done; ) {
+        stdout += decoder.decode(chunk.value);
+        chunk = await reader.read();
+      }
+
+      expect(await child.exited).toBe(0);
+      expect(timeless(stdout)).toBe(
+        [
+          "waiting for another migration run to finish",
+          "applying 20261010120000_first.sql",
+          "applied 20261010120000_first.sql in N ms",
+          "",
+        ].join("\n"),
+      );
+    } finally {
+      child.kill();
+      await holder`select pg_advisory_unlock_all()`;
+      holder.release();
+    }
+  });
+
+  test("needs a database", async () => {
+    const result = run(["migrations:run", "--dir", await directory()]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith("migrations:run needs a database");
+  });
+
+  test("needs a Postgres URL, and opens no other kind", async () => {
+    const cwd = await directory();
+    const result = run(["migrations:run", "--url", "sqlite://cli.db"], { cwd });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith(
+      "migrations:run needs a postgres:// or postgresql:// URL",
+    );
+    expect(await readdir(cwd)).toEqual([]);
+  });
+
+  test("takes no names", async () => {
+    const result = run(["migrations:run", "db/migrations", "--url", url]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith("migrations:run takes no names");
+  });
+
+  test("says what the server answered, as it said it", async () => {
+    const missing = new URL(url);
+
+    missing.pathname = "/tetsu_sql_no_such_database";
+
+    const result = run([
+      "migrations:run",
+      "--dir",
+      await directory(),
+      "--url",
+      missing.href,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      'error: database "tetsu_sql_no_such_database" does not exist\n',
+    );
+  });
+
+  test("says in a line that the database cannot be reached", async () => {
+    const result = run([
+      "migrations:run",
+      "--dir",
+      await directory(),
+      "--url",
+      "postgres://postgres@127.0.0.1:1/nowhere",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith("error: ");
+    expect(result.stderr).toEndWith(" (ERR_POSTGRES_CONNECTION_REFUSED)\n");
+    expect(result.stderr.split("\n")).toHaveLength(2);
+  });
+});
+
+describe("--json", () => {
+  test("prints each step as a JSON line, with its time and level, and the result at the end", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_first.sql"),
+      "create table cli_json_a (x int);",
+    );
+    await Bun.write(
+      join(dir, "20261011120000_second.sql"),
+      "create table cli_json_b (x int);",
+    );
+
+    const result = run([
+      "migrations:run",
+      "--json",
+      ...["--dir", dir, "--url", url, "--table", "cli_json"],
+    ]);
+    const printed = lines(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(printed).toEqual([
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "applying",
+        migration: "20261010120000_first.sql",
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "applied",
+        migration: "20261010120000_first.sql",
+        durationMs: expect.any(Number),
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "applying",
+        migration: "20261011120000_second.sql",
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "applied",
+        migration: "20261011120000_second.sql",
+        durationMs: expect.any(Number),
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "done",
+        applied: ["20261010120000_first.sql", "20261011120000_second.sql"],
+        ahead: [],
+      },
+    ]);
+    expect(Object.keys(printed[0] ?? {})).toEqual([
+      "time",
+      "level",
+      "event",
+      "migration",
+    ]);
+
+    for (const line of printed) {
+      expect(line.time).toBe(new Date(String(line.time)).toISOString());
+    }
+  });
+
+  test("prints a failure as a JSON line too, on stdout, and nothing on stderr", async () => {
+    const dir = await directory();
+
+    await Bun.write(join(dir, "20261011120000_broken.sql"), "select 1 / 0;");
+
+    const result = run([
+      "migrations:run",
+      "--json",
+      ...["--dir", dir, "--url", url, "--table", "cli_json_broken"],
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(lines(result.stdout).at(-1)).toEqual({
+      time: expect.any(String),
+      level: "error",
+      event: "error",
+      message: "20261011120000_broken.sql failed: division by zero",
+      reason: "failed",
+      migration: "20261011120000_broken.sql",
+    });
+  });
+
+  test("warns that the database is ahead of the files", async () => {
+    const dir = await directory();
+    const flags = ["--dir", dir, "--url", url, "--table", "cli_json_ahead"];
+
+    await Bun.write(join(dir, "20261010120000_first.sql"), "select 1;");
+    await Bun.write(join(dir, "20261011120000_second.sql"), "select 2;");
+
+    expect(run(["migrations:run", ...flags]).exitCode).toBe(0);
+
+    await rm(join(dir, "20261011120000_second.sql"));
+
+    expect(lines(run(["migrations:run", "--json", ...flags]).stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "warn",
+        event: "ahead",
+        migration: "20261011120000_second.sql",
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "done",
+        applied: [],
+        ahead: ["20261011120000_second.sql"],
+      },
+    ]);
+  });
+
+  test("names Bun's code for a database it cannot reach", async () => {
+    const result = run([
+      "migrations:run",
+      "--json",
+      ...["--dir", await directory()],
+      ...["--url", "postgres://postgres@127.0.0.1:1/nowhere"],
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(lines(result.stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "error",
+        event: "error",
+        message: expect.any(String),
+        code: "ERR_POSTGRES_CONNECTION_REFUSED",
+      },
+    ]);
+  });
+
+  test("prints a created migration as a JSON line", async () => {
+    const dir = await directory();
+    const result = run([
+      "migrations:new",
+      "add_orders",
+      "--json",
+      "--dir",
+      dir,
+    ]);
+    const [file] = await readdir(dir);
+
+    expect(lines(result.stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "created",
+        path: join(dir, file ?? ""),
+      },
+    ]);
+  });
+
+  test("tells a mistake in the command line in words, on stderr", () => {
+    const result = run(["migrations:run", "--json"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toStartWith("migrations:run needs a database");
+  });
+});
+
+describe("the command line", () => {
+  test("shows the usage with --help", () => {
+    const result = run(["--help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toStartWith("Usage: tetsu-sql <command> [options]");
+  });
+
+  test.each([
+    [[], "a command is needed"],
+    [["migrations:up"], "unknown command migrations:up"],
+    [["migrations:run", "--nope"], "Unknown option '--nope'"],
+  ])("refuses %j, with the usage", (args, message) => {
+    const result = run(args);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(message);
+    expect(result.stderr).toContain("Usage: tetsu-sql");
+  });
+});

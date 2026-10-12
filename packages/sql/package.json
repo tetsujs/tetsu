@@ -29,6 +29,9 @@
   "scripts": {
     "prepack": "bun run --cwd ../.. build"
   },
+  "bin": {
+    "tetsu-sql": "./dist/src/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
