@@ -34,6 +34,13 @@
 import { afterAll, beforeAll } from "bun:test";
 import { SQL } from "bun";
 
+/**
+ * How long creating or dropping a database may take: before Postgres 15,
+ * `create database` waits for a checkpoint, and a busy server makes that
+ * slow.
+ */
+const HOOK_MS = 20_000;
+
 /** A database created for one test file. */
 export interface TestDatabase {
   /**
@@ -71,7 +78,7 @@ export function testDatabase(): TestDatabase {
 
   beforeAll(async () => {
     await onServer(server, `create database ${name}`);
-  });
+  }, HOOK_MS);
 
   afterAll(async () => {
     try {
@@ -79,7 +86,7 @@ export function testDatabase(): TestDatabase {
     } finally {
       await sql.close();
     }
-  });
+  }, HOOK_MS);
 
   return { name, url: url.href, sql };
 }

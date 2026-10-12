@@ -15,6 +15,12 @@ const second = testDatabase();
 
 const helper = JSON.stringify(join(import.meta.dir, "database.ts"));
 
+/**
+ * How long a test that runs a fixture in a child `bun test` may take: the
+ * child starts Bun and talks to the server, and under load that is slow.
+ */
+const CHILD_RUN_MS = 20_000;
+
 /** Whether a database of that name is on the server. */
 async function exists(name: string): Promise<boolean> {
   const admin = new SQL(Bun.env.DATABASE_URL ?? "");
@@ -106,25 +112,37 @@ test("the url reaches the same database as the client", async () => {
   }
 });
 
-test("the database is dropped once its file ends", async () => {
-  const { name, exitCode } = runFixture("lifetime.ts");
+test(
+  "the database is dropped once its file ends",
+  async () => {
+    const { name, exitCode } = runFixture("lifetime.ts");
 
-  expect(exitCode).toBe(0);
-  expect(await exists(name)).toBe(false);
-});
+    expect(exitCode).toBe(0);
+    expect(await exists(name)).toBe(false);
+  },
+  CHILD_RUN_MS,
+);
 
-test("no database is left when no test of the file runs", async () => {
-  const { name } = runFixture("lifetime.ts", "-t", "matches no test");
+test(
+  "no database is left when no test of the file runs",
+  async () => {
+    const { name } = runFixture("lifetime.ts", "-t", "matches no test");
 
-  expect(await exists(name)).toBe(false);
-});
+    expect(await exists(name)).toBe(false);
+  },
+  CHILD_RUN_MS,
+);
 
-test("a query a timed-out test left running does not keep its database", async () => {
-  const { name, exitCode } = runFixture("hang.ts");
+test(
+  "a query a timed-out test left running does not keep its database",
+  async () => {
+    const { name, exitCode } = runFixture("hang.ts");
 
-  expect(exitCode).not.toBe(0);
-  expect(await exists(name)).toBe(false);
-});
+    expect(exitCode).not.toBe(0);
+    expect(await exists(name)).toBe(false);
+  },
+  CHILD_RUN_MS,
+);
 
 test("outside the test runner it throws before creating a database", async () => {
   const uuid = Bun.randomUUIDv7();
