@@ -14,6 +14,10 @@
  * imports — so a helper only this repository's tests use is weight nobody
  * can import, and is left out until someone lists it.
  *
+ * The packages checked are the ones a release publishes,
+ * `publishedPackages()`: a package marked `private`, one still being
+ * built, is neither published nor packed here.
+ *
  * Then the tarballs are installed together into a fresh project outside the
  * repository — the consumer — where neither `paths` nor the workspace can
  * stand in for what was packed:
@@ -51,6 +55,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { publishedPackages } from "./packages.ts";
 import { listedHelpers, strayHelpers } from "./testing-files.ts";
 
 type Manifest = {
@@ -85,11 +90,9 @@ let failed = false;
 try {
   const manifests: Manifest[] = [];
 
-  for (const directory of await readdir(join(root, "packages"))) {
-    const cwd = join(root, "packages", directory);
-
-    await $`bun pm pack --destination ${packs} --quiet`.cwd(cwd).quiet();
-    manifests.push(await Bun.file(join(cwd, "package.json")).json());
+  for (const { dir } of await publishedPackages()) {
+    await $`bun pm pack --destination ${packs} --quiet`.cwd(dir).quiet();
+    manifests.push(await Bun.file(join(dir, "package.json")).json());
   }
 
   for (const tarball of await readdir(packs)) {

@@ -1,0 +1,6 @@
+# The tests of @tetsujs/sql run against a real Postgres, so a plain
+# `bun test` leaves them out and needs no database. `bun run test:sql` runs
+# them against the server DATABASE_URL names: its own
+# `--path-ignore-patterns` replaces this list.
+[test]
+pathIgnorePatterns = ["packages/sql/**"]

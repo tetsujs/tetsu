@@ -1,0 +1,60 @@
+{
+  "name": "@tetsujs/sql",
+  "version": "0.6.3",
+  "private": true,
+  "description": "Postgres on Bun: SQL migrations, Kysely types generated from the real database, and raw SQL parsed by a schema",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "postgres",
+    "sql",
+    "kysely",
+    "migrations"
+  ],
+  "author": "tetsuodev",
+  "license": "MIT",
+  "homepage": "https://tetsujs.com/docs/packages/sql/",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/sql"
+  },
+  "type": "module",
+  "engines": {
+    "bun": ">=1.4.3"
+  },
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./generate": {
+      "types": "./dist/src/generate.d.ts",
+      "default": "./dist/src/generate.js"
+    },
+    "./testing": {
+      "types": "./dist/src/testing.d.ts",
+      "default": "./dist/src/testing.js"
+    }
+  },
+  "peerDependencies": {
+    "kysely": "^0.29.6",
+    "kysely-postgres-js": "^5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}

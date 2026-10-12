@@ -30,6 +30,25 @@ All four run in CI. `bun run check` is not a formality: the `.test-d.ts`
 files are the contract tests for type inference and for the compile errors
 the framework promises, and `tsc` is the only thing that runs them.
 
+The tests of `@tetsujs/sql` run against a real Postgres, so `bun test`
+leaves them out, and they need Bun 1.4.3 or later, as the package does.
+Start a server in one terminal and run them in another, with
+`DATABASE_URL` pointing at it; each test file creates a database of its
+own and drops it when it ends:
+
+```bash
+docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:18
+```
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres bun run test:sql
+```
+
+`test:sql` takes `bun test`'s flags, such as `-t`. A plain `bun test` of
+one of these files reports no match: the root `bunfig.toml` leaves them
+out, and `test:sql` puts them back. CI runs them on the oldest Postgres the
+package supports and the newest.
+
 `verify:packages` installs the packed tarballs into a project outside the
 repository, imports every entry point, serves a request and type-checks it
 with `skipLibCheck` off. `--typescript 5.7` runs that last step with an
@@ -41,6 +60,7 @@ older compiler; CI does it for every TypeScript version it supports.
 | --- | --- |
 | `packages/core` | the framework: routes, hooks, validation, WebSockets, and `testing` |
 | `packages/*` | one package each, built on the core |
+| `packages/sql` | Postgres: migrations, types from the database, Kysely on Bun.SQL; its tests need a server |
 | `examples/` | a runnable file per feature, tested by `examples/recipes.test.ts`, and `examples/app` |
 | `bench/` | HTTP, per-request, validation and type-cost benchmarks, and their numbers |
 | `scripts/` | the build, the package check, and the core's README |

@@ -122,6 +122,14 @@
         "@tetsujs/core": "workspace:^",
       },
     },
+    "packages/sql": {
+      "name": "@tetsujs/sql",
+      "version": "0.6.3",
+      "peerDependencies": {
+        "kysely": "^0.29.6",
+        "kysely-postgres-js": "^5.0.1",
+      },
+    },
     "packages/sse": {
       "name": "@tetsujs/sse",
       "version": "0.6.3",
@@ -219,6 +227,8 @@
     "@tetsujs/request-log": ["@tetsujs/request-log@workspace:packages/request-log"],
 
     "@tetsujs/secure-headers": ["@tetsujs/secure-headers@workspace:packages/secure-headers"],
+
+    "@tetsujs/sql": ["@tetsujs/sql@workspace:packages/sql"],
 
     "@tetsujs/sse": ["@tetsujs/sse@workspace:packages/sse"],
 
@@ -351,6 +361,10 @@
     "ieee754": ["ieee754@1.2.1", "", {}, "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA=="],
 
     "is-fullwidth-code-point": ["is-fullwidth-code-point@3.0.0", "", {}, "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="],
+
+    "kysely": ["kysely@0.29.6", "", {}, "sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg=="],
+
+    "kysely-postgres-js": ["kysely-postgres-js@5.0.1", "", { "peerDependencies": { "kysely": ">= 0.29.0 < 1", "postgres": "^3.4.0" }, "optionalPeers": ["postgres"] }, "sha512-3qY2qzXJszS35CMuknpon79CE5G7MfcTMoIQHuFmGsaQQ2rau3rwx7eNaRJkO9nhli8yQedQroBZ/VehzNJy4w=="],
 
     "lru-cache": ["lru-cache@11.5.3", "", {}, "sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg=="],
 

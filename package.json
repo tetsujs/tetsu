@@ -18,6 +18,7 @@
     "lint": "bunx --bun @biomejs/biome check",
     "lint:fix": "bunx --bun @biomejs/biome check --write",
     "test": "bun test",
+    "test:sql": "bun test ./packages/sql/ --path-ignore-patterns='**/node_modules/**'",
     "ci": "bun run check && bun run lint && bun test"
   },
   "devDependencies": {
