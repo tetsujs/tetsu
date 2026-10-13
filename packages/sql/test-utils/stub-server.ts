@@ -15,7 +15,7 @@
  * });
  *
  * try {
- *   const wire = await connect(new SQL(stub.url()));
+ *   const wire = await Wire.connect(new SQL(stub.url()));
  *   // ...
  * } finally {
  *   await stub.stop();
@@ -25,7 +25,7 @@
  * @module
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo, Socket } from "node:net";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -53,8 +53,17 @@ export interface Peer {
   /** Sends each of `bytes` as it is. */
   send(...bytes: Uint8Array[]): void;
 
-  /** Starts TLS on the connection, as its server, with {@link certificate}. */
-  secure(): void;
+  /**
+   * Starts TLS on the connection, as its server, with `credentials`: a
+   * {@link certificate} no authority signed, by default.
+   */
+  secure(credentials?: Credentials): void;
+
+  /**
+   * The name the client asked TLS for, as SNI, once TLS has started; none
+   * when it asked for none.
+   */
+  readonly servername: string | undefined;
 
   /** Whether the client has closed the connection. */
   readonly closed: boolean;
@@ -81,10 +90,21 @@ export interface Credentials {
   readonly cert: string;
 }
 
+/** An authority of the tests' own, and a server's credentials it signed. */
+export interface Authority {
+  /** The authority's certificate, for a client to trust. */
+  readonly ca: string;
+
+  /** A key, and a certificate of it the authority signed, for `localhost`. */
+  readonly server: Credentials;
+}
+
 /** Ready for a query, out of a transaction. */
 export const READY = backend("Z", Buffer.from("I"));
 
 let credentials: Credentials | undefined;
+
+let signed: Authority | undefined;
 
 /** Listens on a port of its own, and runs `script` for each connection. */
 export async function stubServer(
@@ -242,9 +262,81 @@ export function certificate(): Credentials {
   return credentials;
 }
 
+/**
+ * An authority of the tests' own, and credentials it signed for
+ * `localhost`, which `openssl` makes once a run: a test that trusts the
+ * authority holds a client to a certificate's name.
+ */
+export function authority(): Authority {
+  if (signed === undefined) {
+    const dir = mkdtempSync(join(tmpdir(), "tetsu-sql-tls-"));
+    const at = (name: string) => join(dir, name);
+    const run = (...args: string[]) => {
+      const made = Bun.spawnSync(["openssl", ...args], {
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+
+      if (made.exitCode !== 0) {
+        throw new Error(
+          `the tests of TLS need openssl, which could not make a certificate: ${made.stderr.toString()}`,
+        );
+      }
+    };
+
+    try {
+      writeFileSync(
+        at("openssl.cnf"),
+        [
+          "[req]",
+          "distinguished_name = name",
+          "[name]",
+          "[authority]",
+          "basicConstraints = critical, CA:TRUE",
+          "keyUsage = critical, keyCertSign, cRLSign",
+          "subjectKeyIdentifier = hash",
+          "[server]",
+          "subjectAltName = DNS:localhost",
+          "",
+        ].join("\n"),
+      );
+      run(
+        ...["req", "-x509", "-config", at("openssl.cnf")],
+        ...["-extensions", "authority", "-subj", "/CN=tetsu-sql-authority"],
+        ...["-newkey", "rsa:2048", "-nodes", "-days", "1"],
+        ...["-keyout", at("ca.key"), "-out", at("ca.pem")],
+      );
+      run(
+        ...["req", "-new", "-config", at("openssl.cnf")],
+        ...["-subj", "/CN=tetsu-sql-server", "-newkey", "rsa:2048", "-nodes"],
+        ...["-keyout", at("server.key"), "-out", at("server.csr")],
+      );
+      run(
+        ...["x509", "-req", "-in", at("server.csr"), "-days", "1"],
+        ...["-CA", at("ca.pem"), "-CAkey", at("ca.key"), "-set_serial", "2"],
+        ...["-extfile", at("openssl.cnf"), "-extensions", "server"],
+        ...["-out", at("server.pem")],
+      );
+      signed = {
+        ca: readFileSync(at("ca.pem"), "utf8"),
+        server: {
+          key: readFileSync(at("server.key"), "utf8"),
+          cert: readFileSync(at("server.pem"), "utf8"),
+        },
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  return signed;
+}
+
 /** A client's connection, read as the messages a script asks for. */
 class Connection implements Peer {
   closed = false;
+
+  servername: string | undefined;
 
   private stream: Duplex;
 
@@ -280,7 +372,7 @@ class Connection implements Peer {
     }
   }
 
-  secure(): void {
+  secure(credentials: Credentials = certificate()): void {
     const raw = this.stream;
 
     raw.removeAllListeners("data");
@@ -288,9 +380,14 @@ class Connection implements Peer {
 
     const secure = new TLSSocket(raw as Socket, {
       isServer: true,
-      ...certificate(),
+      ...credentials,
     });
 
+    secure.once("secure", () => {
+      const { servername } = secure as TLSSocket & { servername?: unknown };
+
+      this.servername = typeof servername === "string" ? servername : undefined;
+    });
     this.stream = secure;
     this.listen(secure);
   }
@@ -308,9 +405,7 @@ class Connection implements Peer {
       this.closed = true;
       this.wake?.();
     });
-    stream.on("error", () => {
-      // The client's side cuts the connection: `closed` says so.
-    });
+    stream.on("error", cut);
   }
 
   /** The next `length` bytes, once they have come in. */
@@ -332,3 +427,6 @@ class Connection implements Peer {
     return bytes;
   }
 }
+
+/** Takes an error of a connection the client cut, which `closed` says. */
+function cut(): void {}

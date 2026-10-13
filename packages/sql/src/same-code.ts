@@ -5,16 +5,18 @@
  * of date for that.
  *
  * Each source is read as tokens. Whitespace goes; a string is its value,
- * whatever its quotes; a comment is its words. The marks a formatter adds
- * or takes away do not count: a semicolon, a comma before a closing
- * bracket, the `|` a broken union starts with, and the quotes of a key.
+ * whatever its quotes; a template is its text as it is, which a formatter
+ * leaves alone, as the SQL of a query; a comment is its words. The marks
+ * a formatter adds or takes away do not count: a semicolon, a comma
+ * before a closing bracket, the `|` a broken union starts with, and the
+ * quotes of a key.
  *
  * @module
  */
 
 /** What a token starts with, and how far it runs. */
 const TOKEN =
-  /\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\[\s\S])*"|'(?:[^'\\\n]|\\[\s\S])*'|[$_\p{ID_Start}][$\p{ID_Continue}]*|\d[\w.]*|[\s\S]/uy;
+  /\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\[\s\S])*"|'(?:[^'\\\n]|\\[\s\S])*'|`(?:[^`\\]|\\[\s\S])*`|[$_\p{ID_Start}][$\p{ID_Continue}]*|\d[\w.]*|[\s\S]/uy;
 
 /** The characters a one-letter escape stands for. */
 const ESCAPES: Readonly<Record<string, string>> = {

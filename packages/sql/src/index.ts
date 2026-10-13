@@ -40,6 +40,8 @@ export type {
   MigrationRecord,
 } from "./migrate.ts";
 export { migrate } from "./migrate.ts";
+export type { FileQuery } from "./queries.ts";
+export { queryCount, queryRows } from "./queries.ts";
 export type { Schema } from "./schema.ts";
 export { verifySchema } from "./verify.ts";
 export type { ConstraintName, Constraints } from "./violation.ts";

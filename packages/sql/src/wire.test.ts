@@ -16,11 +16,13 @@ import {
   test,
 } from "bun:test";
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { SQL } from "bun";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
 import type { Peer } from "../test-utils/stub-server.ts";
 import {
   authentication,
+  authority,
   backend,
   cstring,
   errorResponse,
@@ -240,6 +242,24 @@ describe("the settings of a connection", () => {
       settingsOf(new SQL({ url: "postgres://u@h/db", connectionTimeout: 0 }))
         .timeout,
     ).toBe(0);
+    expect(
+      settingsOf(
+        new SQL({ url: "postgres://u@h/db", connectionTimeout: 3_000_000 }),
+      ).timeout,
+    ).toBe(2 ** 31 - 1);
+  });
+
+  test("cannot be had of a client given TLS options past its server's name", () => {
+    expect(() =>
+      settingsOf(
+        new SQL({
+          url: "postgres://u@h/db?sslmode=verify-full",
+          tls: { ca: "x" },
+        }),
+      ),
+    ).toThrow(
+      "@tetsujs/sql takes no TLS option of a client past the name of its server, and this one has ca",
+    );
   });
 
   test("cannot be read from a Bun that keeps them otherwise", () => {
@@ -367,6 +387,24 @@ describe("a session with Postgres", () => {
         { name: "size", type: 23, modifier: -1, table: 0, column: 0 },
       ],
     });
+  });
+
+  test("is described a statement prepared with the types it gives, the others inferred", async () => {
+    expect(
+      await wire.prepare(
+        "",
+        "select $1 as a, $2 = 1 as b, $3::text as c",
+        [20, 0],
+      ),
+    ).toMatchObject({
+      parameters: [20, 23, 25],
+      fields: [{ name: "a", type: 20 }, { name: "b", type: 16 }, { name: "c" }],
+    });
+    expect(
+      await wire
+        .prepare("", "select $1 as a", [3_000_000_000])
+        .catch((error: unknown) => error),
+    ).toMatchObject({ message: "cache lookup failed for type 3000000000" });
   });
 
   test("is told a statement returns no rows, unless it returns some", async () => {
@@ -791,6 +829,125 @@ describe("starting a session", () => {
     }
   });
 
+  test("answers no other way to authenticate once SCRAM has begun, and sends no password", async () => {
+    for (const [code, body] of [
+      [3, Buffer.alloc(0)],
+      [5, Buffer.from([1, 2, 3, 4])],
+      [10, Buffer.concat([cstring("SCRAM-SHA-256"), Buffer.from([0])])],
+    ] as const) {
+      let sent: unknown = "nothing yet";
+      const stub = await stubServer(async (peer) => {
+        await peer.untyped();
+        peer.send(
+          authentication(10, cstring("SCRAM-SHA-256"), Buffer.from([0])),
+        );
+        await peer.message();
+        peer.send(authentication(code, body));
+        sent = await peer.message().catch(() => undefined);
+      });
+
+      try {
+        await expect(Wire.connect(new SQL(stub.url()))).rejects.toMatchObject({
+          code: "ERR_POSTGRES_UNEXPECTED_MESSAGE",
+        });
+        await Bun.sleep(20);
+      } finally {
+        await stub.stop();
+      }
+
+      expect(sent).toBe(undefined);
+    }
+  });
+
+  test("refuses the session going on before authentication is over", async () => {
+    for (const early of [
+      READY,
+      backend("S", cstring("server_version"), cstring("18.0")),
+      backend("K", int32(1), int32(2)),
+    ]) {
+      const stub = await stubServer(async (peer) => {
+        await peer.untyped();
+        peer.send(early, authentication(0), READY);
+      });
+
+      try {
+        await expect(Wire.connect(new SQL(stub.url()))).rejects.toMatchObject({
+          code: "ERR_POSTGRES_UNEXPECTED_MESSAGE",
+        });
+      } finally {
+        await stub.stop();
+      }
+    }
+
+    const midway = await stubServer(async (peer) => {
+      await peer.untyped();
+      await scram(peer);
+      peer.send(READY);
+    });
+
+    try {
+      await expect(Wire.connect(new SQL(midway.url()))).rejects.toMatchObject({
+        code: "ERR_POSTGRES_UNEXPECTED_MESSAGE",
+      });
+    } finally {
+      await midway.stop();
+    }
+  });
+
+  test("refuses authentication asked for again, after a password or after it is over", async () => {
+    for (const script of [
+      async (peer: Peer) => {
+        await peer.untyped();
+        peer.send(authentication(3));
+        await peer.message();
+        peer.send(authentication(3));
+      },
+      async (peer: Peer) => {
+        await peer.untyped();
+        peer.send(authentication(0), authentication(3));
+      },
+    ]) {
+      const stub = await stubServer(script);
+
+      try {
+        await expect(Wire.connect(new SQL(stub.url()))).rejects.toMatchObject({
+          code: "ERR_POSTGRES_UNEXPECTED_MESSAGE",
+        });
+      } finally {
+        await stub.stop();
+      }
+    }
+  });
+
+  test("refuses SCRAM of more iterations than it computes", async () => {
+    const stub = await stubServer(async (peer) => {
+      await peer.untyped();
+      peer.send(authentication(10, cstring("SCRAM-SHA-256"), Buffer.from([0])));
+
+      const first = (await peer.message()).body.toString();
+      const nonce = /r=([^,\0]+)/.exec(first)?.[1];
+
+      peer.send(
+        authentication(
+          11,
+          Buffer.from(`r=${nonce}server,s=c2FsdA==,i=10000001`),
+        ),
+      );
+    });
+    const started = performance.now();
+
+    try {
+      await expect(Wire.connect(new SQL(stub.url()))).rejects.toMatchObject({
+        code: "ERR_POSTGRES_AUTHENTICATION_FAILED_PBKDF",
+        message:
+          "the server asks for 10000001 iterations of SCRAM, more than the 10000000 @tetsujs/sql computes",
+      });
+      expect(performance.now() - started).toBeLessThan(1000);
+    } finally {
+      await stub.stop();
+    }
+  });
+
   test("refuses a server that asks for SCRAM's proof twice", async () => {
     const stub = await stubServer(async (peer) => {
       await peer.untyped();
@@ -999,7 +1156,7 @@ describe("starting a session", () => {
     }
   });
 
-  test("waits as long as it takes when Bun was given no time", async () => {
+  test("takes no time given for no limit, not for none", async () => {
     const stub = await stubServer(async (peer) => {
       await peer.untyped();
       await Bun.sleep(50);
@@ -1151,6 +1308,65 @@ describe("a session the server misbehaves in", () => {
     }
   });
 
+  test("reads a count of parameters past 2^15 as the unsigned number it is", async () => {
+    const stub = await stubServer(async (peer) => {
+      await trust(peer);
+
+      for (let message = 0; message < 3; message += 1) {
+        await peer.message();
+      }
+
+      const count = Buffer.alloc(2);
+
+      count.writeUInt16BE(40_000);
+      peer.send(
+        backend("1"),
+        backend("t", count, ...Array.from({ length: 40_000 }, () => int32(25))),
+        backend("n"),
+        READY,
+      );
+    });
+
+    try {
+      const wire = await Wire.connect(new SQL(stub.url()));
+
+      expect((await wire.prepare("", "select")).parameters).toHaveLength(
+        40_000,
+      );
+      await wire.end();
+    } finally {
+      await stub.stop();
+    }
+  });
+
+  test("ends the session on an error that comes in one packet with its being ready", async () => {
+    const stub = await stubServer(async (peer) => {
+      await peer.untyped();
+      peer.send(
+        Buffer.concat([
+          authentication(0),
+          READY,
+          errorResponse({
+            S: "FATAL",
+            V: "FATAL",
+            C: "57P01",
+            M: "terminating connection due to administrator command",
+          }),
+        ]),
+      );
+    });
+
+    try {
+      const wire = await Wire.connect(new SQL(stub.url()));
+
+      await expect(wire.query("select 1")).rejects.toMatchObject({
+        errno: "57P01",
+      });
+    } finally {
+      await stub.stop();
+    }
+  });
+
   test("reads OIDs past 2^31 as the unsigned numbers they are", async () => {
     const stub = await stubServer(async (peer) => {
       await trust(peer);
@@ -1254,7 +1470,7 @@ describe("TLS", () => {
     expect(request).toEqual(SSL_REQUEST);
   });
 
-  test("that the server does not have fails the session under require and verify-full", async () => {
+  test("that the server does not have fails the session under require, verify-ca and verify-full", async () => {
     for (const sslmode of ["require", "verify-ca", "verify-full"]) {
       const stub = await stubServer(async (peer) => {
         await peer.untyped();
@@ -1371,5 +1587,71 @@ describe("TLS", () => {
     } finally {
       await stub.stop();
     }
+  });
+});
+
+describe("TLS with a certificate of an authority Bun trusts", () => {
+  const trusted = getCACertificates("default");
+
+  beforeAll(() => {
+    setDefaultCACertificates([...trusted, authority().ca]);
+  });
+
+  afterAll(() => {
+    setDefaultCACertificates(trusted);
+  });
+
+  /**
+   * Connects under `sslmode`, to the server by its address or by the name
+   * `name`, and what the server was asked for, as SNI.
+   */
+  async function reach(sslmode: string, name?: string) {
+    let servername: string | undefined;
+    const stub = await stubServer(async (peer) => {
+      await peer.untyped();
+      peer.send(Buffer.from("S"));
+      peer.secure(authority().server);
+      await peer.untyped();
+      servername = peer.servername;
+      peer.send(authentication(0), READY);
+    });
+
+    try {
+      const wire = await Wire.connect(
+        new SQL({
+          url: stub.url(`sslmode=${sslmode}`),
+          ...(name === undefined ? {} : { tls: { serverName: name } }),
+        }),
+      );
+
+      await wire.end();
+
+      return { connected: true, servername };
+    } catch (error) {
+      return { connected: false, code: (error as { code?: unknown }).code };
+    } finally {
+      await stub.stop().catch(() => undefined);
+    }
+  }
+
+  test("is taken under verify-full for the name it is for, which is sent as SNI", async () => {
+    expect(await reach("verify-full", "localhost")).toEqual({
+      connected: true,
+      servername: "localhost",
+    });
+  });
+
+  test("is refused under verify-full for an address it is not for", async () => {
+    expect(await reach("verify-full")).toEqual({
+      connected: false,
+      code: "ERR_TLS_CERT_ALTNAME_INVALID",
+    });
+  });
+
+  test("is taken under verify-ca whatever the name, and an address is sent no SNI", async () => {
+    expect(await reach("verify-ca")).toEqual({
+      connected: true,
+      servername: undefined,
+    });
   });
 });

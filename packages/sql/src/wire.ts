@@ -41,13 +41,19 @@ export interface Field {
   /** The OID of its type. */
   readonly type: number;
 
-  /** Its type's modifier, such as a `varchar`'s length, or -1 for none. */
+  /**
+   * Its type's modifier, as Postgres keeps it — a `varchar(10)`'s is 14 —
+   * or -1 for none.
+   */
   readonly modifier: number;
 
   /** The OID of the table it is a column of, or 0 when it is not one. */
   readonly table: number;
 
-  /** Its number in that table, or 0 when it is not a column of one. */
+  /**
+   * Its number in that table — below 0 for a system column, such as
+   * `ctid` — or 0 when it is not a column of one.
+   */
   readonly column: number;
 }
 
@@ -132,6 +138,16 @@ interface Message {
 /** How long connecting takes at most when Bun was given no time. */
 const CONNECT_MS = 30_000;
 
+/** The longest time a timer waits: one given a longer time fires at once. */
+const TIMER_MAX_MS = 2 ** 31 - 1;
+
+/**
+ * The most iterations of SCRAM the client computes: Postgres asks for
+ * 4096 by default, and a server that asks for billions holds the process
+ * for minutes.
+ */
+const ITERATIONS_MAX = 10_000_000;
+
 /** How long ending the session waits for the server to close it. */
 const END_MS = 5000;
 
@@ -147,16 +163,36 @@ const PROTOCOL = 196_608;
 /** The request to start TLS: its length, then its code. */
 const SSL_REQUEST = Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]);
 
-/** The messages that need no answer, whenever the server sends them. */
-const ASIDE: ReadonlySet<string> = new Set([
-  // A notice, a parameter's new value, a notification.
-  "N",
-  "S",
-  "A",
-]);
+/**
+ * The messages that need no answer whenever the server sends them, once
+ * the session has started: a notice, a parameter's new value, and a
+ * notification.
+ */
+const ASIDE: ReadonlySet<string> = new Set(["N", "S", "A"]);
 
 /** The severities of an error that ends the session. */
 const FATAL: ReadonlySet<string | undefined> = new Set(["FATAL", "PANIC"]);
+
+/**
+ * Where authentication stands: the startup message `asked`, a password
+ * `sent`, SCRAM's `first` and `final` messages sent, the server `proved`
+ * it knows the password, or `done`.
+ */
+type Stage = "asked" | "sent" | "first" | "final" | "proved" | "done";
+
+/**
+ * The authentication requests the client answers at each stage, by their
+ * codes: at first, the end of it or a way to authenticate; then only what
+ * comes after what it answered; none once it is done.
+ */
+const NEXT: Readonly<Record<Stage, readonly number[]>> = {
+  asked: [0, 3, 5, 10],
+  sent: [0],
+  first: [0, 11],
+  final: [0, 12],
+  proved: [0],
+  done: [],
+};
 
 /**
  * The fields of an error the server sends, by their code, as Bun.SQL names
@@ -185,9 +221,12 @@ const derive = promisify(pbkdf2);
 /**
  * The settings Bun resolved for `sql`: from its URL, and for what the URL
  * leaves out, from `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD` and
- * `PGSSLMODE`.
+ * `PGSSLMODE`; its database from `PGDATABASE`, which Bun takes over the
+ * URL's, unless the client names one, as the package's own clients do.
  *
- * @throws {Error} when Bun keeps them in a form this module does not know.
+ * @throws {Error} when Bun keeps them in a form this module does not know,
+ * or the client was given TLS options past the name of its server, which
+ * this module does not take.
  */
 export function settingsOf(sql: SQL): Settings {
   const {
@@ -224,8 +263,17 @@ export function settingsOf(sql: SQL): Settings {
     );
   }
 
+  const options = typeof tls === "object" && tls !== null ? tls : {};
+  const others = Object.keys(options).filter((key) => key !== "serverName");
+
+  if (others.length > 0) {
+    throw new Error(
+      `@tetsujs/sql takes no TLS option of a client past the name of its server, and this one has ${others.join(", ")}`,
+    );
+  }
+
   const host = unbracketed(hostname);
-  const serverName = (tls as { serverName?: unknown } | undefined)?.serverName;
+  const serverName = (options as { serverName?: unknown }).serverName;
   const parameters: (readonly [string, string])[] = [];
 
   for (let index = 0; index < values.length; index += 2) {
@@ -242,7 +290,9 @@ export function settingsOf(sql: SQL): Settings {
     servername: typeof serverName === "string" ? unbracketed(serverName) : host,
     parameters,
     timeout:
-      typeof connectionTimeout === "number" ? connectionTimeout : CONNECT_MS,
+      typeof connectionTimeout === "number"
+        ? Math.min(connectionTimeout, TIMER_MAX_MS)
+        : CONNECT_MS,
   };
 }
 
@@ -383,13 +433,30 @@ export class Wire {
    * of that name has to be deallocated first; the unnamed one, `""`, is
    * replaced, but cannot be run by SQL's `EXECUTE`.
    *
+   * The server infers the type of each parameter, but for those `types`
+   * gives by their OIDs, `$1` first; an OID of 0 leaves that one to infer.
+   *
    * @throws {SQL.PostgresError} when the server refuses it, as with a
    * syntax error, with its SQLSTATE in `errno` and where it is in
    * `position`: the session goes on.
+   * @throws {TypeError} when `name` or `text` holds a NUL, before anything
+   * is sent.
    */
-  async prepare(name: string, text: string): Promise<Statement> {
+  async prepare(
+    name: string,
+    text: string,
+    types: readonly number[] = [],
+  ): Promise<Statement> {
     const request = Buffer.concat([
-      framed("P", Buffer.concat([cstring(name), cstring(text), int16(0)])),
+      framed(
+        "P",
+        Buffer.concat([
+          cstring(name),
+          cstring(text),
+          uint16(types.length),
+          ...types.map(oid),
+        ]),
+      ),
       framed("D", Buffer.concat([Buffer.from("S"), cstring(name)])),
       framed("S"),
     ]);
@@ -488,15 +555,20 @@ export class Wire {
    * Starts the session: the startup message, the authentication the
    * server asks for, then its parameters, up to its being ready.
    *
-   * SCRAM proves the server knows the password as well, and a server that
-   * ends it without proving that is refused. The password goes into SCRAM
-   * as it is, without SASLprep, as Bun, postgres.js and node-postgres send
-   * it: that differs only for a password SASLprep changes, which those
-   * clients cannot use either.
+   * Authentication goes in the order libpq holds a server to, and a server
+   * that strays from it is refused: once SCRAM has begun, only its next
+   * step, so that no password goes out in another form; its end only once
+   * the server has proved it knows the password; and nothing of the
+   * session — a parameter, the key to cancel it, its being ready — before
+   * authentication is over. The password goes into SCRAM as it is,
+   * without SASLprep, as Bun, postgres.js and node-postgres send it: that
+   * differs only for a password SASLprep changes, which those clients
+   * cannot use either.
    */
   private async start(settings: Settings, password: string): Promise<void> {
     this.socket.write(startupOf(settings));
 
+    let stage: Stage = "asked";
     let scram: Scram | undefined;
 
     for (;;) {
@@ -507,15 +579,24 @@ export class Wire {
           const reader = new Reader(message.body);
           const code = reader.int32();
 
+          if (!NEXT[stage].includes(code)) {
+            throw stage === "asked" && code !== 11 && code !== 12
+              ? unsupported(code)
+              : unexpected("R");
+          }
+
           if (code === 0) {
-            if (scram !== undefined && !scram.verified) {
+            if (stage === "first" || stage === "final") {
               throw new SQL.PostgresError(
                 "the server ended SCRAM authentication without proving that it knows the password",
                 { code: "ERR_POSTGRES_INVALID_SERVER_SIGNATURE" },
               );
             }
+
+            stage = "done";
           } else if (code === 3) {
             this.socket.write(framed("p", cstring(password)));
+            stage = "sent";
           } else if (code === 5) {
             this.socket.write(
               framed(
@@ -523,11 +604,8 @@ export class Wire {
                 cstring(md5Of(password, settings.user, reader.rest())),
               ),
             );
+            stage = "sent";
           } else if (code === 10) {
-            if (scram !== undefined) {
-              throw unexpected("R");
-            }
-
             scram = new Scram(password, mechanismsOf(reader));
             this.socket.write(
               framed(
@@ -539,37 +617,41 @@ export class Wire {
                 ]),
               ),
             );
-          } else if (code === 11) {
-            if (scram === undefined) {
-              throw unexpected("R");
-            }
-
+            stage = "first";
+          } else if (code === 11 && scram !== undefined) {
             this.socket.write(
               framed("p", Buffer.from(await scram.final(reader.text()))),
             );
-          } else if (code === 12) {
-            if (scram === undefined) {
-              throw unexpected("R");
-            }
-
+            stage = "final";
+          } else if (code === 12 && scram !== undefined) {
             scram.verify(reader.text());
+            stage = "proved";
           } else {
-            throw unsupported(code);
+            throw unexpected("R");
           }
 
           break;
         }
         case "E":
           throw errorOf(message.body);
-        case "K":
+        case "N":
         case "v":
           break;
-        case "Z":
-          return;
-        default:
-          if (!ASIDE.has(message.type)) {
+        case "S":
+        case "K":
+          if (stage !== "done") {
             throw unexpected(message.type);
           }
+
+          break;
+        case "Z":
+          if (stage !== "done") {
+            throw unexpected(message.type);
+          }
+
+          return;
+        default:
+          throw unexpected(message.type);
       }
     }
   }
@@ -798,6 +880,13 @@ class Scram {
       );
     }
 
+    if (iterations > ITERATIONS_MAX) {
+      throw new SQL.PostgresError(
+        `the server asks for ${iterations} iterations of SCRAM, more than the ${ITERATIONS_MAX} @tetsujs/sql computes`,
+        { code: "ERR_POSTGRES_AUTHENTICATION_FAILED_PBKDF" },
+      );
+    }
+
     const salted = await derive(
       this.password,
       Buffer.from(salt, "base64"),
@@ -869,6 +958,11 @@ class Reader {
 
   int16(): number {
     return this.body.readInt16BE(this.take(2));
+  }
+
+  /** A count, which is unsigned. */
+  uint16(): number {
+    return this.body.readUInt16BE(this.take(2));
   }
 
   int32(): number {
@@ -1061,10 +1155,10 @@ function cstring(text: string): Buffer {
   return Buffer.from(`${text}\0`, "utf8");
 }
 
-function int16(value: number): Buffer {
+function uint16(value: number): Buffer {
   const bytes = Buffer.alloc(2);
 
-  bytes.writeInt16BE(value);
+  bytes.writeUInt16BE(value);
 
   return bytes;
 }
@@ -1073,6 +1167,15 @@ function int32(value: number): Buffer {
   const bytes = Buffer.alloc(4);
 
   bytes.writeInt32BE(value);
+
+  return bytes;
+}
+
+/** An OID, which is unsigned. */
+function oid(value: number): Buffer {
+  const bytes = Buffer.alloc(4);
+
+  bytes.writeUInt32BE(value);
 
   return bytes;
 }
@@ -1117,7 +1220,7 @@ function attributesOf(message: string): Map<string, string> {
 /** The types of a statement's parameters, from a ParameterDescription. */
 function parametersOf(body: Buffer): number[] {
   const reader = new Reader(body);
-  const count = reader.int16();
+  const count = reader.uint16();
   const parameters: number[] = [];
 
   for (let index = 0; index < count; index += 1) {
@@ -1130,7 +1233,7 @@ function parametersOf(body: Buffer): number[] {
 /** The columns of a statement's rows, from a RowDescription. */
 function fieldsOf(body: Buffer): Field[] {
   const reader = new Reader(body);
-  const count = reader.int16();
+  const count = reader.uint16();
   const fields: Field[] = [];
 
   for (let index = 0; index < count; index += 1) {
@@ -1153,7 +1256,7 @@ function fieldsOf(body: Buffer): Field[] {
 /** A row of a plain query, from a DataRow. */
 function rowOf(body: Buffer): Row {
   const reader = new Reader(body);
-  const count = reader.int16();
+  const count = reader.uint16();
   const row: (string | null)[] = [];
 
   for (let index = 0; index < count; index += 1) {

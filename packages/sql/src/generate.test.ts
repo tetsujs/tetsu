@@ -1,11 +1,12 @@
 /**
- * `generate()` against a real Postgres: the file of the fixture migrations
- * is the one checked in beside them, on Postgres 14 and 18 alike, and the
- * scratch database it is built on is gone afterwards, when the migrations
- * fail as well.
+ * `generate()` against a real Postgres: the files of the fixture
+ * migrations and queries are the ones checked in beside them, on Postgres
+ * 14 and 18 alike, and the scratch database they are built on is gone
+ * afterwards, when the migrations or the queries fail as well.
  *
- * The file checked in is type-checked with the repository, and its types
- * are held to Kysely by `generate.test-d.ts`.
+ * The files checked in are type-checked with the repository; the types
+ * are held to Kysely by `generate.test-d.ts`, and the queries are run by
+ * `queries.test.ts`.
  *
  * @module
  */
@@ -26,9 +27,20 @@ import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
 import { MigrationError } from "./errors.ts";
 import { generate } from "./generate.ts";
 import { migrate } from "./migrate.ts";
+import { QueryFileError } from "./query-files.ts";
 
 const fixtures = join(import.meta.dir, "../test-utils/fixtures/schema");
 const golden = await Bun.file(join(fixtures, "db.generated.ts")).text();
+const goldenQueries = await Bun.file(
+  join(fixtures, "queries.generated.ts"),
+).text();
+
+/** Where the fixture's files go, as `generate` is given them. */
+const queries = {
+  dir: join(fixtures, "queries"),
+  out: join(fixtures, "queries.generated.ts"),
+  types: join(fixtures, "db.generated.ts"),
+};
 const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-generate-"));
 setDefaultTimeout(DATABASE_MS);
 
@@ -91,8 +103,8 @@ describe("the types of the fixture migrations", () => {
   test("are the file checked in beside them, each time, and leave no database", async () => {
     const dir = join(fixtures, "migrations");
     const made = await scratchMadeBy(async () => {
-      expect(await generate({ url, dir })).toBe(golden);
-      expect(await generate({ url, dir })).toBe(golden);
+      expect((await generate({ url, dir })).types).toBe(golden);
+      expect((await generate({ url, dir })).types).toBe(golden);
     });
 
     expect(made).toHaveLength(2);
@@ -109,12 +121,90 @@ describe("the types of the fixture migrations", () => {
   });
 });
 
+describe("the functions of the fixture queries", () => {
+  test("are the file checked in beside them, with the same types, each time, and leave no database", async () => {
+    const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        expect(await generate({ url, dir, queries })).toEqual({
+          types: golden,
+          queries: goldenQueries,
+        });
+      }
+    });
+
+    expect(made).toHaveLength(2);
+    expect(await existing(made)).toEqual([]);
+  });
+
+  test("are none when no queries are asked for", async () => {
+    expect(
+      await generate({ url, dir: join(fixtures, "migrations") }),
+    ).toMatchObject({ queries: undefined });
+  });
+
+  test("that Postgres refuses fail the run, each told, and leave no database", async () => {
+    const dir = await directory({
+      "20260101000000_t.sql": "create table t (id int8 primary key);",
+    });
+    const files = await directory({
+      "fine.sql": "select id from t",
+      "wrong.sql": "select qqqqqq from t",
+      "worse.sql": "select id,\n  :x from t where id = $1",
+    });
+    const made = await scratchMadeBy(async () => {
+      const error = await generate({
+        url,
+        dir,
+        queries: {
+          dir: files,
+          out: join(files, "q.ts"),
+          types: join(files, "t.ts"),
+        },
+      }).catch((failure: unknown) => failure);
+
+      expect(error).toBeInstanceOf(QueryFileError);
+      expect((error as Error).message).toBe(
+        `${join(files, "worse.sql")}:2:24: takes parameters by name, as :id, not by number, as $1`,
+      );
+    });
+
+    expect(made).toEqual([]);
+
+    const described = await scratchMadeBy(async () => {
+      await Bun.write(join(files, "worse.sql"), "select :x::int8 as x");
+
+      const error = await generate({
+        url,
+        dir,
+        queries: {
+          dir: files,
+          out: join(files, "q.ts"),
+          types: join(files, "t.ts"),
+        },
+      }).catch((failure: unknown) => failure);
+
+      expect(error).toBeInstanceOf(QueryFileError);
+      expect((error as Error).message).toBe(
+        `${join(files, "wrong.sql")}:1:8: column "qqqqqq" does not exist`,
+      );
+    });
+
+    expect(described).toHaveLength(1);
+    expect(await existing(described)).toEqual([]);
+  });
+});
+
 describe("the journal", () => {
   test("in a schema of its own is created with its schema, and left out of DB", async () => {
     const dir = await directory({
       "20261010120000_first.sql": "create table orders (id int4 primary key);",
     });
-    const source = await generate({ url, dir, table: "ops.migrations" });
+    const { types: source } = await generate({
+      url,
+      dir,
+      table: "ops.migrations",
+    });
 
     expect(source).toContain('  journal: "ops.migrations",\n');
     expect(source).not.toContain('"ops.migrations": {');
@@ -135,7 +225,7 @@ describe("the journal", () => {
         $$;
         create table orders (id int4 primary key);`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
     const [role] = await sql`select current_user as name`;
 
     expect(source).toContain(
@@ -151,7 +241,11 @@ describe("the journal", () => {
     const dir = await directory({
       "20261010120000_first.sql": "create table orders (id int4 primary key);",
     });
-    const source = await generate({ url, dir, table: "ops_journal" });
+    const { types: source } = await generate({
+      url,
+      dir,
+      table: "ops_journal",
+    });
 
     expect(source).toContain('  journal: "ops_journal",\n');
     expect(source).toContain("  orders: {\n    id: number;\n  };\n");
@@ -171,7 +265,7 @@ describe("an alias", () => {
           kind public.json
         );`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
 
     expect(source).toContain('export type OrdersStatus = "a" | "b";');
     expect(source).toContain('export type OrdersStatus2 = "x" | "y";');
@@ -197,7 +291,7 @@ describe("an alias", () => {
           size "area_m²" not null
         );`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
 
     expect(source).toContain('export type Date2 = "today" | "tomorrow";');
     expect(source).toContain('export type Buffer2 = "small" | "large";');
@@ -243,7 +337,7 @@ describe("the columns of arrays", () => {
         create view shape_view as select id, boxes, tags from shapes;
         create materialized view shape_counts as select tags from shapes;`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
 
     expect(source).toContain(
       [
@@ -281,7 +375,7 @@ describe("a collation that does not tell values apart by their characters", () =
           kind ci_kind
         );`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
 
     expect(source).toContain("    tone: string;\n    kind: CiKind | null;\n");
     expect(source).toContain('export type CiKind = "retail" | "bulk";');
@@ -314,7 +408,7 @@ describe("a not-null constraint not valid yet, on Postgres 18", () => {
       "20261011120000_tighten.sql": `
         alter table legacy add constraint legacy_email_not_null not null email not valid;`,
     });
-    const source = await generate({ url, dir });
+    const { types: source } = await generate({ url, dir });
 
     expect(source).toContain("    email: string | null;\n");
   });
@@ -379,7 +473,10 @@ describe("migrations that fail", () => {
 
 describe("no migrations", () => {
   test("make the file of an empty database, from no migration", async () => {
-    const source = await generate({ url, dir: await directory({}) });
+    const { types: source } = await generate({
+      url,
+      dir: await directory({}),
+    });
 
     expect(source).toContain("as there are no migrations yet");
     expect(source).toContain("export type DB = Record<never, never>;");
@@ -414,7 +511,7 @@ describe("the URL", () => {
     Bun.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/nowhere";
 
     try {
-      const source = await generate({ url: options.href, dir });
+      const { types: source } = await generate({ url: options.href, dir });
 
       expect(source).toContain(
         '  "app.orders": {\n    id: number;\n    note: string | null;\n  };',

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
- * `tetsu-sql`: migrations and types from the command line, for
- * `package.json` scripts. Each command is one of the package's functions
- * with its options as flags, and the database is `--url` or
- * `DATABASE_URL`.
+ * `tetsu-sql`: migrations, types and the functions of query files from
+ * the command line, for `package.json` scripts. Each command is one of the
+ * package's functions with its options as flags, and the database is
+ * `--url` or `DATABASE_URL`.
  *
  * ```json
  * "scripts": {
@@ -22,8 +22,8 @@
  * @module
  */
 
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, stat } from "node:fs/promises";
+import { dirname, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { clientOf } from "./client.ts";
 import { MigrationError } from "./errors.ts";
@@ -39,7 +39,8 @@ Commands:
   migrations:new <name>    Create an empty migration, named with the current UTC time
   migrations:run           Apply the pending migrations
   types:generate           Write the Kysely types of the database the migrations build,
-                           on a scratch database of the server
+                           on a scratch database of the server, and the functions of
+                           the query files, when there are any
 
 Options:
   --dir <path>             The migrations directory (default: migrations)
@@ -47,7 +48,10 @@ Options:
   --table <name>           The journal table (default: migrations)
   --lock-timeout-ms <ms>   How long a statement in a transaction may wait for a lock (default: 5000)
   --out <path>             Where the types go (default: src/db.generated.ts)
-  --check                  Check that the types are up to date, and write nothing
+  --queries <path>         The query files' directory (default: queries, when it is there)
+  --queries-out <path>     Where the functions of the queries go
+                           (default: src/queries.generated.ts)
+  --check                  Check that the generated files are up to date, and write nothing
   --json                   Print each line as a JSON object, for a log collector
   -h, --help               Show this`;
 
@@ -57,11 +61,25 @@ const DIR = "migrations";
 /** Where the types go when no `--out` is given. */
 const OUT = "src/db.generated.ts";
 
+/** The query files' directory when no `--queries` is given: used when it is there. */
+const QUERIES = "queries";
+
+/** Where the functions of the queries go when no `--queries-out` is given. */
+const QUERIES_OUT = "src/queries.generated.ts";
+
 /** The flags each command takes, past `--json` and `--help`, which all do. */
 const FLAGS: Readonly<Record<string, readonly string[]>> = {
   "migrations:new": ["dir"],
   "migrations:run": ["dir", "url", "table", "lock-timeout-ms"],
-  "types:generate": ["dir", "url", "table", "out", "check"],
+  "types:generate": [
+    "dir",
+    "url",
+    "table",
+    "out",
+    "queries",
+    "queries-out",
+    "check",
+  ],
 };
 
 /** A mistake in how the command was called, answered with the usage. */
@@ -92,6 +110,8 @@ function parse(argv: readonly string[]) {
         table: { type: "string" },
         "lock-timeout-ms": { type: "string" },
         out: { type: "string" },
+        queries: { type: "string" },
+        "queries-out": { type: "string" },
         check: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -219,6 +239,13 @@ async function main(
     );
   }
 
+  if (
+    command === "types:generate" &&
+    relative(values.out ?? OUT, values["queries-out"] ?? QUERIES_OUT) === ""
+  ) {
+    throw new UsageError("--out and --queries-out name the same file");
+  }
+
   const dir = values.dir ?? DIR;
 
   if (command === "migrations:new") {
@@ -259,29 +286,72 @@ async function main(
   }
 
   const out = values.out ?? OUT;
-  const source = await generate({ url, dir, ...table });
+  const queriesOut = values["queries-out"] ?? QUERIES_OUT;
+  const queries = values.queries ?? QUERIES;
+  const found = await isDirectory(queries);
+
+  if (
+    !found &&
+    (values.queries !== undefined || values["queries-out"] !== undefined)
+  ) {
+    throw new Error(`${queries} is not a directory of query files`);
+  }
+
+  if (
+    !found &&
+    values.check === true &&
+    (await Bun.file(queriesOut).exists())
+  ) {
+    throw new Error(
+      `${queriesOut} is out of date: there are no query files, in ${queries}, for it to hold`,
+    );
+  }
+
+  const generated = await generate({
+    url,
+    dir,
+    ...table,
+    ...(found
+      ? { queries: { dir: queries, out: queriesOut, types: out } }
+      : {}),
+  });
+  const files = [
+    { path: out, source: generated.types },
+    ...(generated.queries === undefined
+      ? []
+      : [{ path: queriesOut, source: generated.queries }]),
+  ];
 
   if (values.check !== true) {
-    await mkdir(dirname(out), { recursive: true });
-    await Bun.write(out, source);
-    print({ event: "generated", path: out });
+    for (const { path, source } of files) {
+      await mkdir(dirname(path), { recursive: true });
+      await Bun.write(path, source);
+      print({ event: "generated", path });
+    }
 
     return 0;
   }
 
-  const file = Bun.file(out);
+  for (const { path, source } of files) {
+    const file = Bun.file(path);
 
-  if (!(await file.exists())) {
-    throw new Error(`${out} is not there: run tetsu-sql types:generate`);
+    if (!(await file.exists())) {
+      throw new Error(`${path} is not there: run tetsu-sql types:generate`);
+    }
+
+    if (!isSameCode(await file.text(), source)) {
+      throw new Error(`${path} is out of date: run tetsu-sql types:generate`);
+    }
+
+    print({ event: "checked", path });
   }
-
-  if (!isSameCode(await file.text(), source)) {
-    throw new Error(`${out} is out of date: run tetsu-sql types:generate`);
-  }
-
-  print({ event: "checked", path: out });
 
   return 0;
+}
+
+/** Whether `path` is a directory. */
+async function isDirectory(path: string): Promise<boolean> {
+  return (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
 }
 
 /**

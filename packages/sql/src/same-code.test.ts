@@ -158,6 +158,30 @@ describe("other code", () => {
     ).toBe(true);
   });
 
+  test.each([
+    ["the quotes of SQL", "where note = 'label'", 'where note = "label"'],
+    ["a cast of a string", "'label'::text", "label::text"],
+    ["the space in a string of SQL", "$$a  b$$", "$$a b$$"],
+    ["the lines of SQL", "select 1\nfrom t", "select 1 from t"],
+    ["a semicolon in SQL", "select 1;", "select 1"],
+  ])("is not the same: a template whose text differs in %s", (_, a, b) => {
+    expect(
+      isSameCode(
+        `const Q = { text: \`${a}\` };`,
+        `const Q = { text: \`${b}\` };`,
+      ),
+    ).toBe(false);
+  });
+
+  test("is the same: a template laid out as before around it", () => {
+    expect(
+      isSameCode(
+        "const Q = { text: `select 1\nfrom t`, names: [] };",
+        "const Q = {\n\ttext: `select 1\nfrom t`,\n\tnames: [],\n}",
+      ),
+    ).toBe(true);
+  });
+
   test("is not the same when one source ends early", () => {
     expect(
       isSameCode(

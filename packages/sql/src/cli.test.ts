@@ -6,7 +6,7 @@
  */
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -16,6 +16,9 @@ const cli = join(import.meta.dir, "cli.ts");
 const root = join(import.meta.dir, "../../..");
 const fixtures = join(import.meta.dir, "../test-utils/fixtures/schema");
 const golden = await Bun.file(join(fixtures, "db.generated.ts")).text();
+const goldenQueries = await Bun.file(
+  join(fixtures, "queries.generated.ts"),
+).text();
 const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-cli-"));
 setDefaultTimeout(DATABASE_MS);
 
@@ -696,6 +699,144 @@ describe("types:generate", () => {
     ]);
   });
 
+  test("writes the functions of the files in ./queries beside the types, as --queries-out says", async () => {
+    const cwd = await directory();
+
+    await cp(join(fixtures, "queries"), join(cwd, "queries"), {
+      recursive: true,
+    });
+
+    const flags = ["--dir", migrations, "--url", url];
+    const files = ["--out", "db.generated.ts"];
+
+    expect(
+      run(
+        [
+          "types:generate",
+          ...flags,
+          ...files,
+          ...["--queries-out", "queries.generated.ts"],
+        ],
+        { cwd },
+      ),
+    ).toEqual({
+      exitCode: 0,
+      stdout: "generated db.generated.ts\ngenerated queries.generated.ts\n",
+      stderr: "",
+    });
+    expect(await Bun.file(join(cwd, "queries.generated.ts")).text()).toBe(
+      goldenQueries,
+    );
+    expect(run(["types:generate", ...flags], { cwd })).toMatchObject({
+      exitCode: 0,
+      stdout:
+        "generated src/db.generated.ts\ngenerated src/queries.generated.ts\n",
+    });
+    expect(
+      await Bun.file(join(cwd, "src/queries.generated.ts")).text(),
+    ).toContain('import type * as Database from "./db.generated.ts";');
+  });
+
+  test("with --check, checks the functions of the queries too", async () => {
+    const cwd = await directory();
+
+    await cp(join(fixtures, "queries"), join(cwd, "queries"), {
+      recursive: true,
+    });
+    await Bun.write(join(cwd, "db.generated.ts"), golden);
+    await Bun.write(join(cwd, "queries.generated.ts"), goldenQueries);
+
+    const flags = [
+      "types:generate",
+      "--check",
+      ...["--dir", migrations, "--url", url, "--out", "db.generated.ts"],
+      ...["--queries-out", "queries.generated.ts"],
+    ];
+
+    expect(run(flags, { cwd })).toEqual({
+      exitCode: 0,
+      stdout:
+        "db.generated.ts is up to date\nqueries.generated.ts is up to date\n",
+      stderr: "",
+    });
+
+    await Bun.write(
+      join(cwd, "queries.generated.ts"),
+      goldenQueries.replace("  count: number;", "  count: bigint;"),
+    );
+
+    expect(run(flags, { cwd })).toEqual({
+      exitCode: 1,
+      stdout: "db.generated.ts is up to date\n",
+      stderr:
+        "error: queries.generated.ts is out of date: run tetsu-sql types:generate\n",
+    });
+  });
+
+  test("says which query Postgres refused, where, and writes nothing", async () => {
+    const cwd = await directory();
+
+    await Bun.write(
+      join(cwd, "queries/orders.sql"),
+      "select id,\n  qqqqqq\nfrom orders",
+    );
+
+    expect(
+      run(["types:generate", "--dir", migrations, "--url", url], { cwd }),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: 'error: queries/orders.sql:2:3: column "qqqqqq" does not exist\n',
+    });
+    expect(await Bun.file(join(cwd, "src/db.generated.ts")).exists()).toBe(
+      false,
+    );
+  });
+
+  test("refuses --queries-out with no query files to write the functions of", async () => {
+    expect(
+      run([
+        "types:generate",
+        ...["--dir", migrations, "--url", url, "--queries-out", "q.ts"],
+      ]),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: queries is not a directory of query files\n",
+    });
+  });
+
+  test("with --check, refuses a file of queries left behind by query files that are gone", async () => {
+    const cwd = await directory();
+
+    await Bun.write(join(cwd, "src/db.generated.ts"), golden);
+    await Bun.write(join(cwd, "src/queries.generated.ts"), goldenQueries);
+
+    expect(
+      run(["types:generate", "--check", "--dir", migrations, "--url", url], {
+        cwd,
+      }),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        "error: src/queries.generated.ts is out of date: there are no query files, in queries, for it to hold\n",
+    });
+  });
+
+  test("refuses --queries that names no directory", async () => {
+    expect(
+      run([
+        "types:generate",
+        ...["--dir", migrations, "--url", url, "--queries", "nowhere"],
+      ]),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: nowhere is not a directory of query files\n",
+    });
+  });
+
   test("says which migration failed, and writes nothing", async () => {
     const dir = await directory();
     const out = join(dir, "db.generated.ts");
@@ -744,6 +885,14 @@ describe("the command line", () => {
       "types:generate does not take --lock-timeout-ms",
     ],
     [["types:generate", "extra"], "types:generate takes no names"],
+    [
+      ["types:generate", "--out", "a.ts", "--queries-out", "./a.ts"],
+      "--out and --queries-out name the same file",
+    ],
+    [
+      ["migrations:run", "--queries", "q"],
+      "migrations:run does not take --queries",
+    ],
   ])("refuses %j, with the usage", (args, message) => {
     const result = run(args);
 

@@ -37,7 +37,7 @@ const WIDTH = 80;
  * Whether a line is too wide, measured as a formatter measures it: by the
  * columns it takes, two for a CJK character.
  */
-function tooWide(line: string): boolean {
+export function tooWide(line: string): boolean {
   return Bun.stringWidth(line) > WIDTH;
 }
 
@@ -377,7 +377,7 @@ function stringProperty(key: string, value: string, indent: string): string {
 }
 
 /** A TSDoc comment, on one line when it fits and has one. */
-function doc(text: string | undefined, indent: string): string[] {
+export function doc(text: string | undefined, indent: string): string[] {
   if (text === undefined) {
     return [];
   }
@@ -411,7 +411,7 @@ function propertyKeyOf(name: string): string {
 }
 
 /** A key: as it is when it is an identifier, otherwise quoted. */
-function keyOf(name: string): string {
+export function keyOf(name: string): string {
   return /^[$_\p{ID_Start}][$\p{ID_Continue}]*$/u.test(name)
     ? name
     : stringLiteral(name);
@@ -421,7 +421,7 @@ function keyOf(name: string): string {
  * A string, in double quotes unless it holds more of them than of single
  * ones, which is how Prettier and Biome choose.
  */
-function stringLiteral(value: string): string {
+export function stringLiteral(value: string): string {
   const json = JSON.stringify(value);
   const doubles = value.split('"').length - 1;
   const singles = value.split("'").length - 1;

@@ -1,7 +1,9 @@
 /**
  * The catalog of a database the migrations built, read into what the
  * generated file says of it: its relations and their columns, its enums,
- * the lists its checks allow, and the names of its constraints.
+ * the lists its checks allow, and the names of its constraints; and into
+ * what typing a query of a file takes of it: a column by the OID of its
+ * relation and its number, a type by its OID.
  *
  * Names are ordered here, by their characters, and never by `order by`,
  * whose collation differs from one server to the next: the same
@@ -89,6 +91,75 @@ export interface Model {
   readonly constraints: readonly string[];
 }
 
+/**
+ * A TypeScript type a value is written in: a keyword or a class, such as
+ * `string` or `Date`; an alias of the generated file; a union; or an
+ * array, which a parameter takes `readonly`.
+ */
+export type TsType =
+  | { readonly kind: "keyword"; readonly name: string }
+  | { readonly kind: "alias"; readonly name: string }
+  | { readonly kind: "union"; readonly members: readonly TsType[] }
+  | {
+      readonly kind: "array";
+      readonly element: TsType;
+      readonly readonly: boolean;
+    };
+
+/** What a value is in TypeScript: as Bun reads it, and as it is written. */
+export interface Values {
+  /** The type it reads as, NULL aside. */
+  readonly reads: TsType;
+
+  /** The type it is written as, NULL aside. */
+  readonly writes: TsType;
+}
+
+/** A column of a relation the generated file describes. */
+export interface ColumnOrigin {
+  readonly values: Values;
+
+  /** Whether it may hold NULL, as `DB` says. */
+  readonly nullable: boolean;
+}
+
+/** A type, as a value of it reads and is written. */
+export interface TypeOrigin {
+  readonly values: Values;
+
+  /**
+   * How the literal of an array of it is written, when it is an array
+   * type: by the delimiter of its elements, or as {@link JSON_ELEMENTS}.
+   */
+  readonly literal: string | undefined;
+
+  /** The OID of the type under its domains: its own, when it is none. */
+  readonly base: number;
+}
+
+/**
+ * What typing a query of a file reads of the catalog, past the model. A
+ * type is typed as a column of it with no checks of its own, by the
+ * aliases the model has: a list of a domain no column holds narrows
+ * nothing, as the model has no alias for it.
+ */
+export interface Lookup {
+  /**
+   * A column, by the OID of its relation and its number, when the model
+   * describes the relation.
+   */
+  column(relation: number, position: number): ColumnOrigin | undefined;
+
+  /** A type, by its OID. */
+  type(type: number): TypeOrigin;
+}
+
+/** The catalog, read: the model, and what typing a query reads of it. */
+export interface Catalog {
+  readonly model: Model;
+  readonly lookup: Lookup;
+}
+
 /** A relation, as the catalog lists it. */
 interface RelationRow {
   readonly id: number;
@@ -154,8 +225,8 @@ interface CheckRow {
   readonly definition: string;
 }
 
-/** The rows {@link readModel} reads. */
-interface Catalog {
+/** The rows {@link readCatalog} reads. */
+interface Rows {
   readonly relations: readonly RelationRow[];
   readonly columns: readonly ColumnRow[];
   readonly types: readonly TypeRow[];
@@ -171,13 +242,18 @@ const USER_SCHEMA = "n.nspname <> 'information_schema' and n.nspname !~ '^pg_'";
 const DESCRIBED = `c.relkind in ('r', 'p', 'v', 'm', 'f') and not c.relispartition
   and ${USER_SCHEMA} and c.oid is distinct from to_regclass($1)`;
 
+/** Reads the model of the database `sql` is connected to, as {@link readCatalog}. */
+export async function readModel(sql: SQL, journal: string): Promise<Model> {
+  return (await readCatalog(sql, journal)).model;
+}
+
 /**
  * Reads the catalog of the database `sql` is connected to. The journal,
  * schema-qualified as `migrate` resolved it before the migrations ran, is
  * left out with its constraints: resolved afterwards, its bare name could
  * find a table a migration made in a schema earlier in the `search_path`.
  */
-export async function readModel(sql: SQL, journal: string): Promise<Model> {
+export async function readCatalog(sql: SQL, journal: string): Promise<Catalog> {
   const relations: RelationRow[] = await sql.unsafe(
     `select c.oid as id, n.nspname as schema, c.relname as name,
             c.relkind as kind, obj_description(c.oid, 'pg_class') as comment
@@ -244,8 +320,22 @@ export async function readModel(sql: SQL, journal: string): Promise<Model> {
     [journal],
   );
 
-  return new Builder({ relations, columns, types, labels, checks, names })
-    .model;
+  const builder = new Builder({
+    relations,
+    columns,
+    types,
+    labels,
+    checks,
+    names,
+  });
+
+  return {
+    model: builder.model,
+    lookup: {
+      column: (relation, position) => builder.origin(relation, position),
+      type: (type) => builder.typeOrigin(type),
+    },
+  };
 }
 
 /**
@@ -289,6 +379,9 @@ const LISTABLE: ReadonlySet<string> = new Set([
 /** The type a column, or an array element, reads as, with a note when unknown. */
 interface Typed {
   readonly type: string;
+
+  /** What its values are in TypeScript. */
+  readonly values: Values;
   readonly note?: string;
 
   /** How the literal of its arrays is written, when it holds arrays. */
@@ -312,7 +405,7 @@ const NO_PROMISES: Promises = { domain: [], own: [], noNulls: false };
 
 /** Builds the model of a catalog, naming aliases as it meets them. */
 class Builder {
-  private readonly catalog: Catalog;
+  private readonly catalog: Rows;
   private readonly types: ReadonlyMap<number, TypeRow>;
   private readonly enums = new Map<number, string>();
   private readonly domains = new Map<number, string>();
@@ -320,10 +413,19 @@ class Builder {
   private readonly aliases: Alias[] = [];
   private readonly helpers = new Set<Helper>();
 
+  /** The columns of the model, by the OID of their relation and their number. */
+  private readonly origins = new Map<string, ColumnOrigin>();
+
+  /**
+   * Whether the model is built: from then on, typing names no alias and
+   * uses no helper, as the file is written already.
+   */
+  private frozen = false;
+
   /** The model, built on construction. */
   readonly model: Model;
 
-  constructor(catalog: Catalog) {
+  constructor(catalog: Rows) {
     this.catalog = catalog;
     this.types = new Map(catalog.types.map((type) => [type.id, type]));
 
@@ -334,7 +436,7 @@ class Builder {
     for (const type of enums) {
       this.enums.set(
         type.id,
-        this.alias(pascal(type.schema, type.name), this.labels(type)),
+        this.alias(pascal(type.schema, type.name), this.labels(type)) as string,
       );
     }
 
@@ -364,6 +466,38 @@ class Builder {
       aliases: this.aliases.toSorted((a, b) => compare(a.name, b.name)),
       helpers: this.helpers,
       constraints: catalog.names.map((row) => row.name).toSorted(compare),
+    };
+    this.frozen = true;
+  }
+
+  /** A column of the model, by the OID of its relation and its number. */
+  origin(relation: number, position: number): ColumnOrigin | undefined {
+    return this.origins.get(`${relation}:${position}`);
+  }
+
+  /**
+   * A type, as a column of it with no checks of its own is typed: an
+   * enum's alias, a domain's list by the alias the model has for it, or
+   * what its type reads as.
+   */
+  typeOrigin(id: number): TypeOrigin {
+    const declared = this.types.get(id);
+    const base = this.unwrap(declared);
+
+    if (declared === undefined || base === undefined) {
+      return { values: UNKNOWN_VALUES, literal: undefined, base: id };
+    }
+
+    const promises = this.promises(declared, [], { column: "" }, true);
+
+    return {
+      values: base.array
+        ? this.array(base, promises.noNulls).values
+        : this.scalar(declared, base, promises, "").values,
+      literal: base.array
+        ? this.literalOf(this.types.get(base.element))
+        : undefined,
+      base: base.id,
     };
   }
 
@@ -405,14 +539,19 @@ class Builder {
           typed.type === "unknown" && !nullable ? "Unknown" : typed.type;
 
         if (type === "Unknown") {
-          this.helpers.add("Unknown");
+          this.use("Unknown");
         }
 
         if (generated === "always") {
-          this.helpers.add("GeneratedAlways");
+          this.use("GeneratedAlways");
         } else if (generated === "default") {
-          this.helpers.add("Generated");
+          this.use("Generated");
         }
+
+        this.origins.set(`${relation.id}:${column.position}`, {
+          values: typed.values,
+          nullable,
+        });
 
         return {
           name: column.name,
@@ -486,22 +625,35 @@ class Builder {
 
     if (pg.arrays && declared.kind !== "d" && element.kind !== "e") {
       const helper = noNulls ? "ArrayOf" : "ArrayOfNullable";
+      const { reads, writes } = pgValues(pg);
 
-      this.helpers.add(helper);
+      this.use(helper);
 
       if (pg.written !== undefined) {
-        this.helpers.add(pg.written);
+        this.use(pg.written);
       }
 
-      return { type: `${helper}<${pg.written ?? pg.reads}>` };
+      return {
+        type: `${helper}<${pg.written ?? pg.reads}>`,
+        values: {
+          reads: arrayOf(reads, !noNulls, false),
+          writes: arrayOf(writes, !noNulls, true),
+        },
+      };
     }
 
     const promises = this.promises(declared, [], { column: "" }, true);
     const scalar = this.scalar(declared, element, promises, "");
 
-    this.helpers.add("ArrayLiteral");
+    this.use("ArrayLiteral");
 
-    return { type: `ArrayLiteral<${scalar.type}>` };
+    return {
+      type: `ArrayLiteral<${scalar.type}>`,
+      values: {
+        reads: keyword("string"),
+        writes: arrayOf(scalar.values.writes, false, true),
+      },
+    };
   }
 
   /**
@@ -541,26 +693,28 @@ class Builder {
       !(labels !== undefined && allowed.length === labels.length)
     ) {
       const values = allowed.map((value) => (numeric ? Number(value) : value));
+      const named =
+        promises.own.length === 0 && declared.kind === "d"
+          ? this.domainAlias(declared, values)
+          : this.alias(owner, values);
 
-      return {
-        type:
-          promises.own.length === 0 && declared.kind === "d"
-            ? this.domainAlias(declared, values)
-            : this.alias(owner, values),
-      };
+      if (named !== undefined) {
+        return { type: named, values: same({ kind: "alias", name: named }) };
+      }
     }
 
     if (enumAlias !== undefined) {
-      return { type: enumAlias };
+      return {
+        type: enumAlias,
+        values: same({ kind: "alias", name: enumAlias }),
+      };
     }
 
     if (pg.written !== undefined) {
-      this.helpers.add(pg.written);
-
-      return { type: pg.written };
+      this.use(pg.written);
     }
 
-    return { type: pg.reads };
+    return { type: pg.written ?? pg.reads, values: pgValues(pg) };
   }
 
   /**
@@ -625,22 +779,37 @@ class Builder {
       : (element?.delimiter ?? ",");
   }
 
-  /** The alias of a domain's list, named once for all its columns. */
+  /**
+   * The alias of a domain's list, named once for all its columns: none,
+   * once the model is built, for a domain it has no alias for.
+   */
   private domainAlias(
     domain: TypeRow,
     values: readonly (string | number)[],
-  ): string {
+  ): string | undefined {
     const named =
       this.domains.get(domain.id) ??
       this.alias(pascal(domain.schema, domain.name), values);
 
-    this.domains.set(domain.id, named);
+    if (named !== undefined) {
+      this.domains.set(domain.id, named);
+    }
 
     return named;
   }
 
-  /** Names an alias, after a number when another has taken its name. */
-  private alias(wanted: string, values: readonly (string | number)[]): string {
+  /**
+   * Names an alias, after a number when another has taken its name: none,
+   * once the model is built.
+   */
+  private alias(
+    wanted: string,
+    values: readonly (string | number)[],
+  ): string | undefined {
+    if (this.frozen) {
+      return undefined;
+    }
+
     let name = wanted;
 
     for (let suffix = 2; this.taken.has(name); suffix += 1) {
@@ -651,6 +820,13 @@ class Builder {
     this.aliases.push({ name, values });
 
     return name;
+  }
+
+  /** Marks a helper type as used by the file, while it is being built. */
+  private use(helper: Helper): void {
+    if (!this.frozen) {
+      this.helpers.add(helper);
+    }
   }
 
   /** An enum's labels, in their order. */
@@ -702,11 +878,67 @@ class Builder {
   }
 }
 
+/** What a value of a type the generator does not know is. */
+const UNKNOWN_VALUES: Values = same(keyword("unknown"));
+
+/**
+ * What a value of each of the column types is, which the helper types of
+ * the file define: as it reads, and as it is written.
+ */
+const WRITTEN_VALUES: Readonly<Record<Written, Values>> = {
+  Timestamp: {
+    reads: keyword("Date"),
+    writes: union(keyword("Date"), keyword("string")),
+  },
+  CalendarDate: {
+    reads: keyword("Date"),
+    writes: union(keyword("Date"), keyword("string")),
+  },
+  Json: { reads: keyword("unknown"), writes: keyword("object") },
+  Bytea: { reads: keyword("Buffer"), writes: keyword("Uint8Array") },
+};
+
 /** An unknown type, with the note that says so. */
 function unknownType(name: string): Typed {
   return {
     type: "unknown",
+    values: UNKNOWN_VALUES,
     note: `\`${name}\`: a type the generator does not know, so its values are not typed.`,
+  };
+}
+
+/** What a value of a type the table knows is. */
+function pgValues(pg: PgType): Values {
+  return pg.written === undefined
+    ? same(keyword(pg.reads))
+    : WRITTEN_VALUES[pg.written];
+}
+
+/** Values that read as they are written. */
+function same(type: TsType): Values {
+  return { reads: type, writes: type };
+}
+
+function keyword(name: string): TsType {
+  return { kind: "keyword", name };
+}
+
+/** A union of `members`, their own unions taken apart. */
+function union(...members: TsType[]): TsType {
+  return {
+    kind: "union",
+    members: members.flatMap((member) =>
+      member.kind === "union" ? member.members : [member],
+    ),
+  };
+}
+
+/** An array of `element`, or of it and NULL. */
+function arrayOf(element: TsType, nulls: boolean, readonly: boolean): TsType {
+  return {
+    kind: "array",
+    element: nulls ? union(element, keyword("null")) : element,
+    readonly,
   };
 }
 
