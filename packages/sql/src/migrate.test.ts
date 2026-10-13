@@ -882,6 +882,16 @@ describe("the journal", () => {
     }
   });
 
+  test("is created with its schema, when that is missing too", async () => {
+    const dir = await directory({ [first]: "create table d (x int);" });
+
+    expect(await migrate(sql, { dir, table: "fresh.journal" })).toEqual({
+      applied: [first],
+      ahead: [],
+    });
+    expect(await journal(sql, "fresh.journal")).toEqual([first]);
+  });
+
   test("is refused when no schema of the search_path exists to hold it", async () => {
     const lost = new Client(url, { connection: { search_path: "nowhere" } });
 

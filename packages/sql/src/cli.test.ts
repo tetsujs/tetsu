@@ -5,14 +5,19 @@
  * @module
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { testDatabase } from "../test-utils/database.ts";
+import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
 
 const cli = join(import.meta.dir, "cli.ts");
+const root = join(import.meta.dir, "../../..");
+const fixtures = join(import.meta.dir, "../test-utils/fixtures/schema");
+const golden = await Bun.file(join(fixtures, "db.generated.ts")).text();
 const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-cli-"));
+setDefaultTimeout(DATABASE_MS);
+
 const { url, sql } = testDatabase();
 
 afterAll(async () => {
@@ -555,6 +560,129 @@ describe("--json", () => {
   });
 });
 
+describe("types:generate", () => {
+  const migrations = join(fixtures, "migrations");
+
+  test("writes the types to src/db.generated.ts, and says so", async () => {
+    const cwd = await directory();
+    const result = run(["types:generate", "--dir", migrations, "--url", url], {
+      cwd,
+    });
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: "generated src/db.generated.ts\n",
+      stderr: "",
+    });
+    expect(await Bun.file(join(cwd, "src/db.generated.ts")).text()).toBe(
+      golden,
+    );
+  });
+
+  test("writes them where --out says, over what is there", async () => {
+    const out = join(await directory(), "types", "db.ts");
+
+    await mkdir(join(out, ".."), { recursive: true });
+    await Bun.write(out, "stale");
+
+    const result = run([
+      "types:generate",
+      ...["--dir", migrations, "--url", url, "--out", out],
+    ]);
+
+    expect(result.stdout).toBe(`generated ${out}\n`);
+    expect(await Bun.file(out).text()).toBe(golden);
+  });
+
+  test("with --check, finds a file that is up to date, whatever its layout, and writes nothing", async () => {
+    const dir = await directory();
+    const out = join(dir, "db.generated.ts");
+    const flags = ["--dir", migrations, "--url", url, "--out", out];
+    const biome = Bun.spawnSync(
+      [
+        join(root, "node_modules/.bin/biome"),
+        "format",
+        "--indent-style=tab",
+        "--javascript-formatter-quote-style=single",
+        "--semicolons=as-needed",
+        "--stdin-file-path=packages/sql/db.generated.ts",
+      ],
+      { cwd: root, stdin: Buffer.from(golden), stdout: "pipe" },
+    );
+    const reformatted = biome.stdout.toString();
+
+    await Bun.write(out, reformatted);
+
+    expect(run(["types:generate", "--check", ...flags])).toEqual({
+      exitCode: 0,
+      stdout: `${out} is up to date\n`,
+      stderr: "",
+    });
+    expect(await Bun.file(out).text()).toBe(reformatted);
+  });
+
+  test("with --check, refuses a file that is out of date, and one that is not there", async () => {
+    const dir = await directory();
+    const out = join(dir, "db.generated.ts");
+    const flags = ["--dir", migrations, "--url", url, "--out", out];
+
+    expect(run(["types:generate", "--check", ...flags])).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `error: ${out} is not there: run tetsu-sql types:generate\n`,
+    });
+
+    await Bun.write(out, golden.replace("a_text: string;", "a_text: number;"));
+
+    expect(run(["types:generate", "--check", ...flags])).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `error: ${out} is out of date: run tetsu-sql types:generate\n`,
+    });
+  });
+
+  test("prints JSON lines with --json", async () => {
+    const out = join(await directory(), "db.generated.ts");
+    const flags = ["--dir", migrations, "--url", url, "--out", out, "--json"];
+
+    expect(lines(run(["types:generate", ...flags]).stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "generated",
+        path: out,
+      },
+    ]);
+    expect(lines(run(["types:generate", "--check", ...flags]).stdout)).toEqual([
+      { time: expect.any(String), level: "info", event: "checked", path: out },
+    ]);
+  });
+
+  test("says which migration failed, and writes nothing", async () => {
+    const dir = await directory();
+    const out = join(dir, "db.generated.ts");
+
+    await Bun.write(join(dir, "20261010120000_broken.sql"), "select 1 / 0;");
+
+    const result = run([
+      "types:generate",
+      "--dir",
+      dir,
+      "--url",
+      url,
+      "--out",
+      out,
+    ]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: 20261010120000_broken.sql failed: division by zero\n",
+    });
+    expect(await Bun.file(out).exists()).toBe(false);
+  });
+});
+
 describe("the command line", () => {
   test("shows the usage with --help", () => {
     const result = run(["--help"]);
@@ -567,6 +695,17 @@ describe("the command line", () => {
     [[], "a command is needed"],
     [["migrations:up"], "unknown command migrations:up"],
     [["migrations:run", "--nope"], "Unknown option '--nope'"],
+    [["migrations:run", "--check"], "migrations:run does not take --check"],
+    [["migrations:run", "--out", "x.ts"], "migrations:run does not take --out"],
+    [
+      ["migrations:new", "a", "--url", "x"],
+      "migrations:new does not take --url",
+    ],
+    [
+      ["types:generate", "--lock-timeout-ms", "5"],
+      "types:generate does not take --lock-timeout-ms",
+    ],
+    [["types:generate", "extra"], "types:generate takes no names"],
   ])("refuses %j, with the usage", (args, message) => {
     const result = run(args);
 

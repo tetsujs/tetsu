@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 /**
- * `tetsu-sql`: migrations from the command line, for `package.json`
- * scripts. Each command is one of the package's functions with its options
- * as flags, and the database is `--url` or `DATABASE_URL`.
+ * `tetsu-sql`: migrations and types from the command line, for
+ * `package.json` scripts. Each command is one of the package's functions
+ * with its options as flags, and the database is `--url` or
+ * `DATABASE_URL`.
  *
  * ```json
  * "scripts": {
  *   "db:new": "tetsu-sql migrations:new",
- *   "db:migrate": "tetsu-sql migrations:run"
+ *   "db:migrate": "tetsu-sql migrations:run",
+ *   "db:types": "tetsu-sql types:generate"
  * }
  * ```
  *
@@ -20,26 +22,47 @@
  * @module
  */
 
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { SQL } from "bun";
 import { MigrationError } from "./errors.ts";
+import { generate } from "./generate.ts";
 import type { MigrateResult, MigrationRecord } from "./migrate.ts";
 import { migrate } from "./migrate.ts";
 import { createMigration } from "./migration-files.ts";
+import { isSameCode } from "./same-code.ts";
 
 const usage = `Usage: tetsu-sql <command> [options]
 
 Commands:
   migrations:new <name>    Create an empty migration, named with the current UTC time
   migrations:run           Apply the pending migrations
+  types:generate           Write the Kysely types of the database the migrations build,
+                           on a scratch database of the server
 
 Options:
   --dir <path>             The migrations directory (default: migrations)
   --url <url>              The database (default: the DATABASE_URL variable)
   --table <name>           The journal table (default: migrations)
   --lock-timeout-ms <ms>   How long a statement in a transaction may wait for a lock (default: 5000)
+  --out <path>             Where the types go (default: src/db.generated.ts)
+  --check                  Check that the types are up to date, and write nothing
   --json                   Print each line as a JSON object, for a log collector
   -h, --help               Show this`;
+
+/** The migrations directory when no `--dir` is given. */
+const DIR = "migrations";
+
+/** Where the types go when no `--out` is given. */
+const OUT = "src/db.generated.ts";
+
+/** The flags each command takes, past `--json` and `--help`, which all do. */
+const FLAGS: Readonly<Record<string, readonly string[]>> = {
+  "migrations:new": ["dir"],
+  "migrations:run": ["dir", "url", "table", "lock-timeout-ms"],
+  "types:generate": ["dir", "url", "table", "out", "check"],
+};
 
 /** A mistake in how the command was called, answered with the usage. */
 class UsageError extends Error {
@@ -47,13 +70,15 @@ class UsageError extends Error {
 }
 
 /**
- * A line the command prints: a step of a run, a migration created, or the
- * end of a run, with its result.
+ * A line the command prints: a step of a run, a migration created, the end
+ * of a run with its result, or what became of the types.
  */
 type Line =
   | MigrationRecord
   | { readonly event: "created"; readonly path: string }
-  | ({ readonly event: "done" } & MigrateResult);
+  | ({ readonly event: "done" } & MigrateResult)
+  | { readonly event: "generated"; readonly path: string }
+  | { readonly event: "checked"; readonly path: string };
 
 /** The flags and words of a command line; a flag it does not know is a mistake. */
 function parse(argv: readonly string[]) {
@@ -62,10 +87,12 @@ function parse(argv: readonly string[]) {
       args: [...argv],
       allowPositionals: true,
       options: {
-        dir: { type: "string", default: "migrations" },
+        dir: { type: "string" },
         url: { type: "string" },
         table: { type: "string" },
         "lock-timeout-ms": { type: "string" },
+        out: { type: "string" },
+        check: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
@@ -77,7 +104,7 @@ function parse(argv: readonly string[]) {
   }
 }
 
-/** Whether a database URL is a Postgres one: `migrate` runs on nothing else. */
+/** Whether a database URL is a Postgres one: the package runs on nothing else. */
 function isPostgres(url: string): boolean {
   const protocol = URL.parse(url)?.protocol;
 
@@ -95,6 +122,24 @@ function milliseconds(value: string): number {
   return Number(value);
 }
 
+/** The database a command connects to: `--url`, or `DATABASE_URL`. */
+function databaseUrl(command: string, url: string | undefined): string {
+  const { DATABASE_URL } = Bun.env;
+  const found = url ?? DATABASE_URL;
+
+  if (found === undefined || found === "") {
+    throw new UsageError(
+      `${command} needs a database: set DATABASE_URL, or pass --url`,
+    );
+  }
+
+  if (!isPostgres(found)) {
+    throw new UsageError(`${command} needs a postgres:// or postgresql:// URL`);
+  }
+
+  return found;
+}
+
 /** How a line reads to a person. The end of a run says something only when nothing was applied. */
 function textOf(line: Line): string | undefined {
   switch (line.event) {
@@ -110,6 +155,10 @@ function textOf(line: Line): string | undefined {
       return `created ${line.path}`;
     case "done":
       return line.applied.length === 0 ? "nothing to apply" : undefined;
+    case "generated":
+      return `generated ${line.path}`;
+    case "checked":
+      return `${line.path} is up to date`;
   }
 }
 
@@ -148,6 +197,30 @@ async function main(
     return 0;
   }
 
+  if (command === undefined) {
+    throw new UsageError("a command is needed");
+  }
+
+  const allowed = FLAGS[command];
+
+  if (allowed === undefined) {
+    throw new UsageError(`unknown command ${command}`);
+  }
+
+  for (const flag of Object.keys(values)) {
+    if (flag !== "json" && !allowed.includes(flag)) {
+      throw new UsageError(`${command} does not take --${flag}`);
+    }
+  }
+
+  if (command !== "migrations:new" && rest.length > 0) {
+    throw new UsageError(
+      `${command} takes no names: pass the directory as --dir`,
+    );
+  }
+
+  const dir = values.dir ?? DIR;
+
   if (command === "migrations:new") {
     const [name] = rest;
 
@@ -155,62 +228,60 @@ async function main(
       throw new UsageError("migrations:new takes one name, such as add_orders");
     }
 
-    print({
-      event: "created",
-      path: await createMigration({ dir: values.dir, name }),
-    });
+    print({ event: "created", path: await createMigration({ dir, name }) });
 
     return 0;
   }
 
+  const lockTimeout = values["lock-timeout-ms"];
+  const lockTimeoutMs =
+    lockTimeout === undefined ? undefined : milliseconds(lockTimeout);
+  const url = databaseUrl(command, values.url);
+  const table = values.table === undefined ? {} : { table: values.table };
+
   if (command === "migrations:run") {
-    const { DATABASE_URL } = Bun.env;
-    const url = values.url ?? DATABASE_URL;
-    const lockTimeout = values["lock-timeout-ms"];
-    const lockTimeoutMs =
-      lockTimeout === undefined ? undefined : milliseconds(lockTimeout);
-
-    if (rest.length > 0) {
-      throw new UsageError(
-        "migrations:run takes no names: pass the directory as --dir",
-      );
-    }
-
-    if (url === undefined || url === "") {
-      throw new UsageError(
-        "migrations:run needs a database: set DATABASE_URL, or pass --url",
-      );
-    }
-
-    if (!isPostgres(url)) {
-      throw new UsageError(
-        "migrations:run needs a postgres:// or postgresql:// URL",
-      );
-    }
-
     const sql = new SQL(url);
 
     try {
       const result = await migrate(sql, {
-        dir: values.dir,
+        dir,
         write: print,
-        ...(values.table === undefined ? {} : { table: values.table }),
+        ...table,
         ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
       });
 
       print({ event: "done", ...result });
+
+      return 0;
     } finally {
       await sql.close();
     }
+  }
+
+  const out = values.out ?? OUT;
+  const source = await generate({ url, dir, ...table });
+
+  if (values.check !== true) {
+    await mkdir(dirname(out), { recursive: true });
+    await Bun.write(out, source);
+    print({ event: "generated", path: out });
 
     return 0;
   }
 
-  throw new UsageError(
-    command === undefined
-      ? "a command is needed"
-      : `unknown command ${command}`,
-  );
+  const file = Bun.file(out);
+
+  if (!(await file.exists())) {
+    throw new Error(`${out} is not there: run tetsu-sql types:generate`);
+  }
+
+  if (!isSameCode(await file.text(), source)) {
+    throw new Error(`${out} is out of date: run tetsu-sql types:generate`);
+  }
+
+  print({ event: "checked", path: out });
+
+  return 0;
 }
 
 /**

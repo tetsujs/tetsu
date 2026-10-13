@@ -177,11 +177,7 @@ export async function migrate(
     );
   }
 
-  if (!TABLE.test(table)) {
-    throw new TypeError(
-      `"${table}" cannot name the journal: use table or schema.table, in lowercase letters, digits and underscores`,
-    );
-  }
+  checkJournal(table);
 
   if (
     !Number.isInteger(lockTimeoutMs) ||
@@ -199,24 +195,24 @@ export async function migrate(
   try {
     await connection.unsafe(RESET).simple();
 
-    const journal = await journalOf(connection, table);
+    const journal = await resolveJournal(connection, table);
 
     await connection.begin(async (tx) => {
       await liftTimeouts(tx, true);
 
       const [lock] =
-        await tx`select pg_try_advisory_lock(${LOCK_CLASS}, hashtext(${journal})) as taken`;
+        await tx`select pg_try_advisory_lock(${LOCK_CLASS}, hashtext(${journal.name})) as taken`;
 
       if (!lock.taken) {
         write?.({ event: "waiting" });
-        await tx`select pg_advisory_lock(${LOCK_CLASS}, hashtext(${journal}))`;
+        await tx`select pg_advisory_lock(${LOCK_CLASS}, hashtext(${journal.name}))`;
       }
     });
     await openJournal(connection, journal);
 
     const { pending, ahead } = planOf(
       files,
-      await appliedIn(connection, journal),
+      await appliedIn(connection, journal.name),
     );
     const applied: string[] = [];
 
@@ -228,7 +224,7 @@ export async function migrate(
       const startedAt = performance.now();
 
       write?.({ event: "applying", migration: file.name });
-      await apply(connection, journal, file, { lockTimeoutMs, applied });
+      await apply(connection, journal.name, file, { lockTimeoutMs, applied });
       applied.push(file.name);
       write?.({
         event: "applied",
@@ -255,53 +251,84 @@ async function liftTimeouts(sql: SQL, local: boolean): Promise<void> {
     where name in ('lock_timeout', 'statement_timeout', 'transaction_timeout')`;
 }
 
-/**
- * The journal's name, schema-qualified and quoted: the table that name
- * finds, or where `create table` would put it. It is resolved once, before
- * anything runs, so a migration that changes the `search_path` cannot move
- * it, and runners that name it `migrations` and `public.migrations` take
- * the same lock.
- */
-async function journalOf(
-  connection: ReservedSQL,
-  table: string,
-): Promise<string> {
-  const dot = table.indexOf(".");
-  const schema = dot === -1 ? null : table.slice(0, dot);
-  const [found] = await connection`
-    select coalesce(
-      (select quote_ident(n.nspname) || '.' || quote_ident(c.relname)
-       from pg_class c join pg_namespace n on n.oid = c.relnamespace
-       where c.oid = to_regclass(${table})),
-      quote_ident(coalesce(${schema}, current_schema())) || '.' || quote_ident(${table.slice(dot + 1)})
-    ) as journal`;
+/** Refuses a journal name `table` cannot be, as a TypeError. */
+export function checkJournal(table: string): void {
+  if (!TABLE.test(table)) {
+    throw new TypeError(
+      `"${table}" cannot name the journal: use table or schema.table, in lowercase letters, digits and underscores`,
+    );
+  }
+}
 
-  if (found.journal === null) {
+/** The journal, quoted: its schema, and its name with that schema. */
+export interface Journal {
+  readonly schema: string;
+  readonly name: string;
+}
+
+/**
+ * The journal `table` is, schema-qualified and quoted: the table that name
+ * finds, or where `create table` would put it. It is resolved once,
+ * before anything runs, so a migration that changes the `search_path`
+ * cannot move it, and runners that name it `migrations` and
+ * `public.migrations` take the same lock.
+ */
+export async function resolveJournal(
+  sql: SQL,
+  table: string,
+): Promise<Journal> {
+  const dot = table.indexOf(".");
+  const given = dot === -1 ? null : table.slice(0, dot);
+  const [found] = await sql`
+    with existing as (
+      select quote_ident(n.nspname) as schema, quote_ident(c.relname) as name
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where c.oid = to_regclass(${table})
+    )
+    select coalesce(
+             (select schema from existing),
+             quote_ident(coalesce(${given}, current_schema()))
+           ) as schema,
+           coalesce(
+             (select name from existing),
+             quote_ident(${table.slice(dot + 1)})
+           ) as name`;
+
+  if (found.schema === null) {
     throw new MigrationError(
       "table",
       `cannot create the journal ${table}: no schema of the search_path exists`,
     );
   }
 
-  return found.journal;
+  return { schema: found.schema, name: `${found.schema}.${found.name}` };
 }
 
-/** Creates the journal, or checks that the table of its name is one. */
+/**
+ * Creates the journal, with its schema when that is missing too, or
+ * checks that the table of its name is one.
+ */
 async function openJournal(
   connection: ReservedSQL,
-  journal: string,
+  journal: Journal,
 ): Promise<void> {
-  const [found] = await connection`select to_regclass(${journal})::oid as oid`;
+  const [found] = await connection`
+    select to_regclass(${journal.name})::oid as oid,
+           to_regnamespace(${journal.schema})::oid as schema`;
 
   if (found.oid === null) {
     try {
+      if (found.schema === null) {
+        await connection.unsafe(`create schema ${journal.schema}`);
+      }
+
       await connection.unsafe(
-        `create table ${journal} (name text primary key, checksum text not null, applied_at timestamptz not null default now())`,
+        `create table ${journal.name} (name text primary key, checksum text not null, applied_at timestamptz not null default now())`,
       );
     } catch (error) {
       throw new MigrationError(
         "table",
-        `cannot create the journal ${journal}: ${messageOf(error)}`,
+        `cannot create the journal ${journal.name}: ${messageOf(error)}`,
         { cause: error },
       );
     }
@@ -320,7 +347,7 @@ async function openJournal(
   if (shape.join(", ") !== JOURNAL.join(", ")) {
     throw new MigrationError(
       "table",
-      `${journal} exists and is not a migration journal: its columns are ${shape.join(", ")}, not ${JOURNAL.join(", ")}`,
+      `${journal.name} exists and is not a migration journal: its columns are ${shape.join(", ")}, not ${JOURNAL.join(", ")}`,
     );
   }
 }

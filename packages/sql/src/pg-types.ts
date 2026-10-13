@@ -1,0 +1,150 @@
+/**
+ * What Bun.SQL reads each Postgres type as, and whether it parses an array
+ * of it: the table the generated types are written from.
+ *
+ * Every row is what Bun 1.4.3 does, read with `bigint: true`, without
+ * parameters and with them, and the tests of this module hold each row to
+ * it. Two rows lean on `database()`: Bun reads `int4[]` and `float4[]` with
+ * parameters as an `Int32Array` and a `Float32Array`, which it turns into
+ * arrays.
+ *
+ * @module
+ */
+
+/**
+ * The type a Postgres value reads as. `Date` and `Buffer` are the classes;
+ * `unknown` is for a type the table does not know.
+ */
+export type Reads =
+  | "boolean"
+  | "number"
+  | "bigint"
+  | "string"
+  | "Date"
+  | "Buffer"
+  | "unknown";
+
+/**
+ * A column type whose values are written as more than they read as, by
+ * the helper type of the generated file that says so.
+ *
+ * - `Timestamp` — `timestamp` and `timestamptz`, written as a `Date` or a
+ *   string.
+ * - `CalendarDate` — `date`, the same.
+ * - `Json` — `json` and `jsonb`, written as an object or an array.
+ * - `Bytea` — `bytea`, written as any `Uint8Array`.
+ */
+export type Written = "Timestamp" | "CalendarDate" | "Json" | "Bytea";
+
+/** How one Postgres type reads, and how its arrays do. */
+export interface PgType {
+  /** What a value reads as. */
+  readonly reads: Reads;
+
+  /** The helper type, when a value is written as more than it reads as. */
+  readonly written?: Written;
+
+  /**
+   * Whether Bun parses an array of it. When it does not, it reads the
+   * array as its Postgres literal, such as `"{a,b}"`.
+   */
+  readonly arrays: boolean;
+}
+
+/** A type read as a string, with arrays Bun parses. */
+const text: PgType = { reads: "string", arrays: true };
+
+/** A type read as a string, with arrays Bun reads as their literal. */
+const literal: PgType = { reads: "string", arrays: false };
+
+/** The types of `pg_catalog`, by name. */
+export const BUILT_IN: Readonly<Record<string, PgType>> = {
+  bool: { reads: "boolean", arrays: true },
+  int2: { reads: "number", arrays: true },
+  int4: { reads: "number", arrays: true },
+  oid: { reads: "number", arrays: true },
+  int8: { reads: "bigint", arrays: true },
+  float4: { reads: "number", arrays: true },
+  float8: { reads: "number", arrays: true },
+  numeric: text,
+  money: text,
+  text,
+  varchar: text,
+  bpchar: text,
+  name: text,
+  char: text,
+  uuid: literal,
+  json: { reads: "unknown", written: "Json", arrays: true },
+  jsonb: { reads: "unknown", written: "Json", arrays: true },
+  timestamp: { reads: "Date", written: "Timestamp", arrays: true },
+  timestamptz: { reads: "Date", written: "Timestamp", arrays: true },
+  date: { reads: "Date", written: "CalendarDate", arrays: true },
+  time: text,
+  timetz: text,
+  interval: text,
+  bytea: { reads: "Buffer", written: "Bytea", arrays: true },
+  inet: text,
+  cidr: text,
+  macaddr: text,
+  macaddr8: text,
+  bit: text,
+  varbit: text,
+  point: text,
+  line: text,
+  lseg: text,
+  box: text,
+  path: text,
+  polygon: text,
+  circle: text,
+  xml: text,
+  tsvector: literal,
+  tsquery: literal,
+  pg_lsn: literal,
+  int4range: literal,
+  int8range: literal,
+  numrange: literal,
+  tsrange: literal,
+  tstzrange: literal,
+  daterange: literal,
+  int4multirange: literal,
+  int8multirange: literal,
+  nummultirange: literal,
+  tsmultirange: literal,
+  tstzmultirange: literal,
+  datemultirange: literal,
+  regclass: literal,
+  regtype: literal,
+  regproc: literal,
+  regprocedure: literal,
+  regoper: literal,
+  regoperator: literal,
+  regnamespace: literal,
+  regrole: literal,
+  regconfig: literal,
+  regdictionary: literal,
+  regcollation: literal,
+  int2vector: text,
+  oidvector: literal,
+};
+
+/**
+ * Types of extensions, by name, wherever the extension is installed. Their
+ * arrays have an OID that differs from one database to the next, which
+ * Bun does not know.
+ */
+export const EXTENSION: Readonly<Record<string, PgType>> = {
+  citext: literal,
+};
+
+/**
+ * Types Postgres makes of a definition — an enum, a composite, a range or
+ * a multirange of one's own — by `pg_type.typtype`, past the enums, which
+ * read as their labels. Bun reads a value of any of them as its text, and
+ * an array of them as its literal.
+ */
+export const DEFINED: Readonly<Record<string, PgType>> = {
+  e: literal,
+  c: literal,
+  r: literal,
+  m: literal,
+};
