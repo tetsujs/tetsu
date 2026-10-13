@@ -143,7 +143,9 @@ const RESET = "reset all; reset session authorization; discard temp";
  * nothing a migration set for its session reaches the application. A
  * runner started while another runs waits for it, however long it takes.
  * Pass a client of its own when migrations run as a role with rights the
- * application has not.
+ * application has not. Bun 1.4.3 takes `PGDATABASE`, when it is set, over
+ * the database a URL names: where it may be set, give the client the
+ * database as `database` too, as `tetsu-sql migrations:run` does.
  *
  * @example
  * ```ts

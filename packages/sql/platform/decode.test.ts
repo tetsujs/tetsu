@@ -15,10 +15,8 @@
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { Kysely } from "kysely";
-import { PostgresJSDialect } from "kysely-postgres-js";
 import { testDatabase } from "../test-utils/database.ts";
-import { read, show } from "./values.ts";
+import { read } from "./values.ts";
 
 const { url } = testDatabase();
 const connection = { TimeZone: "UTC" };
@@ -218,30 +216,3 @@ for (const each of cases) {
     });
   });
 }
-
-test("Kysely reads a query without parameters as text and one with them as binary", async () => {
-  interface Database {
-    readonly paths: { readonly id: number; readonly ints: number[] };
-  }
-
-  await sql`create table paths (id int primary key, ints int4[])`;
-  await sql`insert into paths values (1, '{1,2}')`;
-
-  const db = new Kysely<Database>({
-    dialect: new PostgresJSDialect({ postgres: new SQL(url) }),
-  });
-
-  try {
-    const all = await db.selectFrom("paths").select("ints").execute();
-    const one = await db
-      .selectFrom("paths")
-      .select("ints")
-      .where("id", "=", 1)
-      .execute();
-
-    expect(show(all[0]?.ints)).toBe("Array [number 1, number 2]");
-    expect(show(one[0]?.ints)).toBe("Int32Array [1, 2]");
-  } finally {
-    await db.destroy();
-  }
-});

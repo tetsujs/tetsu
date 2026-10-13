@@ -11,7 +11,8 @@
  * @module
  */
 
-import { SQL } from "bun";
+import type { SQL } from "bun";
+import { clientOf } from "./client.ts";
 
 /** A database of its own, and a client of it. */
 export interface Scratch {
@@ -47,11 +48,12 @@ export function urlOf(url: string, database: string): string {
  * Creates an empty database on the server of the database `url` names,
  * with a client of it. Both connections are made from `url` itself, so
  * what it says — `sslmode`, `options` with a `search_path` — holds for
- * each, and nothing of the environment does. The user needs the right to
- * create databases.
+ * each, and nothing of the environment does: not even `PGDATABASE`, which
+ * Bun 1.4.3 takes over the database a URL names. The user needs the right
+ * to create databases.
  */
 export async function createScratch(url: string): Promise<Scratch> {
-  const server = new SQL(url);
+  const server = clientOf(url);
   const name = `tetsu_sql_${Bun.randomUUIDv7().replaceAll("-", "")}`;
 
   try {
@@ -68,7 +70,7 @@ export async function createScratch(url: string): Promise<Scratch> {
       : error;
   }
 
-  const scratch = new SQL(urlOf(url, name));
+  const scratch = clientOf(urlOf(url, name));
 
   return {
     name,

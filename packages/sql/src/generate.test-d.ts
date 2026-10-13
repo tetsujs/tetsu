@@ -26,6 +26,7 @@ import type { Equal, Expect } from "../test-utils/types.ts";
 import type { Schema } from "./schema.ts";
 
 type Orders = DB["orders"];
+type Arrays = DB["arrays"];
 
 export type columns = [
   Expect<Equal<SelectType<Orders["id"]>, bigint>>,
@@ -70,6 +71,39 @@ export type columns = [
   >,
   Expect<Equal<SelectType<Orders["attributes"]>, unknown>>,
   Expect<Equal<InsertType<Orders["receipt"]>, Uint8Array | null>>,
+];
+
+export type arrays = [
+  Expect<Equal<SelectType<Arrays["a_int4"]>, (number | null)[] | null>>,
+  Expect<
+    Equal<InsertType<Arrays["a_int4"]>, readonly (number | null)[] | null>
+  >,
+  Expect<Equal<SelectType<Arrays["a_jsonb"]>, unknown[] | null>>,
+  Expect<
+    Equal<InsertType<Arrays["a_jsonb"]>, readonly (object | null)[] | null>
+  >,
+  Expect<Equal<SelectType<Arrays["a_timestamp"]>, (Date | null)[] | null>>,
+  Expect<
+    Equal<
+      InsertType<Arrays["a_timestamp"]>,
+      readonly (Date | string | null)[] | null
+    >
+  >,
+  Expect<
+    Equal<
+      UpdateType<Arrays["a_date"]>,
+      readonly (Date | string | null)[] | null
+    >
+  >,
+  Expect<Equal<SelectType<Arrays["a_bytea"]>, (Buffer | null)[] | null>>,
+  Expect<
+    Equal<InsertType<Arrays["a_bytea"]>, readonly (Uint8Array | null)[] | null>
+  >,
+  Expect<Equal<SelectType<Orders["moments"]>, string | null>>,
+  Expect<
+    Equal<InsertType<Orders["moments"]>, readonly (Date | string)[] | null>
+  >,
+  Expect<Equal<InsertType<Orders["labels"]>, readonly string[] | undefined>>,
 ];
 
 export type relations = [
@@ -153,6 +187,14 @@ const unlisted: Insertable<Orders> = {
   channel: "phone",
 };
 
+const elements: Insertable<Arrays> = {
+  a_jsonb: [{ lines: [] }, [1, 2], null],
+  a_timestamp: [new Date(), "2026-10-12 10:00", null],
+  a_bytea: [new Uint8Array([1]), Buffer.from("x")],
+  // @ts-expect-error an element of jsonb[] is an object or an array, as jsonb is
+  a_json: ['{"lines":[]}'],
+};
+
 export const queries = [
   db
     .selectFrom("orders")
@@ -171,6 +213,7 @@ export const queries = [
     id: 1n,
   }),
   db.insertInto("orders").values(unlisted),
+  db.insertInto("arrays").values(elements),
   db
     .selectFrom("orders")
     .select("status")

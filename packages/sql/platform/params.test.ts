@@ -12,8 +12,6 @@
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { Kysely } from "kysely";
-import { PostgresJSDialect } from "kysely-postgres-js";
 import { testDatabase } from "../test-utils/database.ts";
 import { failure, show } from "./values.ts";
 
@@ -154,33 +152,4 @@ test("a Postgres array literal bound as a string is stored, whatever its element
   );
 
   expect(row.texts).toEqual(texts);
-});
-
-test("Kysely binds the same way: an object into jsonb is stored, an array into int4[] fails, still oven-sh/bun#29551", async () => {
-  interface Database {
-    readonly writes: { readonly doc?: unknown; readonly ints?: number[] };
-  }
-
-  const db = new Kysely<Database>({
-    dialect: new PostgresJSDialect({ postgres: new SQL(url) }),
-  });
-
-  try {
-    const [row] = await db
-      .insertInto("writes")
-      .values({ doc: { a: 1 } })
-      .returning((eb) => eb.cast("doc", "text").as("v"))
-      .execute();
-
-    expect(row?.v).toBe('{"a": 1}');
-
-    const array = db
-      .insertInto("writes")
-      .values({ ints: [1, 2] })
-      .execute();
-
-    expect(await array.then(() => "stored", failure)).toBe("08P01");
-  } finally {
-    await db.destroy();
-  }
 });

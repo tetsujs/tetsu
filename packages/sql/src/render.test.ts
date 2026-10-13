@@ -71,6 +71,7 @@ function column(
     nullable: false,
     generated: "no",
     comment: undefined,
+    literal: undefined,
     ...shape,
   };
 }
@@ -278,6 +279,133 @@ describe("a file", () => {
   });
 });
 
+describe("the columns of arrays", () => {
+  /** The `arrays` of a file of these tables. */
+  const arraysOf = (tables: Model["tables"]): string => {
+    const file = render(
+      { tables, aliases: [], helpers, constraints: [] },
+      { journal: "migrations", migration: undefined },
+    );
+    const start = file.indexOf("  arrays:");
+
+    return file.slice(start, file.lastIndexOf("\n};"));
+  };
+
+  test("of a file with none are an empty object", () => {
+    expect(
+      arraysOf([
+        { key: "t", comment: undefined, columns: [column("id", "bigint")] },
+      ]),
+    ).toBe("  arrays: {},");
+  });
+
+  test("are listed by relation, each with how its literal is written, keys as DB names them", () => {
+    expect(
+      arraysOf([
+        {
+          key: "orders",
+          comment: undefined,
+          columns: [
+            column("id", "bigint"),
+            column("tags", "ArrayOf<string>", { literal: "," }),
+            column("Mixed Case", "ArrayOfNullable<string>", {
+              literal: ",",
+            }),
+            column("boxes", "ArrayOfNullable<string>", { literal: ";" }),
+            column("documents", "ArrayOfNullable<Json>", { literal: "json" }),
+          ],
+        },
+        { key: "empty", comment: undefined, columns: [] },
+        {
+          key: "billing.invoices",
+          comment: undefined,
+          columns: [column("codes", "ArrayLiteral<string>", { literal: "," })],
+        },
+      ]),
+    ).toBe(
+      [
+        "  arrays: {",
+        "    orders: {",
+        '      tags: ",",',
+        '      "Mixed Case": ",",',
+        '      boxes: ";",',
+        '      documents: "json",',
+        "    },",
+        '    "billing.invoices": {',
+        '      codes: ",",',
+        "    },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+
+  test("of a relation or a column named __proto__ keep it as their key, not as a prototype", () => {
+    expect(
+      arraysOf([
+        {
+          key: "__proto__",
+          comment: undefined,
+          columns: [column("__proto__", "ArrayOf<string>", { literal: "," })],
+        },
+      ]),
+    ).toBe(
+      [
+        "  arrays: {",
+        '    ["__proto__"]: {',
+        '      ["__proto__"]: ",",',
+        "    },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+
+  test("of a relation whose key is too long for its line are on the lines after it", () => {
+    const key = `reporting.${"t".repeat(70)}`;
+
+    expect(
+      arraysOf([
+        {
+          key,
+          comment: undefined,
+          columns: [column("a", "ArrayOf<string>", { literal: "," })],
+        },
+      ]),
+    ).toBe(
+      [
+        "  arrays: {",
+        `    "${key}":`,
+        "      {",
+        '        a: ",",',
+        "      },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+
+  test("whose key is too long for its line has its value on the next", () => {
+    const name = `${long}_and_then_some`;
+
+    expect(
+      arraysOf([
+        {
+          key: "t",
+          comment: undefined,
+          columns: [column(name, "ArrayOf<string>", { literal: "," })],
+        },
+      ]),
+    ).toBe(
+      [
+        "  arrays: {",
+        "    t: {",
+        `      ${name}:`,
+        '        ",",',
+        "    },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("Biome, set as the repository is", () => {
   const model: Model = {
     tables: [
@@ -310,6 +438,32 @@ describe("Biome, set as the repository is", () => {
             generated: "always",
             nullable: true,
           }),
+          column(`${long}_b`, "ArrayOfNullable<Timestamp>", {
+            nullable: true,
+            literal: ",",
+          }),
+          column(`${long}_c`, "ArrayOf<Json>", {
+            generated: "default",
+            literal: ",",
+          }),
+          column(`${long}_d`, "ArrayOfNullable<Bytea>", {
+            generated: "always",
+            nullable: true,
+            literal: ",",
+          }),
+          column(`${long}_e`, "ArrayLiteral<CalendarDate>", {
+            nullable: true,
+            literal: ",",
+          }),
+          column(
+            `${long}_and_then_some_more_to_break_after_its_key`,
+            "ArrayOfNullable<string>",
+            {
+              nullable: true,
+              literal: ";",
+            },
+          ),
+          column("boxes", "ArrayOfNullable<string>", { literal: ";" }),
           column("total", "Timestamp", { generated: "always", nullable: true }),
           column("Mixed Case", "string"),
           column("café", "Json", {
@@ -323,7 +477,27 @@ describe("Biome, set as the repository is", () => {
         ],
       },
       { key: "billing.empty", comment: undefined, columns: [] },
+      {
+        key: "__proto__",
+        comment: undefined,
+        columns: [
+          column("__proto__", "ArrayOfNullable<string>", {
+            nullable: true,
+            literal: ",",
+          }),
+        ],
+      },
       { key: `reporting.${"t".repeat(50)}`, comment: undefined, columns: [] },
+      {
+        key: `reporting.${"u".repeat(70)}`,
+        comment: undefined,
+        columns: [
+          column("codes", "ArrayLiteral<string>", {
+            nullable: true,
+            literal: ",",
+          }),
+        ],
+      },
       {
         key: "注文",
         comment: undefined,
@@ -336,6 +510,13 @@ describe("Biome, set as the repository is", () => {
             },
           ),
           column("attributes", "Unknown"),
+          column(
+            "注文の状態と配送の状況を記録しておくための配列の列で長い名前",
+            "ArrayOf<string>",
+            {
+              literal: ",",
+            },
+          ),
         ],
       },
     ],

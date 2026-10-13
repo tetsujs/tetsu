@@ -10,12 +10,10 @@
 
 import { beforeAll, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { Kysely } from "kysely";
-import { PostgresJSDialect } from "kysely-postgres-js";
 import { testDatabase } from "../test-utils/database.ts";
 import { failure } from "./values.ts";
 
-const { sql, url } = testDatabase();
+const { sql } = testDatabase();
 
 beforeAll(async () => {
   await sql`
@@ -187,30 +185,4 @@ test("rolling back to a savepoint lets the transaction go on", async () => {
   });
 
   expect(row.people).toBe(1);
-});
-
-test("Kysely passes the error on as Bun's own PostgresError", async () => {
-  interface Database {
-    readonly people: { readonly id: number; readonly email: string };
-  }
-
-  const db = new Kysely<Database>({
-    dialect: new PostgresJSDialect({ postgres: new SQL(url) }),
-  });
-
-  try {
-    const error = await refusal(
-      db
-        .insertInto("people")
-        .values({ id: 8, email: "ada@example.com" })
-        .execute(),
-    );
-
-    expect(rule(error)).toMatchObject({
-      errno: "23505",
-      constraint: "people_email_key",
-    });
-  } finally {
-    await db.destroy();
-  }
 });

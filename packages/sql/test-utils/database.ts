@@ -28,11 +28,18 @@
  * });
  * ```
  *
+ * Importing it takes `PGDATABASE` out of the environment of the run: Bun
+ * 1.4.3 takes it over the database a URL names, so the tests' clients
+ * would reach a database of the developer's. A test of how the package
+ * holds out against it sets it for itself.
+ *
  * @module
  */
 
 import { afterAll, beforeAll } from "bun:test";
 import { SQL } from "bun";
+
+delete process.env["PGDATABASE"];
 
 /**
  * How long creating or dropping a database may take, in a hook or a test

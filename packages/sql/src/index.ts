@@ -7,12 +7,20 @@
  * checked: raw SQL by a schema, a broken constraint by its name.
  *
  * ```ts
- * import { SQL } from "bun";
- * import { migrate } from "@tetsujs/sql";
+ * import { database } from "@tetsujs/sql";
+ * import { schema } from "./db.generated.ts";
  *
- * const sql = new SQL(Bun.env.DATABASE_URL);
- * const { applied } = await migrate(sql, { dir: "./migrations" });
+ * export const db = database(schema, { url: config.DATABASE_URL });
+ *
+ * const paid = await db
+ *   .selectFrom("orders")
+ *   .select(["id", "tags"])
+ *   .where("status", "=", "paid")
+ *   .execute();
  * ```
+ *
+ * `migrate()` applies the migrations, as a step of its own before the
+ * application starts.
  *
  * The package is being built, and is not published until every part of it
  * is in place.
@@ -20,6 +28,8 @@
  * @module
  */
 
+export type { DatabaseOptions } from "./database.ts";
+export { database } from "./database.ts";
 export type { MigrationErrorReason } from "./errors.ts";
 export { MigrationError } from "./errors.ts";
 export type {

@@ -129,6 +129,24 @@ describe("a scratch database", () => {
     ).rejects.toMatchObject({ code: "ERR_POSTGRES_CONNECTION_REFUSED" });
   });
 
+  test("is the database its client reaches, whatever PGDATABASE says", async () => {
+    process.env.PGDATABASE = "postgres";
+
+    try {
+      const scratch = await createScratch(url);
+
+      try {
+        const [row] = await scratch.sql`select current_database() as name`;
+
+        expect(row.name).toBe(scratch.name);
+      } finally {
+        await scratch.drop();
+      }
+    } finally {
+      delete process.env.PGDATABASE;
+    }
+  });
+
   test("has a name of its own each time", async () => {
     const first = await createScratch(url);
     const second = await createScratch(url);

@@ -15,6 +15,7 @@ import type { Target } from "./checks.ts";
 import { forbidsNullElements, valuesOf } from "./checks.ts";
 import type { PgType, Written } from "./pg-types.ts";
 import { BUILT_IN, DEFINED, EXTENSION } from "./pg-types.ts";
+import { JSON_ELEMENTS } from "./values.ts";
 
 /**
  * A type of the generated file that a column type is built from: one of
@@ -56,6 +57,13 @@ export interface Column {
 
   /** Its comment, and a note when its type is unknown. */
   readonly comment: string | undefined;
+
+  /**
+   * How the literal of its arrays is written, when it holds arrays: by the
+   * delimiter of their elements, a comma for most types, or as
+   * {@link JSON_ELEMENTS} for json and jsonb.
+   */
+  readonly literal: string | undefined;
 }
 
 /** A table, view or materialized view. */
@@ -133,6 +141,9 @@ interface TypeRow {
 
   /** Whether, being a domain, it has a default of its own. */
   readonly has_default: boolean;
+
+  /** What separates its values in the literal of an array of it. */
+  readonly delimiter: string;
 }
 
 /** A check of one column, or of a domain. */
@@ -196,7 +207,8 @@ export async function readModel(sql: SQL, journal: string): Promise<Model> {
     `select t.oid as id, n.nspname as schema, t.typname as name,
             t.typtype as kind, coalesce(e.typarray = t.oid, false) as array,
             t.typelem as element, t.typbasetype as base,
-            t.typnotnull as not_null, t.typdefaultbin is not null as has_default
+            t.typnotnull as not_null, t.typdefaultbin is not null as has_default,
+            t.typdelim as delimiter
      from pg_type t
        join pg_namespace n on n.oid = t.typnamespace
        left join pg_type e on e.oid = t.typelem`,
@@ -278,6 +290,9 @@ const LISTABLE: ReadonlySet<string> = new Set([
 interface Typed {
   readonly type: string;
   readonly note?: string;
+
+  /** How the literal of its arrays is written, when it holds arrays. */
+  readonly literal?: string;
 }
 
 /** What a column's checks and its domains' checks promise. */
@@ -405,6 +420,7 @@ class Builder {
           nullable,
           generated,
           comment: comment === "" ? undefined : comment,
+          literal: typed.literal,
         };
       });
 
@@ -445,7 +461,10 @@ class Builder {
     const owner = pascal(relation.schema, `${relation.name}_${column.name}`);
 
     if (base.array) {
-      return this.array(base, promises.noNulls);
+      return {
+        ...this.array(base, promises.noNulls),
+        literal: this.literalOf(this.types.get(base.element)),
+      };
     }
 
     return this.scalar(declared, base, promises, owner);
@@ -453,7 +472,8 @@ class Builder {
 
   /**
    * An array: of what Bun parses, `ArrayOf` or `ArrayOfNullable`;
-   * otherwise `ArrayLiteral`, its elements typed as a column of their own.
+   * otherwise `ArrayLiteral`. Its elements are typed as a column of their
+   * own: a `timestamp` as a `Timestamp`, which they read and are written as.
    */
   private array(array: TypeRow, noNulls: boolean): Typed {
     const declared = this.types.get(array.element);
@@ -469,11 +489,15 @@ class Builder {
 
       this.helpers.add(helper);
 
-      return { type: `${helper}<${pg.reads}>` };
+      if (pg.written !== undefined) {
+        this.helpers.add(pg.written);
+      }
+
+      return { type: `${helper}<${pg.written ?? pg.reads}>` };
     }
 
     const promises = this.promises(declared, [], { column: "" }, true);
-    const scalar = this.scalar(declared, element, promises, "", true);
+    const scalar = this.scalar(declared, element, promises, "");
 
     this.helpers.add("ArrayLiteral");
 
@@ -483,15 +507,13 @@ class Builder {
   /**
    * A scalar: an enum's alias, a list's alias, or what its type reads as.
    * Lists narrow an enum, `text`, `varchar`, `int2` and `int4`, to what
-   * all of them allow. An array's element is the value it reads as, never
-   * a column type such as `Timestamp`.
+   * all of them allow.
    */
   private scalar(
     declared: TypeRow,
     base: TypeRow,
     promises: Promises,
     owner: string,
-    element = false,
   ): Typed {
     const pg = pgTypeOf(base);
 
@@ -532,7 +554,7 @@ class Builder {
       return { type: enumAlias };
     }
 
-    if (pg.written !== undefined && !element) {
+    if (pg.written !== undefined) {
       this.helpers.add(pg.written);
 
       return { type: pg.written };
@@ -588,6 +610,19 @@ class Builder {
     }
 
     return { domain, own: lists, noNulls };
+  }
+
+  /**
+   * How the literal of an array of `element` is written: as JSON for json
+   * and jsonb, under their domains too, otherwise by the delimiter of the
+   * element type.
+   */
+  private literalOf(element: TypeRow | undefined): string {
+    const base = this.unwrap(element);
+
+    return base !== undefined && pgTypeOf(base)?.written === "Json"
+      ? JSON_ELEMENTS
+      : (element?.delimiter ?? ",");
   }
 
   /** The alias of a domain's list, named once for all its columns. */

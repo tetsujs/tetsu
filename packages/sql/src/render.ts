@@ -109,17 +109,19 @@ type Bytea = ColumnType<Buffer, Uint8Array, Uint8Array>;`,
     `/**
  * An array whose elements may be NULL, as any array of Postgres may. A
  * check of \`array_position(column, null) is null\` makes it an \`ArrayOf\`.
+ * Elements of a column type, such as \`Timestamp\`, read and are written as
+ * a column of it.
  */
-type ArrayOfNullable<E> = ColumnType<
-  (E | null)[],
-  readonly (E | null)[],
-  readonly (E | null)[]
->;`,
+type ArrayOfNullable<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
+  ? ColumnType<(S | null)[], readonly (I | null)[], readonly (I | null)[]>
+  : ColumnType<(E | null)[], readonly (E | null)[], readonly (E | null)[]>;`,
   ],
   [
     "ArrayOf",
     `/** An array a check keeps free of NULL elements. */
-type ArrayOf<E> = ColumnType<E[], readonly E[], readonly E[]>;`,
+type ArrayOf<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
+  ? ColumnType<S[], readonly I[], readonly I[]>
+  : ColumnType<E[], readonly E[], readonly E[]>;`,
   ],
   [
     "ArrayLiteral",
@@ -128,7 +130,9 @@ type ArrayOf<E> = ColumnType<E[], readonly E[], readonly E[]>;`,
  * \`uuid\`, of an enum, a domain, a range or an extension's type
  * (oven-sh/bun#41039, oven-sh/bun#41040). It is written as an array.
  */
-type ArrayLiteral<E> = ColumnType<string, readonly E[], readonly E[]>;`,
+type ArrayLiteral<E> = [E] extends [ColumnType<unknown, infer I, unknown>]
+  ? ColumnType<string, readonly I[], readonly I[]>
+  : ColumnType<string, readonly E[], readonly E[]>;`,
   ],
   [
     "Unknown",
@@ -155,7 +159,7 @@ export function render(model: Model, options: RenderOptions): string {
     ...model.aliases.map(alias),
     database(model.tables),
     union("export type Constraint", model.constraints.map(stringLiteral)),
-    schema(options),
+    schema(model.tables, options),
   ];
 
   return `${parts.join("\n\n")}\n`;
@@ -289,7 +293,7 @@ function property(column: Column, indent: string): string {
 }
 
 /** The `schema` the runtime reads. */
-function schema(options: RenderOptions): string {
+function schema(tables: readonly Table[], options: RenderOptions): string {
   const { migration } = options;
 
   return [
@@ -303,8 +307,49 @@ function schema(options: RenderOptions): string {
           stringProperty("checksum", migration.checksum, "    "),
           "  },",
         ]),
+    ...arrays(tables),
     "};",
   ].join("\n");
+}
+
+/**
+ * The columns that hold arrays, by relation, each with how its literal is
+ * written.
+ * A relation whose key is too long for its line has its columns on the
+ * lines after it, as a formatter breaks an object after a long key.
+ */
+function arrays(tables: readonly Table[]): string[] {
+  const relations = tables.flatMap((table) => {
+    const columns = table.columns.flatMap((column) =>
+      column.literal === undefined
+        ? []
+        : [{ key: propertyKeyOf(column.name), literal: column.literal }],
+    );
+
+    if (columns.length === 0) {
+      return [];
+    }
+
+    const key = propertyKeyOf(table.key);
+    const head = `    ${key}: {`;
+    const [open, indent, close] = tooWide(head)
+      ? [`    ${key}:\n      {`, "        ", "      },"]
+      : [head, "      ", "    },"];
+
+    return [
+      [
+        open,
+        ...columns.map((column) =>
+          stringProperty(column.key, column.literal, indent),
+        ),
+        close,
+      ].join("\n"),
+    ];
+  });
+
+  return relations.length === 0
+    ? ["  arrays: {},"]
+    : ["  arrays: {", ...relations, "  },"];
 }
 
 /**
@@ -345,6 +390,14 @@ function doc(text: string | undefined, indent: string): string[] {
     ),
     `${indent} */`,
   ];
+}
+
+/**
+ * A key of an object: as {@link keyOf} writes it, but for `__proto__`, which
+ * as a key of an object literal would set its prototype instead.
+ */
+function propertyKeyOf(name: string): string {
+  return name === "__proto__" ? '["__proto__"]' : keyOf(name);
 }
 
 /** A key: as it is when it is an identifier, otherwise quoted. */

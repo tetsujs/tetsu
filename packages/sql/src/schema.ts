@@ -1,7 +1,7 @@
 /**
  * What the generated file tells the runtime of a database: the journal of
- * its migrations and the newest migration its types were built from, with
- * the types themselves carried along.
+ * its migrations, the newest migration its types were built from and the
+ * columns that hold arrays, with the types themselves carried along.
  *
  * @module
  */
@@ -25,6 +25,16 @@ export interface Schema<DB, Constraint extends string = string> {
     /** The SHA-256 of its text, as the journal records it. */
     readonly checksum: string;
   } | null;
+
+  /**
+   * The columns that hold arrays, by relation and column as `DB` names
+   * them, each with how its literal is written: by the delimiter of its
+   * elements — a comma, or what its element type has instead, such as the
+   * semicolon of `box` — or as `json`, for an array of json or jsonb, whose
+   * elements are written as JSON. `database()` writes a JavaScript array to
+   * them as that literal, as Bun cannot bind an array (oven-sh/bun#29551).
+   */
+  readonly arrays: Readonly<Record<string, Readonly<Record<string, string>>>>;
 
   /** Carries `DB` and `Constraint` for the types. */
   readonly [types]?: {

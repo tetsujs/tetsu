@@ -9,6 +9,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SQL } from "bun";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
 
 const cli = join(import.meta.dir, "cli.ts");
@@ -149,6 +150,43 @@ describe("migrations:run", () => {
       stdout: "nothing to apply\n",
       stderr: "",
     });
+  });
+
+  test("migrates the database its URL names, whatever PGDATABASE says", async () => {
+    const cwd = await directory();
+    const elsewhere = new URL(url);
+
+    elsewhere.pathname = "/postgres";
+
+    const other = new SQL(elsewhere.href);
+
+    await mkdir(join(cwd, "migrations"));
+    await Bun.write(
+      join(cwd, "migrations", "20261010120000_first.sql"),
+      "create table cli_pgdatabase (x int);",
+    );
+
+    try {
+      const applied = run(
+        ["migrations:run", "--url", url, "--table", "pgdatabase_journal"],
+        { cwd, env: { PGDATABASE: "postgres" } },
+      );
+      const [here] =
+        await sql`select to_regclass('cli_pgdatabase') is not null as found`;
+      const [there] =
+        await other`select to_regclass('cli_pgdatabase') is not null as found`;
+
+      expect(applied.exitCode).toBe(0);
+      expect({ here: here.found, there: there.found }).toEqual({
+        here: true,
+        there: false,
+      });
+    } finally {
+      await other.unsafe(
+        "drop table if exists cli_pgdatabase, pgdatabase_journal",
+      );
+      await other.close();
+    }
   });
 
   test("passes --table and --lock-timeout-ms on", async () => {

@@ -187,6 +187,53 @@ describe("an alias", () => {
   });
 });
 
+describe("the columns of arrays", () => {
+  test("of tables, views and materialized views are listed, each with its element type's delimiter", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create domain codes as text[];
+        create domain payload as jsonb;
+        create domain payloads as jsonb[];
+        create table shapes (
+          id int4 primary key,
+          boxes box[],
+          points point[],
+          tags text[],
+          labels codes,
+          notes json[],
+          documents payload[],
+          versions payloads
+        );
+        create view shape_view as select id, boxes, tags from shapes;
+        create materialized view shape_counts as select tags from shapes;`,
+    });
+    const source = await generate({ url, dir });
+
+    expect(source).toContain(
+      [
+        "  arrays: {",
+        "    shape_counts: {",
+        '      tags: ",",',
+        "    },",
+        "    shape_view: {",
+        '      boxes: ";",',
+        '      tags: ",",',
+        "    },",
+        "    shapes: {",
+        '      boxes: ";",',
+        '      points: ",",',
+        '      tags: ",",',
+        '      labels: ",",',
+        '      notes: "json",',
+        '      documents: "json",',
+        '      versions: "json",',
+        "    },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("a collation that does not tell values apart by their characters", () => {
   test("lets a column's list take values outside it, but not a domain's, so only the domain's narrows", async () => {
     const dir = await directory({

@@ -25,7 +25,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { SQL } from "bun";
+import { clientOf } from "./client.ts";
 import { MigrationError } from "./errors.ts";
 import { generate } from "./generate.ts";
 import type { MigrateResult, MigrationRecord } from "./migrate.ts";
@@ -240,7 +240,7 @@ async function main(
   const table = values.table === undefined ? {} : { table: values.table };
 
   if (command === "migrations:run") {
-    const sql = new SQL(url);
+    const sql = clientOf(url);
 
     try {
       const result = await migrate(sql, {

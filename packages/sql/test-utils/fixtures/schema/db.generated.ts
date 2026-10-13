@@ -55,22 +55,26 @@ type Bytea = ColumnType<Buffer, Uint8Array, Uint8Array>;
 /**
  * An array whose elements may be NULL, as any array of Postgres may. A
  * check of `array_position(column, null) is null` makes it an `ArrayOf`.
+ * Elements of a column type, such as `Timestamp`, read and are written as
+ * a column of it.
  */
-type ArrayOfNullable<E> = ColumnType<
-  (E | null)[],
-  readonly (E | null)[],
-  readonly (E | null)[]
->;
+type ArrayOfNullable<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
+  ? ColumnType<(S | null)[], readonly (I | null)[], readonly (I | null)[]>
+  : ColumnType<(E | null)[], readonly (E | null)[], readonly (E | null)[]>;
 
 /** An array a check keeps free of NULL elements. */
-type ArrayOf<E> = ColumnType<E[], readonly E[], readonly E[]>;
+type ArrayOf<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
+  ? ColumnType<S[], readonly I[], readonly I[]>
+  : ColumnType<E[], readonly E[], readonly E[]>;
 
 /**
  * An array Bun reads as its Postgres literal, such as `"{a,b}"`: one of
  * `uuid`, of an enum, a domain, a range or an extension's type
  * (oven-sh/bun#41039, oven-sh/bun#41040). It is written as an array.
  */
-type ArrayLiteral<E> = ColumnType<string, readonly E[], readonly E[]>;
+type ArrayLiteral<E> = [E] extends [ColumnType<unknown, infer I, unknown>]
+  ? ColumnType<string, readonly I[], readonly I[]>
+  : ColumnType<string, readonly E[], readonly E[]>;
 
 /**
  * A `not null` column of a type the generator does not know: read as
@@ -117,15 +121,15 @@ export interface DB {
     a_name: ArrayOfNullable<string> | null;
     a_char: ArrayOfNullable<string> | null;
     a_uuid: ArrayLiteral<string> | null;
-    a_json: ArrayOfNullable<unknown> | null;
-    a_jsonb: ArrayOfNullable<unknown> | null;
-    a_timestamp: ArrayOfNullable<Date> | null;
-    a_timestamptz: ArrayOfNullable<Date> | null;
-    a_date: ArrayOfNullable<Date> | null;
+    a_json: ArrayOfNullable<Json> | null;
+    a_jsonb: ArrayOfNullable<Json> | null;
+    a_timestamp: ArrayOfNullable<Timestamp> | null;
+    a_timestamptz: ArrayOfNullable<Timestamp> | null;
+    a_date: ArrayOfNullable<CalendarDate> | null;
     a_time: ArrayOfNullable<string> | null;
     a_timetz: ArrayOfNullable<string> | null;
     a_interval: ArrayOfNullable<string> | null;
-    a_bytea: ArrayOfNullable<Buffer> | null;
+    a_bytea: ArrayOfNullable<Bytea> | null;
     a_inet: ArrayOfNullable<string> | null;
     a_cidr: ArrayOfNullable<string> | null;
     a_macaddr: ArrayOfNullable<string> | null;
@@ -223,7 +227,7 @@ export interface DB {
     coupons: ArrayLiteral<string> | null;
     history: ArrayLiteral<OrderStatus> | null;
     kinds: ArrayLiteral<Kind> | null;
-    moments: ArrayLiteral<Date> | null;
+    moments: ArrayLiteral<Timestamp> | null;
     amount: string;
     total: GeneratedAlways<string | null>;
     note: string;
@@ -349,5 +353,70 @@ export const schema: Schema<DB, Constraint> = {
     name: "20261003120000_orders.sql",
     checksum:
       "5eb31c63d21c297cd10059318535b0ad076f7b2ee0e86d4ed5bb123688778243",
+  },
+  arrays: {
+    arrays: {
+      a_bool: ",",
+      a_int2: ",",
+      a_int4: ",",
+      a_oid: ",",
+      a_int8: ",",
+      a_float4: ",",
+      a_float8: ",",
+      a_numeric: ",",
+      a_money: ",",
+      a_text: ",",
+      a_varchar: ",",
+      a_bpchar: ",",
+      a_name: ",",
+      a_char: ",",
+      a_uuid: ",",
+      a_json: "json",
+      a_jsonb: "json",
+      a_timestamp: ",",
+      a_timestamptz: ",",
+      a_date: ",",
+      a_time: ",",
+      a_timetz: ",",
+      a_interval: ",",
+      a_bytea: ",",
+      a_inet: ",",
+      a_cidr: ",",
+      a_macaddr: ",",
+      a_macaddr8: ",",
+      a_bit: ",",
+      a_varbit: ",",
+      a_point: ",",
+      a_line: ",",
+      a_lseg: ",",
+      a_box: ";",
+      a_path: ",",
+      a_polygon: ",",
+      a_circle: ",",
+      a_xml: ",",
+      a_tsvector: ",",
+      a_tsquery: ",",
+      a_pg_lsn: ",",
+      a_int4range: ",",
+      a_int4multirange: ",",
+      a_regclass: ",",
+      a_citext: ",",
+      a_order_status: ",",
+      a_positive: ",",
+      a_kind: ",",
+      a_pair: ",",
+      a_float_range: ",",
+    },
+    orders: {
+      tags: ",",
+      labels: ",",
+      notes: ",",
+      scores: ",",
+      coupons: ",",
+      history: ",",
+      kinds: ",",
+      moments: ",",
+      attribute_sets: ",",
+    },
   },
 };
