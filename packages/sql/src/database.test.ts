@@ -493,6 +493,26 @@ describe("the client", () => {
     }
   });
 
+  test("of a URL that names no database reaches the one of its user's name, whatever PGDATABASE says", async () => {
+    const bare = new URL(url);
+
+    bare.pathname = "";
+    process.env.PGDATABASE = "tetsu_sql_nowhere";
+
+    const elsewhere = database(schema, { url: bare.href });
+
+    try {
+      const { rows } = await sql<{
+        name: string;
+      }>`select current_database() as name`.execute(elsewhere);
+
+      expect(rows).toEqual([{ name: decodeURIComponent(bare.username) }]);
+    } finally {
+      delete process.env.PGDATABASE;
+      await elsewhere.destroy();
+    }
+  });
+
   test("is refused for a URL of another kind of database", () => {
     expect(() => database(schema, { url: "sqlite://types.db" })).toThrow(
       new TypeError(

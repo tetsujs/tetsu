@@ -347,12 +347,17 @@ export type Constraint =
   | "positive_check"
   | "tag_list_check";
 
+/** Registers the names of the constraints for `isViolation()`. */
+declare module "@tetsujs/sql" {
+  interface Constraints extends Record<Constraint, true> {}
+}
+
 export const schema: Schema<DB, Constraint> = {
   journal: "migrations",
   migration: {
     name: "20261003120000_orders.sql",
     checksum:
-      "5eb31c63d21c297cd10059318535b0ad076f7b2ee0e86d4ed5bb123688778243",
+      "52d7a9c2f9ff51949b2ef5611dcf4e3b137d2e394c85ab351dd5cd8a5d954323",
   },
   arrays: {
     arrays: {

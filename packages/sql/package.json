@@ -2,7 +2,7 @@
   "name": "@tetsujs/sql",
   "version": "0.6.3",
   "private": true,
-  "description": "Postgres on Bun: SQL migrations, Kysely types generated from the real database, and raw SQL parsed by a schema",
+  "description": "Postgres on Bun: SQL migrations, and Kysely types generated from the real database",
   "keywords": [
     "bun",
     "tetsu",

@@ -5,10 +5,17 @@
  * @module
  */
 
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  afterAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { SQL } from "bun";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
-import { createScratch, urlOf } from "./scratch.ts";
+import { createScratch, scratchName, urlOf } from "./scratch.ts";
 
 setDefaultTimeout(DATABASE_MS);
 
@@ -123,6 +130,45 @@ describe("a scratch database", () => {
     }
   });
 
+  test("left behind but still in use is kept, however old its name", async () => {
+    const old = `tetsu_sql_${(Date.now() - 2 * 60 * 60 * 1000).toString(16).padStart(12, "0")}7${"1".repeat(19)}`;
+
+    await sql.unsafe(`create database ${old}`);
+
+    const user = new SQL(urlOf(url, old));
+
+    try {
+      await user`select 1`;
+
+      const scratch = await createScratch(url);
+
+      await scratch.drop();
+
+      expect(await exists(old)).toBe(true);
+    } finally {
+      await user.close();
+      await sql.unsafe(`drop database if exists ${old} with (force)`);
+    }
+  });
+
+  test("is judged old by the server's clock, not by a clock a test moved", async () => {
+    const fresh = scratchName();
+
+    await sql.unsafe(`create database ${fresh}`);
+    setSystemTime(new Date(Date.now() + 2 * 60 * 60 * 1000));
+
+    try {
+      const scratch = await createScratch(url);
+
+      await scratch.drop();
+
+      expect(await exists(fresh)).toBe(true);
+    } finally {
+      setSystemTime();
+      await sql.unsafe(`drop database if exists ${fresh}`);
+    }
+  });
+
   test("on a server that cannot be reached fails with the client's own error", async () => {
     await expect(
       createScratch("postgres://postgres@127.0.0.1:1/nowhere"),
@@ -145,6 +191,14 @@ describe("a scratch database", () => {
     } finally {
       delete process.env.PGDATABASE;
     }
+  });
+
+  test("of a name that is not a scratch database's is refused, before anything is made", async () => {
+    await expect(createScratch(url, "app; drop database app")).rejects.toThrow(
+      new TypeError(
+        "app; drop database app is not the name of a scratch database",
+      ),
+    );
   });
 
   test("has a name of its own each time", async () => {

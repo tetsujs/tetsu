@@ -1,11 +1,13 @@
 /**
- * The error the migration runner and `createMigration` fail with.
+ * The error the migration runner, `createMigration` and `verifySchema`
+ * fail with.
  *
  * @module
  */
 
 /**
- * Why a migration run was refused or failed.
+ * Why a migration run was refused or failed, or why `verifySchema` found
+ * the database unlike the types.
  *
  * Every reason but `failed` and `own-transaction` is found before anything
  * is applied, so the database is as it was.
@@ -16,11 +18,15 @@
  *   its file exists.
  * - `empty` — a pending migration holds nothing to run.
  * - `table` — the journal table exists and is not a journal.
+ * - `behind` — the database has not applied the migration the types were
+ *   built from: `verifySchema` found it missing from the journal, or no
+ *   journal at all.
  * - `missing` — an applied migration's file is gone, though newer files are
  *   there, or the directory holds no migration files. One newer than every
  *   file is not missing: the code was rolled back, and `migrate` names it
  *   in `ahead`.
- * - `changed` — an applied migration's file has changed.
+ * - `changed` — an applied migration's file has changed, or, for
+ *   `verifySchema`, the types were built from another text of it.
  * - `out-of-order` — a pending migration is older than the last applied one.
  * - `failed` — a migration failed; it was rolled back, unless it runs
  *   without a transaction. The Postgres error is the `cause`.
@@ -33,6 +39,7 @@ export type MigrationErrorReason =
   | "name"
   | "empty"
   | "table"
+  | "behind"
   | "missing"
   | "changed"
   | "out-of-order"

@@ -82,7 +82,7 @@ create materialized view order_counts as
 create table billing.invoices (
   id int8 generated always as identity primary key,
   state billing.invoice_state not null default 'draft',
-  order_id int8 references orders (id)
+  order_id int8 references orders (id) on delete restrict
 );
 
 create table empty ();

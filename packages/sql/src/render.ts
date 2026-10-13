@@ -144,6 +144,15 @@ type Unknown = ColumnType<unknown, NonNullable<unknown>, NonNullable<unknown>>;`
   ],
 ];
 
+/**
+ * The names of the constraints, registered for `isViolation`: a name the
+ * file does not hold is then a type error.
+ */
+const REGISTER = `/** Registers the names of the constraints for \`isViolation()\`. */
+declare module "@tetsujs/sql" {
+  interface Constraints extends Record<Constraint, true> {}
+}`;
+
 /** Writes the file of a model. */
 export function render(model: Model, options: RenderOptions): string {
   const helpers = HELPERS.filter(([helper]) => model.helpers.has(helper));
@@ -159,6 +168,7 @@ export function render(model: Model, options: RenderOptions): string {
     ...model.aliases.map(alias),
     database(model.tables),
     union("export type Constraint", model.constraints.map(stringLiteral)),
+    REGISTER,
     schema(model.tables, options),
   ];
 

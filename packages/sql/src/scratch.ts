@@ -6,7 +6,9 @@
  * in `template1` reaches it: what it holds is what the migrations build.
  * Its name, `tetsu_sql_` and a UUIDv7, carries the time it was made, and a
  * run that was killed before it dropped its database leaves one that the
- * next run on the server drops, once it is an hour old.
+ * next run on the server drops: once it is an hour old by the server's
+ * clock, which a test that moves its own clock does not move, and only
+ * while no session is on it.
  *
  * @module
  */
@@ -27,10 +29,13 @@ export interface Scratch {
 }
 
 /** What a scratch database's name looks like: the prefix, then a UUIDv7. */
-const NAME = /^tetsu_sql_([0-9a-f]{12})7[0-9a-f]{19}$/;
+const NAME = /^tetsu_sql_[0-9a-f]{12}7[0-9a-f]{19}$/;
 
-/** How old a scratch database is when it is taken as left behind. */
-const LEFT_BEHIND_MS = 60 * 60 * 1000;
+/**
+ * How long closing a client may take before it is given up on: Bun's
+ * `close()` now and then never settles.
+ */
+const CLOSE_MS = 5000;
 
 /**
  * The URL of another database of the same server: the same user, host,
@@ -44,17 +49,29 @@ export function urlOf(url: string, database: string): string {
   return next.href;
 }
 
+/** A name for a scratch database of its own: the prefix, then a UUIDv7. */
+export function scratchName(): string {
+  return `tetsu_sql_${Bun.randomUUIDv7().replaceAll("-", "")}`;
+}
+
 /**
  * Creates an empty database on the server of the database `url` names,
- * with a client of it. Both connections are made from `url` itself, so
- * what it says — `sslmode`, `options` with a `search_path` — holds for
- * each, and nothing of the environment does: not even `PGDATABASE`, which
- * Bun 1.4.3 takes over the database a URL names. The user needs the right
- * to create databases.
+ * with a client of it: named `name`, a {@link scratchName} by default.
+ * Both connections are made from `url` itself, so what it says —
+ * `sslmode`, `options` with a `search_path` — holds for each, and nothing
+ * of the environment does: not even `PGDATABASE`, which Bun 1.4.3 takes
+ * over the database a URL names. The user needs the right to create
+ * databases.
  */
-export async function createScratch(url: string): Promise<Scratch> {
+export async function createScratch(
+  url: string,
+  name = scratchName(),
+): Promise<Scratch> {
+  if (!NAME.test(name)) {
+    throw new TypeError(`${name} is not the name of a scratch database`);
+  }
+
   const server = clientOf(url);
-  const name = `tetsu_sql_${Bun.randomUUIDv7().replaceAll("-", "")}`;
 
   try {
     await dropLeftBehind(server);
@@ -77,32 +94,45 @@ export async function createScratch(url: string): Promise<Scratch> {
     sql: scratch,
     async drop() {
       try {
-        await scratch.close();
+        await closed(scratch);
         await server.unsafe(`drop database ${name} with (force)`);
       } finally {
-        await server.close();
+        await closed(server);
       }
     },
   };
 }
 
 /**
- * Drops the scratch databases more than an hour old: a run that was killed
- * left them. One that another user owns, or that another run drops first,
+ * Drops the scratch databases more than an hour old by the server's clock,
+ * which the time in their names is read against: a run that was killed
+ * left them. One a session is still on is in use, however old its name,
+ * and so is one that another user owns or another run drops first: each
  * is left as it is.
  */
 async function dropLeftBehind(server: SQL): Promise<void> {
   const rows: { name: string }[] = await server`
     select datname as name from pg_database
-    where datname ~ '^tetsu_sql_[0-9a-f]{12}7[0-9a-f]{19}$'`;
+    where datname ~ '^tetsu_sql_[0-9a-f]{12}7[0-9a-f]{19}$'
+      and to_timestamp(('x' || substr(datname, 11, 12))::bit(48)::bigint / 1000.0)
+        < now() - interval '1 hour'`;
 
   for (const { name } of rows) {
-    const made = Number.parseInt(NAME.exec(name)?.[1] ?? "", 16);
-
-    if (Date.now() - made > LEFT_BEHIND_MS) {
-      await server
-        .unsafe(`drop database if exists ${name} with (force)`)
-        .catch(() => undefined);
-    }
+    await server
+      .unsafe(`drop database if exists ${name}`)
+      .catch(() => undefined);
   }
+}
+
+/** Closes a client, or stops waiting once {@link CLOSE_MS} have passed. */
+async function closed(client: SQL): Promise<void> {
+  let timer: Timer | undefined;
+
+  await Promise.race([
+    client.close(),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, CLOSE_MS);
+    }),
+  ]);
+  clearTimeout(timer);
 }

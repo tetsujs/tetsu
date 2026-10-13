@@ -10,7 +10,14 @@
  * @module
  */
 
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  afterAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  spyOn,
+  test,
+} from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,11 +40,38 @@ afterAll(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-/** The scratch databases on the server: `tetsu_sql_` and a UUIDv7. */
-async function scratchDatabases(): Promise<string[]> {
+/**
+ * Runs `use` and returns the names of the scratch databases it made: each
+ * is named by a UUIDv7 of `Bun.randomUUIDv7()`, which is watched while it
+ * runs. Other runs on the same server make databases of their own, which a
+ * list of the server's would count.
+ */
+async function scratchMadeBy(use: () => Promise<unknown>): Promise<string[]> {
+  const made: string[] = [];
+  const original = Bun.randomUUIDv7.bind(Bun);
+  const watched = spyOn(Bun, "randomUUIDv7").mockImplementation(((
+    ...args: Parameters<typeof Bun.randomUUIDv7>
+  ) => {
+    const uuid = original(...args);
+
+    made.push(`tetsu_sql_${String(uuid).replaceAll("-", "")}`);
+
+    return uuid;
+  }) as typeof Bun.randomUUIDv7);
+
+  try {
+    await use();
+  } finally {
+    watched.mockRestore();
+  }
+
+  return made;
+}
+
+/** Which of these databases are on the server. */
+async function existing(names: readonly string[]): Promise<string[]> {
   const rows: { name: string }[] = await sql`
-    select datname as name from pg_database
-    where datname ~ '^tetsu_sql_[0-9a-f]{32}$'`;
+    select datname as name from pg_database where datname = any(${sql.array([...names], "text")})`;
 
   return rows.map((row) => row.name);
 }
@@ -55,12 +89,14 @@ async function directory(files: Record<string, string>): Promise<string> {
 
 describe("the types of the fixture migrations", () => {
   test("are the file checked in beside them, each time, and leave no database", async () => {
-    const before = await scratchDatabases();
     const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      expect(await generate({ url, dir })).toBe(golden);
+      expect(await generate({ url, dir })).toBe(golden);
+    });
 
-    expect(await generate({ url, dir })).toBe(golden);
-    expect(await generate({ url, dir })).toBe(golden);
-    expect(await scratchDatabases()).toEqual(before);
+    expect(made).toHaveLength(2);
+    expect(await existing(made)).toEqual([]);
   });
 
   test("are built on a database of their own, not the client's", async () => {
@@ -286,14 +322,14 @@ describe("a not-null constraint not valid yet, on Postgres 18", () => {
 
 describe("migrations that fail", () => {
   test("fail the run, and the scratch database is dropped", async () => {
-    const before = await scratchDatabases();
     const dir = await directory({
       "20261010120000_first.sql": "create table a (id int4);",
       "20261011120000_broken.sql": "select 1 / 0;",
     });
-    const error = await generate({ url, dir }).catch(
-      (failure: unknown) => failure,
-    );
+    let error: unknown;
+    const made = await scratchMadeBy(async () => {
+      error = await generate({ url, dir }).catch((failure: unknown) => failure);
+    });
 
     expect(error).toBeInstanceOf(MigrationError);
     expect(error).toMatchObject({
@@ -301,7 +337,8 @@ describe("migrations that fail", () => {
       migration: "20261011120000_broken.sql",
       applied: ["20261010120000_first.sql"],
     });
-    expect(await scratchDatabases()).toEqual(before);
+    expect(made).toHaveLength(1);
+    expect(await existing(made)).toEqual([]);
   });
 
   test("with a journal name that cannot be one are refused before any database is made", async () => {
@@ -328,13 +365,15 @@ describe("migrations that fail", () => {
   });
 
   test("in a directory that is not there make no scratch database at all", async () => {
-    const before = await scratchDatabases();
-    const error = await generate({ url, dir: join(scratch, "nowhere") }).catch(
-      (failure: unknown) => failure,
-    );
+    let error: unknown;
+    const made = await scratchMadeBy(async () => {
+      error = await generate({ url, dir: join(scratch, "nowhere") }).catch(
+        (failure: unknown) => failure,
+      );
+    });
 
     expect(error).toMatchObject({ reason: "directory" });
-    expect(await scratchDatabases()).toEqual(before);
+    expect(made).toEqual([]);
   });
 });
 

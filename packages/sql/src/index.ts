@@ -3,8 +3,9 @@
  *
  * The migrations are SQL files and the source of truth: the types are
  * generated from the database they build, and the queries are Kysely's,
- * on Bun's own driver. Where no type can be inferred, the value is
- * checked: raw SQL by a schema, a broken constraint by its name.
+ * on a driver of the package's own over Bun.SQL. A broken constraint is
+ * told by the name the types hold, and a unit of work holds together
+ * inside another's transaction.
  *
  * ```ts
  * import { database } from "@tetsujs/sql";
@@ -28,6 +29,7 @@
  * @module
  */
 
+export { atomic } from "./atomic.ts";
 export type { DatabaseOptions } from "./database.ts";
 export { database } from "./database.ts";
 export type { MigrationErrorReason } from "./errors.ts";
@@ -39,3 +41,6 @@ export type {
 } from "./migrate.ts";
 export { migrate } from "./migrate.ts";
 export type { Schema } from "./schema.ts";
+export { verifySchema } from "./verify.ts";
+export type { ConstraintName, Constraints } from "./violation.ts";
+export { isViolation } from "./violation.ts";

@@ -264,6 +264,24 @@ describe("a file", () => {
     );
   });
 
+  test("registers the names of its constraints, for isViolation() to take them", () => {
+    const file = render(
+      { ...table([column("id", "bigint")]), constraints: ["t_pkey"] },
+      { journal: "migrations", migration: undefined },
+    );
+
+    expect(file).toContain(
+      [
+        'export type Constraint = "t_pkey";',
+        "",
+        "/** Registers the names of the constraints for `isViolation()`. */",
+        'declare module "@tetsujs/sql" {',
+        "  interface Constraints extends Record<Constraint, true> {}",
+        "}",
+      ].join("\n"),
+    );
+  });
+
   test("defines only the helpers its columns use", () => {
     const file = render(
       {
