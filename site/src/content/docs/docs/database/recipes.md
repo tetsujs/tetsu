@@ -42,7 +42,9 @@ const open = route({
 ```
 
 `Number(order.id)` will do as well, while the ids stay below 2⁵³; past that,
-a number rounds them.
+a number rounds them. Types generated with `--int8 string` read an id as a
+string, which needs neither: [int8 as a
+string](/docs/database/types/#int8-as-a-string).
 
 An id that comes in — in a path, a query or a body — comes in as a string.
 A codec checks it, up to the largest `int8`, and hands the handler a

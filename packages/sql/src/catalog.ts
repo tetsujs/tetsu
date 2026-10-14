@@ -16,7 +16,7 @@ import type { SQL } from "bun";
 import type { Target } from "./checks.ts";
 import { forbidsNullElements, valuesOf } from "./checks.ts";
 import type { PgType, Written } from "./pg-types.ts";
-import { BUILT_IN, DEFINED, EXTENSION } from "./pg-types.ts";
+import { BUILT_IN, DEFINED, EXTENSION, INT8_AS_STRING } from "./pg-types.ts";
 import { JSON_ELEMENTS } from "./values.ts";
 
 /**
@@ -243,8 +243,12 @@ const DESCRIBED = `c.relkind in ('r', 'p', 'v', 'm', 'f') and not c.relispartiti
   and ${USER_SCHEMA} and c.oid is distinct from to_regclass($1)`;
 
 /** Reads the model of the database `sql` is connected to, as {@link readCatalog}. */
-export async function readModel(sql: SQL, journal: string): Promise<Model> {
-  return (await readCatalog(sql, journal)).model;
+export async function readModel(
+  sql: SQL,
+  journal: string,
+  int8: "bigint" | "string" = "bigint",
+): Promise<Model> {
+  return (await readCatalog(sql, journal, int8)).model;
 }
 
 /**
@@ -252,8 +256,13 @@ export async function readModel(sql: SQL, journal: string): Promise<Model> {
  * schema-qualified as `migrate` resolved it before the migrations ran, is
  * left out with its constraints: resolved afterwards, its bare name could
  * find a table a migration made in a schema earlier in the `search_path`.
+ * `int8` says what an `int8` reads as: a `bigint`, or a string.
  */
-export async function readCatalog(sql: SQL, journal: string): Promise<Catalog> {
+export async function readCatalog(
+  sql: SQL,
+  journal: string,
+  int8: "bigint" | "string" = "bigint",
+): Promise<Catalog> {
   const relations: RelationRow[] = await sql.unsafe(
     `select c.oid as id, n.nspname as schema, c.relname as name,
             c.relkind as kind, obj_description(c.oid, 'pg_class') as comment
@@ -320,14 +329,10 @@ export async function readCatalog(sql: SQL, journal: string): Promise<Catalog> {
     [journal],
   );
 
-  const builder = new Builder({
-    relations,
-    columns,
-    types,
-    labels,
-    checks,
-    names,
-  });
+  const builder = new Builder(
+    { relations, columns, types, labels, checks, names },
+    int8,
+  );
 
   return {
     model: builder.model,
@@ -406,6 +411,10 @@ const NO_PROMISES: Promises = { domain: [], own: [], noNulls: false };
 /** Builds the model of a catalog, naming aliases as it meets them. */
 class Builder {
   private readonly catalog: Rows;
+
+  /** What an `int8` reads as. */
+  private readonly int8: "bigint" | "string";
+
   private readonly types: ReadonlyMap<number, TypeRow>;
   private readonly enums = new Map<number, string>();
   private readonly domains = new Map<number, string>();
@@ -425,8 +434,9 @@ class Builder {
   /** The model, built on construction. */
   readonly model: Model;
 
-  constructor(catalog: Rows) {
+  constructor(catalog: Rows, int8: "bigint" | "string") {
     this.catalog = catalog;
+    this.int8 = int8;
     this.types = new Map(catalog.types.map((type) => [type.id, type]));
 
     const enums = catalog.types
@@ -617,7 +627,7 @@ class Builder {
   private array(array: TypeRow, noNulls: boolean): Typed {
     const declared = this.types.get(array.element);
     const element = this.unwrap(declared);
-    const pg = element === undefined ? undefined : pgTypeOf(element);
+    const pg = element === undefined ? undefined : this.pg(element);
 
     if (declared === undefined || element === undefined || pg === undefined) {
       return unknownType(`${declared?.name ?? array.name}[]`);
@@ -667,7 +677,7 @@ class Builder {
     promises: Promises,
     owner: string,
   ): Typed {
-    const pg = pgTypeOf(base);
+    const pg = this.pg(base);
 
     if (pg === undefined) {
       return unknownType(base.name);
@@ -764,6 +774,15 @@ class Builder {
     }
 
     return { domain, own: lists, noNulls };
+  }
+
+  /** How a type reads: an `int8` as {@link Builder.int8} says. */
+  private pg(type: TypeRow): PgType | undefined {
+    return this.int8 === "string" &&
+      type.schema === "pg_catalog" &&
+      type.name === "int8"
+      ? INT8_AS_STRING
+      : pgTypeOf(type);
   }
 
   /**
@@ -896,6 +915,10 @@ const WRITTEN_VALUES: Readonly<Record<Written, Values>> = {
   },
   Json: { reads: keyword("unknown"), writes: keyword("object") },
   Bytea: { reads: keyword("Buffer"), writes: keyword("Uint8Array") },
+  Int8: {
+    reads: keyword("string"),
+    writes: union(keyword("string"), keyword("number"), keyword("bigint")),
+  },
 };
 
 /** An unknown type, with the note that says so. */

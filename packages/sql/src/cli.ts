@@ -58,6 +58,7 @@ Options:
   --queries <path>         The query files' directory (default: queries, when it is there)
   --queries-out <path>     Where the functions of the queries go
                            (default: src/queries.generated.ts)
+  --int8 <bigint|string>   What an int8 reads as (default: bigint)
   --check                  Check that the generated files are up to date, and write nothing
   --json                   Print each line as a JSON object, for a log collector
   -h, --help               Show this`;
@@ -86,6 +87,7 @@ const FLAGS: Readonly<Record<string, readonly string[]>> = {
     "out",
     "queries",
     "queries-out",
+    "int8",
     "check",
   ],
 };
@@ -121,6 +123,7 @@ function parse(argv: readonly string[]) {
         out: { type: "string" },
         queries: { type: "string" },
         "queries-out": { type: "string" },
+        int8: { type: "string" },
         check: { type: "boolean" },
         json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -261,6 +264,12 @@ async function main(
     throw new UsageError("--out and --queries-out name the same file");
   }
 
+  const { int8 } = values;
+
+  if (int8 !== undefined && int8 !== "bigint" && int8 !== "string") {
+    throw new UsageError(`--int8 takes bigint or string, not "${int8}"`);
+  }
+
   const dir = values.dir ?? DIR;
   const table = values.table === undefined ? {} : { table: values.table };
 
@@ -346,6 +355,7 @@ async function main(
     url,
     dir,
     ...table,
+    ...(int8 === undefined ? {} : { int8 }),
     ...(found
       ? { queries: { dir: queries, out: queriesOut, types: out } }
       : {}),

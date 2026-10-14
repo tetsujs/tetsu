@@ -61,6 +61,14 @@ export interface GenerateOptions {
   /** The journal table, as `migrate` is given it. `migrations` by default. */
   readonly table?: string;
 
+  /**
+   * What an `int8` reads as: a `bigint` by default, or a string, which a
+   * JSON response takes as it is. The file records it, and `database()`
+   * reads `int8` so. A string is written as well as a number or a bigint,
+   * and its sum is a string too: `count + 1` is `"11"`.
+   */
+  readonly int8?: "bigint" | "string";
+
   /** The query files to write the functions of, too. */
   readonly queries?: QueriesOptions;
 }
@@ -109,14 +117,16 @@ export interface GeneratedFiles {
  * the types on a server of their own, such as a container, and create
  * roles only where they are missing.
  *
- * Each column is typed as Bun reads it with `bigint: true`, which is how
- * the package's `database()` reads it.
+ * Each column is typed as Bun reads it with `bigint: true`, or with
+ * `bigint: false` when `int8` is `"string"`, which is how the package's
+ * `database()` reads it.
  *
  * @throws {MigrationError} when the migrations do not apply.
  * @throws {QueryFileError} when a query file cannot be read as a query, or
  * Postgres refuses its query: each of them, on a line of the message.
  * @throws {TypeError} when `url` is not a `postgres://` or
- * `postgresql://` URL, or `table` cannot name a journal.
+ * `postgresql://` URL, `table` cannot name a journal, or `int8` is
+ * neither `"bigint"` nor `"string"`.
  */
 export async function generate(
   options: GenerateOptions,
@@ -131,8 +141,15 @@ export async function generate(
   }
 
   const table = options.table ?? "migrations";
+  const int8 = options.int8 ?? "bigint";
 
   checkJournal(table);
+
+  if (int8 !== "bigint" && int8 !== "string") {
+    throw new TypeError(
+      `int8 reads as "bigint" or "string", not ${JSON.stringify(int8)}`,
+    );
+  }
 
   const newest = (await readMigrations(options.dir)).at(-1);
   const files =
@@ -146,9 +163,10 @@ export async function generate(
 
     await migrateScratch(scratch.sql, { dir: options.dir, table });
 
-    const catalog = await readCatalog(scratch.sql, journal.name);
+    const catalog = await readCatalog(scratch.sql, journal.name, int8);
     const types = render(catalog.model, {
       journal: table,
+      int8,
       migration:
         newest === undefined
           ? undefined

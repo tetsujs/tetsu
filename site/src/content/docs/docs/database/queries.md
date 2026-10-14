@@ -98,7 +98,8 @@ Postgres refuses more than one.
 ## Values
 
 Values go through as the [generated types](/docs/database/types/#how-each-type-reads)
-say: an `int8` is a `bigint` both ways, a `numeric` a string, a `json` or
+say: an `int8` is a `bigint` both ways, unless the types were generated with
+`--int8 string`, a `numeric` a string, a `json` or
 `jsonb` column takes an object or an array and returns what Postgres parsed.
 The driver mends what Bun does not do:
 

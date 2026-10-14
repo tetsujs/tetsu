@@ -55,7 +55,7 @@ the database in `DATABASE_URL` or `--url`:
 | `migrations:new <name>` | creates an empty migration, named with the current UTC time |
 | `migrations:run` | applies the pending migrations: [Migrations](/docs/database/migrations/) |
 | `migrations:baseline <migration>` | records the migrations up to this one as applied, without running them, in a database built before them: [Adopting a database](/docs/database/migrations/#adopting-a-database) |
-| `types:generate` | writes the types of the database the migrations build, and the functions of the query files; `--check` writes nothing and fails when the files are out of date: [Types from the database](/docs/database/types/) |
+| `types:generate` | writes the types of the database the migrations build, and the functions of the query files; `--check` writes nothing and fails when the files are out of date, and `--int8 string` reads an `int8` as a string: [Types from the database](/docs/database/types/) |
 
 ## Exports
 

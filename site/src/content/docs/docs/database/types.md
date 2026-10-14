@@ -23,6 +23,7 @@ files](/docs/database/query-files/) as well, from the same database.
 | `--table` | the journal, `migrations` by default |
 | `--out` | the file of types, `src/db.generated.ts` by default |
 | `--queries`, `--queries-out` | the query files, `queries`, and their functions, `src/queries.generated.ts` |
+| `--int8` | what an `int8` reads as: `bigint` by default, or `string`, as [int8 as a string](#int8-as-a-string) says |
 | `--check` | write nothing, and fail when a file differs from what would be written in anything but its formatting |
 | `--json` | print each line as a JSON object |
 
@@ -57,8 +58,8 @@ old and nobody is on it.
   [`isViolation()`](/docs/database/transactions/#a-broken-constraint) takes.
 - **`schema`**, for the runtime: the journal, the migration the types were
   built from, which [`verifySchema()`](/docs/database/deploy/#checking-the-database-at-start)
-  checks the database against, and the columns of arrays, which `database()`
-  writes arrays to.
+  checks the database against, what an `int8` reads as, and the columns of
+  arrays, which `database()` writes arrays to.
 
 A `comment on` a table or a column is its documentation in the file, and
 shows where the editor shows the type.
@@ -69,8 +70,10 @@ CI](/docs/database/deploy/#ci) shows.
 
 ## Columns
 
-A column is typed as Bun reads its values, with `bigint: true`, which is how
-`database()` reads them. Three things can change what a type is written as:
+A column is typed as Bun reads its values, with `bigint: true`, or with
+`bigint: false` for [`int8` read as a string](#int8-as-a-string), which is
+how `database()` reads them. Three things can change what a type is
+written as:
 
 - **`Generated<T>`** — a column with a default, an identity `by default` or
   a serial: an insert may leave it out.
@@ -120,7 +123,7 @@ reads a view types its columns the same way.
 | --- | --- | --- |
 | `bool` | `boolean` | |
 | `int2`, `int4`, `oid`, `float4`, `float8` | `number` | |
-| `int8` | `bigint` | |
+| `int8` | `bigint`, or `string` with `--int8 string` | with `--int8 string`, a string, a number or a bigint |
 | `numeric`, `money` | `string`, exact | |
 | `text`, `varchar`, `char(n)`, `name`, `citext` | `string` | |
 | `uuid` | `string` | |
@@ -144,6 +147,32 @@ A few values read as more than their type says:
 - A string written to a `json` or `jsonb` column would be stored as a JSON
   string, so the column's type takes an object or an array: a value already
   passed through `JSON.stringify` does not compile.
+
+## int8 as a string
+
+An `int8` is read as a `bigint` by default: exact, and refused by
+`JSON.stringify`, so an id goes out of a handler as a string, as [Ids in
+JSON](/docs/database/recipes/#ids-in-json) shows. A project whose `int8`
+columns are ids, and none of them amounts, can read them as strings
+instead:
+
+```bash
+bunx tetsu-sql types:generate --int8 string
+```
+
+- **Every `int8` reads as a string:** a column, an element of an `int8[]`,
+  a `count(*)` of a query file. JSON takes it as it is.
+- **It is written as a string, a number or a bigint.** A number that is
+  not whole is refused, as by any integer column. Kysely compares a column
+  as it reads it, so `where("id", "=", "42")` takes a string.
+- **`schema` records it,** and `database()` and `testDatabase()` read
+  `int8` so: the types and the client cannot disagree. `--check` without
+  the flag finds the file out of date.
+- **Arithmetic on a string compiles:** `count + 1` is `"11"`. Cast in SQL,
+  as `count(*)::int4`, or keep `bigint` where an `int8` holds amounts.
+
+The choice is the project's, not a column's: Bun reads every `int8` one
+way.
 
 ## Arrays
 

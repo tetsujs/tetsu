@@ -757,6 +757,32 @@ describe("types:generate", () => {
     );
   });
 
+  test("with --int8 string, finds the file of int8 read as strings up to date, which the default would not be", async () => {
+    const int8 = join(import.meta.dir, "../test-utils/fixtures/int8");
+    const flags = [
+      ...["--dir", join(int8, "migrations"), "--url", url],
+      ...["--out", join(int8, "db.generated.ts")],
+      ...["--queries", join(int8, "queries")],
+      ...["--queries-out", join(int8, "queries.generated.ts")],
+      "--check",
+    ];
+
+    expect(run(["types:generate", "--int8", "string", ...flags])).toEqual({
+      exitCode: 0,
+      stdout: [
+        `${join(int8, "db.generated.ts")} is up to date`,
+        `${join(int8, "queries.generated.ts")} is up to date`,
+        "",
+      ].join("\n"),
+      stderr: "",
+    });
+    expect(run(["types:generate", ...flags])).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `error: ${join(int8, "db.generated.ts")} is out of date: run tetsu-sql types:generate\n`,
+    });
+  });
+
   test("writes them where --out says, over what is there", async () => {
     const out = join(await directory(), "types", "db.ts");
 
@@ -1037,6 +1063,14 @@ describe("the command line", () => {
     [
       ["migrations:baseline", "a", "--check"],
       "migrations:baseline does not take --check",
+    ],
+    [
+      ["types:generate", "--int8", "number"],
+      '--int8 takes bigint or string, not "number"',
+    ],
+    [
+      ["migrations:run", "--int8", "string"],
+      "migrations:run does not take --int8",
     ],
   ])("refuses %j, with the usage", (args, message) => {
     const result = run(args);

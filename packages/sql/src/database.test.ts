@@ -478,6 +478,33 @@ describe("the client", () => {
     }
   });
 
+  test("reads int8 as a string for types generated with int8 read as one, and writes a string, a number or a bigint to it", async () => {
+    const strings = database({ ...schema, int8: "string" }, { url });
+
+    try {
+      for (const where of [sql`true`, sql`${true}`]) {
+        const { rows } = await sql`
+          select 9007199254740993::int8 as big,
+            array[1, 9007199254740993]::int8[] as list,
+            ${"9007199254740993"}::int8 as text, ${42}::int8 as number,
+            ${42n}::int8 as bigint
+          where ${where}`.execute(strings);
+
+        expect(rows).toEqual([
+          {
+            big: "9007199254740993",
+            list: ["1", "9007199254740993"],
+            text: "9007199254740993",
+            number: "42",
+            bigint: "42",
+          },
+        ]);
+      }
+    } finally {
+      await strings.destroy();
+    }
+  });
+
   test("reaches the database its URL names, whatever PGDATABASE says", async () => {
     process.env.PGDATABASE = "postgres";
 

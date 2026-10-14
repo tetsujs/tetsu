@@ -31,7 +31,7 @@ export const pooled: DatabaseOptions = {
 
 export const forced: DatabaseOptions = {
   url,
-  // @ts-expect-error the package reads int8 as bigint, as the types say
+  // @ts-expect-error the package reads int8 as the generated schema says
   bigint: false,
 };
 

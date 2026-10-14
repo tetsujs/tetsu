@@ -121,6 +121,40 @@ describe("the types of the fixture migrations", () => {
   });
 });
 
+describe("int8 read as a string", () => {
+  const int8 = join(import.meta.dir, "../test-utils/fixtures/int8");
+
+  test("makes the files checked in beside its fixture: Int8 columns, string rows, and the schema saying so", async () => {
+    const files = await generate({
+      url,
+      dir: join(int8, "migrations"),
+      int8: "string",
+      queries: {
+        dir: join(int8, "queries"),
+        out: join(int8, "queries.generated.ts"),
+        types: join(int8, "db.generated.ts"),
+      },
+    });
+
+    expect(files.types).toBe(
+      await Bun.file(join(int8, "db.generated.ts")).text(),
+    );
+    expect(files.queries).toBe(
+      await Bun.file(join(int8, "queries.generated.ts")).text(),
+    );
+  });
+
+  test("is asked for as a string, or the default bigint, and nothing else", async () => {
+    await expect(
+      generate({
+        url,
+        dir: join(int8, "migrations"),
+        int8: "number" as "string",
+      }),
+    ).rejects.toThrow('int8 reads as "bigint" or "string", not "number"');
+  });
+});
+
 describe("the functions of the fixture queries", () => {
   test("are the file checked in beside them, with the same types, each time, and leave no database", async () => {
     const dir = join(fixtures, "migrations");

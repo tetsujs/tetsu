@@ -28,6 +28,12 @@ export interface RenderOptions {
 
   /** The newest migration, or nothing when there is none. */
   readonly migration: Built | undefined;
+
+  /**
+   * What an `int8` reads as, recorded for `database()` when it is a
+   * string. A `bigint` by default.
+   */
+  readonly int8?: "bigint" | "string";
 }
 
 /** The width a formatter breaks lines at. */
@@ -103,6 +109,18 @@ type Json = ColumnType<unknown, object, object>;`,
     "Bytea",
     `/** \`bytea\`: read as a \`Buffer\`, written as any \`Uint8Array\`. */
 type Bytea = ColumnType<Buffer, Uint8Array, Uint8Array>;`,
+  ],
+  [
+    "Int8",
+    `/**
+ * \`int8\`, in types generated with \`int8: "string"\`: read as a string,
+ * which JSON takes as it is; written as a string, a number or a bigint.
+ */
+type Int8 = ColumnType<
+  string,
+  string | number | bigint,
+  string | number | bigint
+>;`,
   ],
   [
     "ArrayOfNullable",
@@ -317,6 +335,7 @@ function schema(tables: readonly Table[], options: RenderOptions): string {
           stringProperty("checksum", migration.checksum, "    "),
           "  },",
         ]),
+    ...(options.int8 === "string" ? ['  int8: "string",'] : []),
     ...arrays(tables),
     "};",
   ].join("\n");

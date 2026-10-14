@@ -6,7 +6,8 @@
  * parameters and with them, and the tests of this module hold each row to
  * it. Two rows lean on `database()`: Bun reads `int4[]` and `float4[]` with
  * parameters as an `Int32Array` and a `Float32Array`, which it turns into
- * arrays.
+ * arrays. Types generated with `int8: "string"` read `int8` as
+ * {@link INT8_AS_STRING} says instead, as Bun does with `bigint: false`.
  *
  * @module
  */
@@ -33,8 +34,10 @@ export type Reads =
  * - `CalendarDate` — `date`, the same.
  * - `Json` — `json` and `jsonb`, written as an object or an array.
  * - `Bytea` — `bytea`, written as any `Uint8Array`.
+ * - `Int8` — `int8` read as a string, written as a string, a number or a
+ *   bigint.
  */
-export type Written = "Timestamp" | "CalendarDate" | "Json" | "Bytea";
+export type Written = "Timestamp" | "CalendarDate" | "Json" | "Bytea" | "Int8";
 
 /** How one Postgres type reads, and how its arrays do. */
 export interface PgType {
@@ -53,6 +56,16 @@ export interface PgType {
 
 /** A type read as a string, with arrays Bun parses. */
 const text: PgType = { reads: "string", arrays: true };
+
+/**
+ * `int8` in types generated with `int8: "string"`, which `database()` reads
+ * with `bigint: false`: as a string, its arrays as arrays of strings.
+ */
+export const INT8_AS_STRING: PgType = {
+  reads: "string",
+  written: "Int8",
+  arrays: true,
+};
 
 /** A type read as a string, with arrays Bun reads as their literal. */
 const literal: PgType = { reads: "string", arrays: false };

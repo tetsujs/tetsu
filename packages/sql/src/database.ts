@@ -44,7 +44,8 @@ export interface DatabaseOptions
  * Kysely on Bun.SQL, for the database the generated `schema` describes.
  *
  * The client is the package's own, so that values are what the types say:
- * `int8` is read as a `bigint`, an `int4[]` or a `float4[]` as an array
+ * `int8` is read as a `bigint`, or as a string when the types were
+ * generated with `int8: "string"`, an `int4[]` or a `float4[]` as an array
  * with parameters and without, a `Date` is written to any timestamp and to
  * a `date`, a number that is not whole is refused by an integer column
  * rather than rounded, and a JavaScript array to a column of arrays, which
@@ -117,7 +118,11 @@ export function database<DB>(
   }
 
   const { url, ...pool } = options;
-  const client = { ...pool, adapter: "postgres", bigint: true } as const;
+  const client = {
+    ...pool,
+    adapter: "postgres",
+    bigint: schema.int8 !== "string",
+  } as const;
 
   return sessionsKept(
     new Kysely<DB>({

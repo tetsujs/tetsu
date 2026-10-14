@@ -1,7 +1,8 @@
 /**
  * What the generated file tells the runtime of a database: the journal of
- * its migrations, the newest migration its types were built from and the
- * columns that hold arrays, with the types themselves carried along.
+ * its migrations, the newest migration its types were built from, what an
+ * `int8` reads as and the columns that hold arrays, with the types
+ * themselves carried along.
  *
  * @module
  */
@@ -25,6 +26,13 @@ export interface Schema<DB, Constraint extends string = string> {
     /** The SHA-256 of its text, as the journal records it. */
     readonly checksum: string;
   } | null;
+
+  /**
+   * What an `int8` reads as: a string, when the types were generated with
+   * `int8: "string"`, and `database()` reads it with Bun's `bigint: false`;
+   * a `bigint` otherwise.
+   */
+  readonly int8?: "bigint" | "string";
 
   /**
    * The columns that hold arrays, by relation and column as `DB` names

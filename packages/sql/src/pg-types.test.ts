@@ -2,7 +2,8 @@
  * The table the generated types are written from, held to Bun row by row:
  * a value of each type, and an array of one, read both ways Bun reads —
  * without parameters and with one — by a client with `bigint: true`, as
- * `database()` reads them.
+ * `database()` reads them; and `int8` read as a string by one with
+ * `bigint: false`, as `database()` reads it for types generated so.
  *
  * Bun reads `int4[]` and `float4[]` with a parameter as an `Int32Array`
  * and a `Float32Array`; `database()` makes arrays of them, so the table
@@ -15,10 +16,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 import type { PgType, Reads } from "./pg-types.ts";
-import { BUILT_IN, DEFINED, EXTENSION } from "./pg-types.ts";
+import { BUILT_IN, DEFINED, EXTENSION, INT8_AS_STRING } from "./pg-types.ts";
 
 const { url } = testDatabase();
 const sql = new SQL(url, { bigint: true, connection: { TimeZone: "UTC" } });
+const strings = new SQL(url, { bigint: false });
 
 beforeAll(async () => {
   await sql
@@ -33,6 +35,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await sql.close();
+  await strings.close();
 });
 
 /** A value of each type of `pg_catalog` the table knows. */
@@ -111,15 +114,16 @@ const TYPED_ARRAYS: Readonly<Record<string, string>> = {
   float4: "Float32Array",
 };
 
-/** Reads one expression, without parameters or with one. */
+/** Reads one expression by `client`, without parameters or with one. */
 async function read(
+  client: SQL,
   expression: string,
   path: "text" | "binary",
 ): Promise<unknown> {
   const rows =
     path === "text"
-      ? await sql.unsafe(`select ${expression} as v`)
-      : await sql.unsafe(`select ${expression} as v where $1::int = 1`, [1]);
+      ? await client.unsafe(`select ${expression} as v`)
+      : await client.unsafe(`select ${expression} as v where $1::int = 1`, [1]);
 
   return rows[0].v;
 }
@@ -138,13 +142,21 @@ function isOf(value: unknown, reads: Reads): boolean {
   }
 }
 
-/** Holds a value and an array of it, both ways, to a row of the table. */
-async function holds(type: string, sample: string, row: PgType): Promise<void> {
+/**
+ * Holds a value and an array of it, both ways, to a row of the table, as
+ * `client` reads them: the client with `bigint: true` by default.
+ */
+async function holds(
+  type: string,
+  sample: string,
+  row: PgType,
+  client: SQL = sql,
+): Promise<void> {
   const cast = type === "char" ? '"char"' : type;
 
   for (const path of ["text", "binary"] as const) {
-    const value = await read(`${sample}::${cast}`, path);
-    const array = await read(`array[${sample}::${cast}]`, path);
+    const value = await read(client, `${sample}::${cast}`, path);
+    const array = await read(client, `array[${sample}::${cast}]`, path);
     const typed = path === "binary" ? TYPED_ARRAYS[type] : undefined;
 
     expect({ path, value: isOf(value, row.reads) }).toEqual({
@@ -184,6 +196,12 @@ describe("a type of pg_catalog", () => {
       await holds(type, SAMPLES[type] ?? "", row);
     },
   );
+});
+
+describe("int8 read as a string", () => {
+  test("reads as the row says, by a client with bigint: false", async () => {
+    await holds("int8", SAMPLES["int8"] ?? "", INT8_AS_STRING, strings);
+  });
 });
 
 describe("a type Postgres makes of a definition, and an extension's", () => {
