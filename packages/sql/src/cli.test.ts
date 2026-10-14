@@ -757,7 +757,7 @@ describe("types:generate", () => {
     );
   });
 
-  test("with --int8 string, finds the file of int8 read as strings up to date, which the default would not be", async () => {
+  test("finds the file of int8 read as strings up to date, with --int8 string or as the file says, and --int8 bigint does not", async () => {
     const int8 = join(import.meta.dir, "../test-utils/fixtures/int8");
     const flags = [
       ...["--dir", join(int8, "migrations"), "--url", url],
@@ -776,7 +776,8 @@ describe("types:generate", () => {
       ].join("\n"),
       stderr: "",
     });
-    expect(run(["types:generate", ...flags])).toEqual({
+    expect(run(["types:generate", ...flags]).exitCode).toBe(0);
+    expect(run(["types:generate", "--int8", "bigint", ...flags])).toEqual({
       exitCode: 1,
       stdout: "",
       stderr: `error: ${join(int8, "db.generated.ts")} is out of date: run tetsu-sql types:generate\n`,

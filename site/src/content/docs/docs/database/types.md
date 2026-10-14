@@ -23,7 +23,7 @@ files](/docs/database/query-files/) as well, from the same database.
 | `--table` | the journal, `migrations` by default |
 | `--out` | the file of types, `src/db.generated.ts` by default |
 | `--queries`, `--queries-out` | the query files, `queries`, and their functions, `src/queries.generated.ts` |
-| `--int8` | what an `int8` reads as: `bigint` by default, or `string`, as [int8 as a string](#int8-as-a-string) says |
+| `--int8` | what an `int8` reads as: `bigint` or `string`, as [int8 as a string](#int8-as-a-string) says; what the file of types says by default, or `bigint` |
 | `--check` | write nothing, and fail when a file differs from what would be written in anything but its formatting |
 | `--json` | print each line as a JSON object |
 
@@ -169,8 +169,9 @@ bunx tetsu-sql types:generate --int8 string
   not whole is refused, as by any integer column. Kysely compares a column
   as it reads it, so `where("id", "=", "42")` takes a string.
 - **`schema` records it,** and `database()` and `testDatabase()` read
-  `int8` so: the types and the client cannot disagree. `--check` without
-  the flag finds the file out of date.
+  `int8` so: the types and the client cannot disagree. The next
+  `types:generate`, and `--check`, keep what the file says;
+  `--int8 bigint` goes back.
 - **Arithmetic on a string compiles:** `count + 1` is `"11"`. Cast in SQL,
   as `count(*)::int4`, or keep `bigint` where an `int8` holds amounts.
 

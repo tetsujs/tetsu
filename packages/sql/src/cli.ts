@@ -58,7 +58,8 @@ Options:
   --queries <path>         The query files' directory (default: queries, when it is there)
   --queries-out <path>     Where the functions of the queries go
                            (default: src/queries.generated.ts)
-  --int8 <bigint|string>   What an int8 reads as (default: bigint)
+  --int8 <bigint|string>   What an int8 reads as (default: what the file of types says,
+                           or bigint)
   --check                  Check that the generated files are up to date, and write nothing
   --json                   Print each line as a JSON object, for a log collector
   -h, --help               Show this`;
@@ -351,11 +352,12 @@ async function main(
     );
   }
 
+  const reads = int8 ?? (await int8Of(out));
   const generated = await generate({
     url,
     dir,
     ...table,
-    ...(int8 === undefined ? {} : { int8 }),
+    ...(reads === undefined ? {} : { int8: reads }),
     ...(found
       ? { queries: { dir: queries, out: queriesOut, types: out } }
       : {}),
@@ -392,6 +394,20 @@ async function main(
   }
 
   return 0;
+}
+
+/**
+ * What the file of types at `path` reads an `int8` as, when it says: the
+ * choice of `--int8` it was generated with, which a run without the flag
+ * keeps.
+ */
+async function int8Of(path: string): Promise<"string" | undefined> {
+  const file = Bun.file(path);
+
+  return (await file.exists()) &&
+    /^ {2}int8: "string",$/m.test(await file.text())
+    ? "string"
+    : undefined;
 }
 
 /** Whether `path` is a directory. */
