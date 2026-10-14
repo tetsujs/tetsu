@@ -86,6 +86,7 @@ beforeAll(async () => {
     create table tickets_closed partition of tickets for values in ('closed');
     create domain grade as int4 check (value in (1, 2, 3));
     create table reviews (id int8 primary key, grade grade not null);
+    create table "Notes" (id int8 primary key, body text not null);
   `);
   lookup = (await readCatalog(sql, "public.migrations")).lookup;
   wire = await Wire.connect(clientOf(url));
@@ -457,6 +458,27 @@ describe("a column a query returns", () => {
         "delete from customers where id = 1000 returning new.email as after",
       ),
     ).toEqual(["after: string | null"]);
+  });
+
+  test("returned by an update or a delete of one table, or by a write to a table whose name is quoted, is as NULL as its column", async () => {
+    expect(
+      await columns(
+        "update items set sku = sku where order_id = :id returning order_id, sku",
+      ),
+    ).toEqual(["order_id: bigint", "sku: string"]);
+    expect(
+      await columns(
+        "delete from items where order_id = :id returning order_id, sku",
+      ),
+    ).toEqual(["order_id: bigint", "sku: string"]);
+    expect(
+      await columns(
+        `insert into "Notes" (id, body) values (1, 'a') returning id, body`,
+      ),
+    ).toEqual(["id: bigint", "body: string"]);
+    expect(
+      await columns(`update "Notes" n set body = 'b' returning n.id, n.body`),
+    ).toEqual(["id: bigint", "body: string"]);
   });
 
   test("of a plan of no outer join is as NULL as its column, of a partitioned table too", async () => {

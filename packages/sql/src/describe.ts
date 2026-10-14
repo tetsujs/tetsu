@@ -184,10 +184,7 @@ export function planNullables(
       Array.isArray(node.Output)
     ) {
       for (const output of node.Output) {
-        if (
-          node["Node Type"] !== "ModifyTable" ||
-          (typeof output === "string" && output.startsWith(`${node.Alias}.`))
-        ) {
+        if (node["Node Type"] !== "ModifyTable" || isOwn(node, output)) {
           read.add(output);
         }
       }
@@ -234,16 +231,35 @@ export function planNullables(
 /**
  * Whether a node is a statement that returns more than the rows it writes:
  * a column of the row from before or after it wrote it, `old.x` or
- * `new.x`, or of another table, which it outputs without its own alias.
+ * `new.x`, or of another table, which it outputs as not its own.
  */
 function returnsMore(node: PlanNode): boolean {
   return (
     node["Node Type"] === "ModifyTable" &&
     Array.isArray(node.Output) &&
-    node.Output.some(
-      (output) =>
-        typeof output !== "string" || !output.startsWith(`${node.Alias}.`),
-    )
+    node.Output.some((output) => !isOwn(node, output))
+  );
+}
+
+/** A column as `EXPLAIN VERBOSE` writes it without a relation: bare, or quoted. */
+const BARE = /^(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")+")$/;
+
+/**
+ * Whether an output of a statement that writes a table is a column of that
+ * table: after its alias, quoted as Postgres quotes a name that needs it,
+ * as `"User".id`, or bare, as Postgres writes them when the statement
+ * reads no other relation, as an update or a delete without `from` or
+ * `using`.
+ */
+function isOwn(node: PlanNode, output: unknown): boolean {
+  const alias = node.Alias;
+
+  return (
+    typeof output === "string" &&
+    typeof alias === "string" &&
+    (output.startsWith(`${alias}.`) ||
+      output.startsWith(`"${alias.replaceAll('"', '""')}".`) ||
+      BARE.test(output))
   );
 }
 
