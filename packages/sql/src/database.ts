@@ -9,7 +9,7 @@ import type { SQL } from "bun";
 import { Kysely } from "kysely";
 import { ArraysPlugin } from "./arrays.ts";
 import { clientOf } from "./client.ts";
-import { BunDialect } from "./driver.ts";
+import { BunDialect, onOneConnection } from "./driver.ts";
 import type { Schema } from "./schema.ts";
 
 /**
@@ -61,6 +61,20 @@ export interface DatabaseOptions
  * (oven-sh/bun#45062), and a `float4` is read as its 32-bit value, such as
  * `1.100000023841858` for `1.1`.
  *
+ * A query runs on the pool, which sends the queries of many callers down
+ * one connection without waiting for each answer, so a query holds no
+ * connection of its own and the pool's `max` limits connections, not
+ * queries. A transaction reserves one from its `begin` to its end, and so
+ * does `db.connection()`, whose queries share a session, on `db` and on
+ * every Kysely made from it, by `withSchema()` or `withPlugin()`. A query
+ * given a signal with Kysely's `cancel query` strategy reserves one too,
+ * for the cancel to name its backend. Reservations take turns, in the
+ * order they come, at one fewer connection than `max`, at least one: the
+ * one left is the pool's, which Bun would otherwise hand to reservations
+ * for as long as they kept coming, while every other query waited. A query
+ * given a signal that is aborted while it waits for a connection is never
+ * run.
+ *
  * A transaction whose commit Postgres turns into a rollback, as it does
  * when a query of the transaction failed and the failure was caught, fails
  * with Bun's `ERR_POSTGRES_COMMIT_ROLLED_BACK` rather than resolve with
@@ -104,13 +118,15 @@ export function database<DB>(
   const { url, ...pool } = options;
   const client = { ...pool, adapter: "postgres", bigint: true } as const;
 
-  return new Kysely<DB>({
-    dialect: new BunDialect(
-      clientOf(url, client),
-      clientOf(url, { ...client, max: 1 }),
-    ),
-    plugins: [new ArraysPlugin(schema.arrays)],
-  });
+  return sessionsKept(
+    new Kysely<DB>({
+      dialect: new BunDialect(
+        clientOf(url, client),
+        clientOf(url, { ...client, max: 1 }),
+      ),
+      plugins: [new ArraysPlugin(schema.arrays)],
+    }),
+  );
 }
 
 /**
@@ -129,4 +145,77 @@ export function checkBun(version: string): void {
       `@tetsujs/sql needs Bun 1.4.3 or later, and this is Bun ${version}`,
     );
   }
+}
+
+/**
+ * `db`, with `connection()` keeping its promise of one connection: the
+ * driver runs a query on the pool, and cannot tell the queries of
+ * `connection()` from any other, so its work is marked, on `db` and on
+ * every Kysely a method of it makes, for the driver to reserve the
+ * connection it acquires for the work. Everything else is `db`'s own: a
+ * method is called on `db` itself, and a getter, such as `fn`, gives what
+ * it gives.
+ */
+function sessionsKept<DB>(db: Kysely<DB>): Kysely<DB> {
+  const methods = new Map<PropertyKey, unknown>();
+
+  return new Proxy(db, {
+    get(target, key) {
+      const known = methods.get(key);
+
+      if (known !== undefined) {
+        return known;
+      }
+
+      const value: unknown = Reflect.get(target, key, target);
+
+      if (typeof value !== "function" || !isMethod(target, key)) {
+        return value;
+      }
+
+      const method =
+        key === "connection"
+          ? () => {
+              const builder = target.connection();
+
+              return {
+                execute: (...args: Parameters<typeof builder.execute>) =>
+                  onOneConnection(() => builder.execute(...args)),
+              };
+            }
+          : (...args: unknown[]) => {
+              const result: unknown = value.apply(target, args);
+
+              return result instanceof Kysely ? sessionsKept(result) : result;
+            };
+
+      methods.set(key, method);
+
+      return method;
+    },
+  });
+}
+
+/**
+ * Whether `key` names a method of `object`, rather than its class, or a
+ * property or a getter that holds a function.
+ */
+function isMethod(object: object, key: PropertyKey): boolean {
+  if (key === "constructor") {
+    return false;
+  }
+
+  for (
+    let current: object | null = object;
+    current !== null;
+    current = Object.getPrototypeOf(current)
+  ) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+
+    if (descriptor !== undefined) {
+      return typeof descriptor.value === "function";
+    }
+  }
+
+  return false;
 }

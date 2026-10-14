@@ -3,15 +3,16 @@
  * migrations build and with the file generated from them: every type of
  * array goes in through Kysely and comes back as the generated types say,
  * with parameters and without, and the places a query writes an array to
- * a column of arrays write it as Postgres reads it.
+ * a column of arrays write it as Postgres reads it; and `db.connection()`
+ * keeps one session, on `db` and on the Kysely made from it.
  *
  * @module
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Insertable, Kysely, Selectable } from "kysely";
-import { sql } from "kysely";
+import type { Insertable, KyselyPlugin, Selectable } from "kysely";
+import { Kysely, sql } from "kysely";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
 import type { DB } from "../test-utils/fixtures/schema/db.generated.ts";
 import { schema } from "../test-utils/fixtures/schema/db.generated.ts";
@@ -520,6 +521,139 @@ describe("the client", () => {
       ),
     );
     expect(() => database(schema, { url: "" })).toThrow(TypeError);
+  });
+});
+
+describe("db.connection()", () => {
+  /** A plugin that changes nothing. */
+  const unchanged: KyselyPlugin = {
+    transformQuery: ({ node }) => node,
+    transformResult: async ({ result }) => result,
+  };
+
+  /** The process id of the backend a query of `on` runs on. */
+  async function pidOf(on: Kysely<DB>): Promise<number | undefined> {
+    const { rows } = await sql<{
+      pid: number;
+    }>`select pg_backend_pid() as pid`.execute(on);
+
+    return rows[0]?.pid;
+  }
+
+  test.each([
+    ["db", (made: Kysely<DB>) => made],
+    [
+      "a Kysely of withSchema()",
+      (made: Kysely<DB>) => made.withSchema("public"),
+    ],
+    [
+      "a Kysely of withPlugin()",
+      (made: Kysely<DB>) => made.withPlugin(unchanged),
+    ],
+    [
+      "a Kysely of two methods",
+      (made: Kysely<DB>) => made.withoutPlugins().withSchema("public"),
+    ],
+  ])(
+    "on %s keeps one session for its work, while a transaction takes a connection of the pool",
+    async (_, on) => {
+      const small = database(schema, { url, max: 3 });
+
+      try {
+        const work = await on(small)
+          .connection()
+          .execute(async (connection) => {
+            await sql`set tetsu.mark to 'kept'`.execute(connection);
+
+            const first = await pidOf(connection);
+            const trx = await small.startTransaction().execute();
+
+            try {
+              const { rows } = await sql<{
+                mark: string | null;
+              }>`select current_setting('tetsu.mark', true) as mark`.execute(
+                connection,
+              );
+
+              return {
+                first,
+                second: await pidOf(connection),
+                mark: rows[0]?.mark,
+                transaction: await pidOf(trx),
+              };
+            } finally {
+              await trx.rollback().execute();
+            }
+          });
+
+        expect(work).toEqual({
+          first: expect.any(Number),
+          second: work.first,
+          mark: "kept",
+          transaction: expect.any(Number),
+        });
+        expect(work.transaction).not.toBe(work.first);
+      } finally {
+        await small.destroy();
+      }
+    },
+  );
+
+  test("runs a transaction of its work on its connection", async () => {
+    const work = await db.connection().execute(async (connection) => {
+      const first = await pidOf(connection);
+      const inside = await connection
+        .transaction()
+        .execute(async (trx) => pidOf(trx));
+
+      return { first, inside, after: await pidOf(connection) };
+    });
+
+    expect(work).toEqual({
+      first: expect.any(Number),
+      inside: work.first,
+      after: work.first,
+    });
+  });
+
+  test("gives up, its work never run, once its signal is aborted", async () => {
+    const controller = new AbortController();
+    const reason = new Error("gave up");
+    let ran = false;
+
+    controller.abort(reason);
+
+    const outcome = await db
+      .connection()
+      .execute(
+        async () => {
+          ran = true;
+        },
+        { signal: controller.signal },
+      )
+      .then(
+        () => "resolved",
+        (error: unknown) => error,
+      );
+
+    expect(outcome).toBe(reason);
+    expect(ran).toBe(false);
+  });
+});
+
+describe("db", () => {
+  test("is Kysely's own otherwise: its class, its getters, and what its methods make", async () => {
+    expect(db).toBeInstanceOf(Kysely);
+    expect(db.constructor).toBe(Kysely);
+    expect(db.isTransaction).toBe(false);
+    expect(db.withSchema("public")).toBeInstanceOf(Kysely);
+
+    const { count } = await db
+      .selectFrom("orders")
+      .select(db.fn.countAll<bigint>().as("count"))
+      .executeTakeFirstOrThrow();
+
+    expect(count).toEqual(expect.any(BigInt));
   });
 });
 

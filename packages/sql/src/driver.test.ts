@@ -1,16 +1,17 @@
 /**
  * Kysely's dialect on Bun.SQL against a real Postgres: transactions, what a
- * result carries, the values the driver mends, and a query given up by its
- * signal.
+ * result carries, the values the driver mends, a query given up by its
+ * signal, and the connections a query takes from the pool.
  *
  * @module
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { Mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { SQL } from "bun";
 import { Kysely, sql as raw } from "kysely";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
-import { BunDialect } from "./driver.ts";
+import { BunDialect, onOneConnection } from "./driver.ts";
 
 interface Database {
   readonly notes: { readonly id: number; readonly text: string };
@@ -39,11 +40,15 @@ const { sql: client, url } = testDatabase();
 
 /** Kysely on the dialect, with a pool of `max` connections. */
 function kysely(max?: number): Kysely<Database> {
+  return kyselyOn(
+    new SQL({ url, bigint: true, ...(max === undefined ? {} : { max }) }),
+  );
+}
+
+/** Kysely on the dialect, with `pool` as its pool. */
+function kyselyOn(pool: SQL): Kysely<Database> {
   return new Kysely<Database>({
-    dialect: new BunDialect(
-      new SQL({ url, bigint: true, ...(max === undefined ? {} : { max }) }),
-      new SQL({ url, bigint: true, max: 1 }),
-    ),
+    dialect: new BunDialect(pool, new SQL({ url, bigint: true, max: 1 })),
   });
 }
 
@@ -103,6 +108,42 @@ function refusal(promise: Promise<unknown>): Promise<unknown> {
     () => "resolved",
     (error: unknown) => error,
   );
+}
+
+/**
+ * Ends the backend of `pid`, as a restart of the server would, and waits
+ * until it has gone: read by the helper's own client.
+ */
+async function kill(pid: number | undefined): Promise<void> {
+  await client`select pg_terminate_backend(${pid})`;
+
+  for (let tries = 0; tries < 100; tries += 1) {
+    const [row] = await client`
+      select count(*)::int as left from pg_stat_activity where pid = ${pid}`;
+
+    if (row.left === 0) {
+      return;
+    }
+
+    await Bun.sleep(20);
+  }
+}
+
+/** What `promise` gives, or that it is still waiting after two seconds. */
+function soon<T>(promise: Promise<T>): Promise<T | "still waiting"> {
+  return Promise.race([
+    promise,
+    Bun.sleep(2000).then(() => "still waiting" as const),
+  ]);
+}
+
+/** The process id of the backend a query of `on` runs on. */
+async function pidOf(on: Kysely<Database>): Promise<number | undefined> {
+  const { rows } = await raw<{
+    pid: number;
+  }>`select pg_backend_pid() as pid`.execute(on);
+
+  return rows[0]?.pid;
 }
 
 describe("a transaction", () => {
@@ -434,14 +475,18 @@ describe("a Date", () => {
 });
 
 describe("a query given up by its signal", () => {
-  test("while it waits for a connection fails with the signal's reason", async () => {
+  test("while it waits for a connection fails with the signal's reason, and never runs", async () => {
     const small = kysely(1);
+    const printed = spyOn(console, "error");
 
     try {
       const holder = await small.startTransaction().execute();
       const controller = new AbortController();
       const waiting = refusal(
-        raw`select 1`.execute(small, { signal: controller.signal }),
+        small
+          .insertInto("notes")
+          .values({ id: 60, text: "given up" })
+          .execute({ signal: controller.signal }),
       );
       const reason = new Error("waited too long");
 
@@ -454,10 +499,52 @@ describe("a query given up by its signal", () => {
       expect((await raw`select 1 as one`.execute(small)).rows).toEqual([
         { one: 1 },
       ]);
+      expect(await notes()).not.toContain(60);
+      expect(printed).not.toHaveBeenCalled();
     } finally {
+      printed.mockRestore();
       await small.destroy();
     }
   });
+
+  test(
+    "while it runs goes on to its end, and a failure there is printed as Kysely's",
+    async () => {
+      const printed = spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        const controller = new AbortController();
+        const reason = new Error("gave up");
+        const running = refusal(
+          raw`select pg_sleep(0.5), 1 / (random() * 0)::int, 'tetsu_sql_ignore_running'`.execute(
+            db,
+            { signal: controller.signal },
+          ),
+        );
+
+        expect(await runs("tetsu_sql_ignore_running")).toBe(true);
+
+        controller.abort(reason);
+
+        expect(await running).toBe(reason);
+
+        for (
+          let tries = 0;
+          tries < 100 && printed.mock.calls.length === 0;
+          tries += 1
+        ) {
+          await Bun.sleep(20);
+        }
+
+        expect(printed).toHaveBeenCalledWith(
+          "`query` failed in the background after abortion: division by zero",
+        );
+      } finally {
+        printed.mockRestore();
+      }
+    },
+    DATABASE_MS,
+  );
 
   test(
     "while it runs is cancelled on the server, with the cancel strategy",
@@ -564,5 +651,315 @@ describe("a query given up by its signal", () => {
         'This dialect doesn\'t support `inflightQueryAbortStrategy` "kill session". Use "ignore query" or "cancel query" instead.',
       ),
     );
+  });
+});
+
+describe("the pool", () => {
+  /** Kysely on a pool of its own, and a spy on what the pool reserves. */
+  function counted(max?: number): {
+    pooled: Kysely<Database>;
+    reserve: Mock<SQL["reserve"]>;
+  } {
+    const pool = new SQL({
+      url,
+      bigint: true,
+      ...(max === undefined ? {} : { max }),
+    });
+    const reserve = spyOn(pool, "reserve");
+
+    return { pooled: kyselyOn(pool), reserve };
+  }
+
+  test("runs a query without reserving a connection, one given a signal too", async () => {
+    const { pooled, reserve } = counted();
+
+    try {
+      await pooled.insertInto("notes").values({ id: 50, text: "a" }).execute();
+      await pooled.selectFrom("notes").selectAll().execute();
+      await raw`select 1; select 2`.execute(pooled);
+      await raw`select 1`.execute(pooled, {
+        signal: new AbortController().signal,
+      });
+
+      expect(reserve).not.toHaveBeenCalled();
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("reserves one connection for a transaction, from its begin to its end", async () => {
+    const { pooled, reserve } = counted();
+
+    try {
+      const pids = await pooled
+        .transaction()
+        .execute(async (trx) => [
+          await pidOf(trx),
+          await pidOf(trx),
+          await pidOf(trx),
+        ]);
+
+      expect(reserve).toHaveBeenCalledTimes(1);
+      expect(new Set(pids).size).toBe(1);
+      expect(pids[0]).toEqual(expect.any(Number));
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("reserves the connection a query that may be cancelled runs on, and hands it back", async () => {
+    const { pooled, reserve } = counted(1);
+
+    try {
+      const { rows } = await raw<{ one: number }>`select 1 as one`.execute(
+        pooled,
+        {
+          signal: new AbortController().signal,
+          inflightQueryAbortStrategy: "cancel query",
+        },
+      );
+
+      expect(rows).toEqual([{ one: 1 }]);
+      expect(reserve).toHaveBeenCalledTimes(1);
+      expect(await pooled.transaction().execute(pidOf)).toEqual(
+        expect.any(Number),
+      );
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("reserves, for the work of connection() it is told of, the connection that work is handed, and no other", async () => {
+    const { pooled, reserve } = counted();
+
+    try {
+      const work = await onOneConnection(() =>
+        pooled.connection().execute(async (connection) => {
+          await raw`set tetsu.mark to 'kept'`.execute(connection);
+
+          const first = await pidOf(connection);
+
+          await pooled.selectFrom("notes").selectAll().execute();
+
+          const { rows } = await raw<{
+            mark: string;
+          }>`select current_setting('tetsu.mark') as mark`.execute(connection);
+
+          return { first, second: await pidOf(connection), mark: rows[0] };
+        }),
+      );
+
+      expect(reserve).toHaveBeenCalledTimes(1);
+      expect(work).toEqual({
+        first: expect.any(Number),
+        second: work.first,
+        mark: { mark: "kept" },
+      });
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("leaves a connection to its queries while reservations take every turn", async () => {
+    const pooled = kysely(2);
+
+    try {
+      const holder = await pooled.startTransaction().execute();
+      const next = pooled.startTransaction().execute();
+      const answered = await Promise.race([
+        raw<{ one: number }>`select 1 as one`
+          .execute(pooled)
+          .then(({ rows }) => rows),
+        Bun.sleep(2000).then(() => "still waiting"),
+      ]);
+
+      expect(answered).toEqual([{ one: 1 }]);
+
+      await holder.rollback().execute();
+      await (await next).rollback().execute();
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("hands its turns at a reservation out in the order they were asked for", async () => {
+    const pooled = kysely(2);
+
+    try {
+      const holder = await pooled.startTransaction().execute();
+      const order: string[] = [];
+      const begun = ["first", "second"].map(async (name) => {
+        const trx = await pooled.startTransaction().execute();
+
+        order.push(name);
+        await trx.rollback().execute();
+      });
+
+      await holder.rollback().execute();
+      await Promise.all(begun);
+
+      expect(order).toEqual(["first", "second"]);
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("hands a turn back when its reservation fails", async () => {
+    const pool = new SQL({ url, bigint: true, max: 2 });
+    const pooled = kyselyOn(pool);
+
+    try {
+      await pool.close();
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        expect(
+          await refusal(pooled.transaction().execute(async () => {})),
+        ).toMatchObject({ code: "ERR_POSTGRES_CONNECTION_CLOSED" });
+      }
+    } finally {
+      await pooled.destroy();
+    }
+  });
+});
+
+describe("a connection that dies", () => {
+  test("under a transaction Kysely controls fails its rollback, hands its turn back, and runs nothing more", async () => {
+    const pooled = kysely(2);
+
+    try {
+      const trx = await pooled.startTransaction().execute();
+
+      await trx.insertInto("notes").values({ id: 70, text: "lost" }).execute();
+      await kill(await pidOf(trx));
+
+      expect(await refusal(trx.rollback().execute())).toBeInstanceOf(Error);
+      expect(
+        await refusal(
+          trx.insertInto("notes").values({ id: 71, text: "after" }).execute(),
+        ),
+      ).toBeInstanceOf(Error);
+      expect(await soon(pooled.transaction().execute(pidOf))).toEqual(
+        expect.any(Number),
+      );
+      expect(await notes()).not.toContain(70);
+      expect(await notes()).not.toContain(71);
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("under a transaction Kysely controls fails its commit, and hands its turn back though nothing rolls it back", async () => {
+    const pooled = kysely(2);
+
+    try {
+      const trx = await pooled.startTransaction().execute();
+
+      await trx.insertInto("notes").values({ id: 73, text: "lost" }).execute();
+      await kill(await pidOf(trx));
+
+      expect(await refusal(trx.commit().execute())).toBeInstanceOf(Error);
+      expect(await soon(pooled.transaction().execute(pidOf))).toEqual(
+        expect.any(Number),
+      );
+      expect(await notes()).not.toContain(73);
+    } finally {
+      await pooled.destroy();
+    }
+  });
+
+  test("before a transaction Kysely controls begins hands its turn back", async () => {
+    const pool = new SQL({ url, bigint: true, max: 2 });
+    const pooled = kyselyOn(pool);
+    const reserve = pool.reserve.bind(pool);
+    const broken = spyOn(pool, "reserve").mockImplementation(async () => {
+      const reserved = await reserve();
+
+      await reserved.close();
+
+      return reserved;
+    });
+
+    try {
+      expect(await refusal(pooled.startTransaction().execute())).toBeInstanceOf(
+        Error,
+      );
+
+      broken.mockRestore();
+
+      expect(await soon(pooled.transaction().execute(pidOf))).toEqual(
+        expect.any(Number),
+      );
+    } finally {
+      broken.mockRestore();
+      await pooled.destroy();
+    }
+  });
+
+  test("though alive, whose rollback failed, is closed rather than handed back with its transaction open", async () => {
+    const pool = new SQL({ url, bigint: true, max: 1 });
+    const pooled = kyselyOn(pool);
+    const reserve = pool.reserve.bind(pool);
+    const failing = spyOn(pool, "reserve").mockImplementation(async () => {
+      const reserved = await reserve();
+      const unsafe = reserved.unsafe.bind(reserved);
+
+      reserved.unsafe = ((text: string, values?: unknown[]) =>
+        text === "rollback"
+          ? Promise.reject(new Error("the answer was lost"))
+          : unsafe(text, values)) as typeof reserved.unsafe;
+
+      return reserved;
+    });
+
+    try {
+      const trx = await pooled.startTransaction().execute();
+
+      await trx.insertInto("notes").values({ id: 72, text: "open" }).execute();
+
+      expect(await refusal(trx.rollback().execute())).toEqual(
+        new Error("the answer was lost"),
+      );
+
+      failing.mockRestore();
+
+      const { rows } = await raw<{
+        seen: number;
+      }>`select count(*)::int as seen from notes where id = 72`.execute(pooled);
+
+      expect(rows).toEqual([{ seen: 0 }]);
+    } finally {
+      failing.mockRestore();
+      await pooled.destroy();
+    }
+  });
+
+  test("under a transaction of a callback hands its turn back once", async () => {
+    const pooled = kysely(2);
+
+    try {
+      const lost = pooled.transaction().execute(async (trx) => {
+        await kill(await pidOf(trx));
+
+        throw new Error("give up");
+      });
+
+      expect(await refusal(lost)).toBeInstanceOf(Error);
+
+      const holder = await pooled.startTransaction().execute();
+      const next = pooled.startTransaction().execute();
+
+      expect(
+        await soon(
+          raw<{ one: number }>`select 1 as one`
+            .execute(pooled)
+            .then(({ rows }) => rows),
+        ),
+      ).toEqual([{ one: 1 }]);
+
+      await holder.rollback().execute();
+      await (await next).rollback().execute();
+    } finally {
+      await pooled.destroy();
+    }
   });
 });
