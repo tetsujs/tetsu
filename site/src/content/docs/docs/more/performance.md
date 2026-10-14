@@ -1,6 +1,6 @@
 ---
 title: Performance
-description: What Tetsu costs over raw Bun, compared with Elysia and Hono — processor time per request, startup, memory and the cost of the types — and how it is measured.
+description: What Tetsu costs over raw Bun, compared with Elysia and Hono — processor time per request, startup, memory and the cost of the types — what a database query costs through @tetsujs/sql, and how it is measured.
 ---
 
 Tetsu adds a fraction of a microsecond of processor time per request over a
@@ -79,6 +79,31 @@ Validation goes through Standard Schema, so its cost is the library's. From
 TypeBox's error path is the slowest of them: with `issues: "summary"` the
 invalid body above takes 76 ns.
 
+## Database queries
+
+What a query costs through [`@tetsujs/sql`](/docs/database/), next to
+Bun.SQL alone and to Drizzle on the same client. Processor microseconds per
+operation, with 32 operations in flight on a pool of 10 connections — Bun
+1.4.3 and Postgres 18.6 in Docker on the same Apple M5 Pro, medians of five
+interleaved rounds (2026-10-14):
+
+| | one row | 100 rows | insert | transaction |
+| --- | --- | --- | --- | --- |
+| Bun.SQL | 7.04 | 26.20 | 8.82 | 44.74 |
+| **`@tetsujs/sql`, query files** | **8.86** | **29.58** | **10.52** | **52.02** |
+| **`@tetsujs/sql`, builder** | **10.37** | **33.77** | **11.96** | **55.27** |
+| Drizzle 0.45.3 | 15.71 | 62.57 | 15.22 | 59.73 |
+| Drizzle, prepared | 8.16 | 47.84 | 9.21 | 59.47 |
+
+Query files add 1.8 µs to a one-row read over Bun.SQL alone, and keep 93%
+of its throughput. The builder adds 3.3 µs, of which 1.5 is Kysely building
+and compiling the query, and costs a third less than Drizzle's. A query
+runs on Bun's pool, which sends the queries of many callers down one
+connection, so one-row reads reach 112,000 a second through query files on
+10 connections, and 105,500 through the builder. One
+at a time, a one-row read takes 71–87 µs for every target: most of it is the
+round trip to the server.
+
 ## Reproducing
 
 ```bash
@@ -90,7 +115,8 @@ bun run --cwd bench http
 Every target and every load generator runs in its own process. `ROUNDS=3`
 interleaves rounds and reports medians; `ONLY=` picks targets.
 `bun run --cwd bench types`, `validators` and `cost` run the other
-measurements.
+measurements, and `DATABASE_URL=postgres://… bun run --cwd bench sql` the
+database's, on a server where it may create a database of its own.
 
 ## What these numbers do not say
 

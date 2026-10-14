@@ -105,5 +105,6 @@ released together.
 | [`@tetsujs/sse`](/docs/packages/sse/) | server-sent events and streamed responses |
 | [`@tetsujs/static`](/docs/packages/static/) | static files: a built site, a single-page app or assets |
 | [`@tetsujs/lifecycle`](/docs/packages/lifecycle/) | graceful shutdown |
+| [`@tetsujs/sql`](/docs/database/) | Postgres: SQL migrations, types from the database, Kysely |
 
 Next: [Quick start](/docs/quick-start/).

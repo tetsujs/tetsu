@@ -334,6 +334,14 @@ a test provoked is one the OpenAPI document declares for its operation:
 the status, and a body that fits it. See
 [`@tetsujs/openapi`](/docs/packages/openapi/#testing-against-the-document).
 
+## A database
+
+`testDatabase()`, from `@tetsujs/sql/testing`, gives a test file a Postgres
+database of its own, built from the migrations and dropped once the file
+has run. The application under test is built on its `db`, as `main.ts`
+builds it on the real one. See [Testing](/docs/database/testing/) in the
+Database section.
+
 ## IPv4 and IPv6
 
 `serve()` listens on IPv4 and IPv6 together, as `Bun.serve` does by

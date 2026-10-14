@@ -83,6 +83,7 @@ ship, which editors and tools read from `node_modules`.
 | [`@tetsujs/request-id`](https://tetsujs.com/docs/packages/request-id/) | request ids |
 | [`@tetsujs/request-log`](https://tetsujs.com/docs/packages/request-log/) | request logs |
 | [`@tetsujs/secure-headers`](https://tetsujs.com/docs/packages/secure-headers/) | security headers |
+| [`@tetsujs/sql`](https://tetsujs.com/docs/database/) | Postgres: SQL migrations, types from the database, Kysely |
 | [`@tetsujs/sse`](https://tetsujs.com/docs/packages/sse/) | server-sent events and streamed responses |
 | [`@tetsujs/static`](https://tetsujs.com/docs/packages/static/) | static files: a built site, a single-page app or assets |
 | [`@tetsujs/typebox`](https://tetsujs.com/docs/packages/typebox/) | TypeBox schemas with compiled validation |

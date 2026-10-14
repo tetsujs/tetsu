@@ -95,7 +95,8 @@ export default defineConfig({
             "- `ctx` is never annotated. A field exists only when declared: path parameters from the path, `ctx.body` only when the route declares a body, a hook's field only after that hook.",
             "- Validation goes through Standard Schema (Zod, Valibot, ArkType; TypeBox via `@tetsujs/typebox`). A failure is a 422 listing every issue. Every error the framework answers has the body `{ status, message, error }`; an application `onError` hook can change it.",
             "- Handlers are unit-tested with `testCtx()` and applications through a real server with `serve()`, both from `@tetsujs/core/testing`.",
-            "- Packages, all released together under one version: `@tetsujs/core`, `openapi`, `typebox`, `cors`, `rate-limit`, `request-id`, `request-log`, `secure-headers`, `sse`, `static`, `lifecycle`.",
+            "- Packages, all released together under one version: `@tetsujs/core`, `openapi`, `typebox`, `cors`, `rate-limit`, `request-id`, `request-log`, `secure-headers`, `sse`, `static`, `lifecycle`, `sql`.",
+            "- `@tetsujs/sql` is Postgres on Bun.SQL with Kysely: the schema is SQL migrations, `tetsu-sql types:generate` writes the Kysely types from the database they build, and SQL files in `queries/` become typed functions. `database(schema, { url })` returns Kysely; there are no models, and columns keep their snake_case names.",
             "",
             "Every documentation page is also served as Markdown: add `.md` to its path, e.g. https://tetsujs.com/docs/concepts/errors.md.",
           ].join("\n"),
@@ -143,6 +144,10 @@ export default defineConfig({
         {
           label: "Guides",
           items: [{ autogenerate: { directory: "docs/guides" } }],
+        },
+        {
+          label: "Database",
+          items: [{ autogenerate: { directory: "docs/database" } }],
         },
         {
           label: "Packages",

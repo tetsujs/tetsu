@@ -22,6 +22,7 @@
   "devDependencies": {
     "@types/bun": "1.4.2",
     "arktype": "2.2.5",
+    "kysely": "0.29.6",
     "openapi-fetch": "0.17.0",
     "pino": "10.3.1",
     "prom-client": "15.1.3",
