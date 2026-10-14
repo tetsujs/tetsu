@@ -88,6 +88,57 @@ const cancel = route({
 });
 ```
 
+With [`@tetsujs/typebox`](/docs/packages/typebox/), the codec is TypeBox's.
+A `Decode` that throws refuses the value with a `422`, as a pattern that
+does not match does:
+
+```ts twoslash
+// @filename: src/db.generated.ts
+export * from "@examples/sql/db.generated";
+// @filename: src/orders.ts
+import type { Kysely } from "kysely";
+import type { DB } from "./db.generated";
+declare const db: Kysely<DB>;
+// ---cut---
+import { httpError, route } from "@tetsujs/core";
+import { tb, Type } from "@tetsujs/typebox";
+
+const Id = Type.Codec(Type.String({ pattern: "^[1-9][0-9]{0,18}$" }))
+  .Decode((text) => {
+    const id = BigInt(text);
+
+    if (id > 9_223_372_036_854_775_807n) {
+      throw new Error("is larger than the largest int8");
+    }
+
+    return id;
+  })
+  .Encode((id: bigint) => String(id));
+
+const cancel = route({
+  method: "POST",
+  path: "/orders/:id/cancel",
+  schema: { params: tb(Type.Object({ id: Id })) },
+  handler: async (ctx) => {
+    const { numUpdatedRows } = await db
+      .updateTable("orders")
+      .set({ note: "cancelled" })
+      .where("id", "=", ctx.params.id)
+//                                 ^?
+      .executeTakeFirst();
+
+    if (numUpdatedRows === 0n) {
+      throw httpError(404, "ORDER_NOT_FOUND");
+    }
+
+    return { cancelled: true };
+  },
+});
+```
+
+Either way, the OpenAPI document says the client sends a string, with the
+pattern, and the handler is handed a `bigint`.
+
 ## Rows checked against a schema
 
 A query of the builder or of a file is typed by the database, and needs no

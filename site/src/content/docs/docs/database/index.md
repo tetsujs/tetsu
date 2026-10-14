@@ -155,4 +155,7 @@ What a query costs over Bun.SQL alone, and next to Drizzle, is on
 - **Columns keep their names.** A column is `placed_at` in the code as in
   the database. A plugin that renames keys on the way out renames the keys
   inside `jsonb` values too, and a query of the code would no longer read
-  as the SQL it runs.
+  as the SQL it runs. A linter's rule of names, such as Biome's
+  `useNamingConvention` or ESLint's `camelcase`, then flags the keys of the
+  rows the code writes, `{ placed_at }`: let it take snake_case for the
+  properties of objects and of types.

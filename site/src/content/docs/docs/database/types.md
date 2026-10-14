@@ -66,7 +66,10 @@ shows where the editor shows the type.
 
 The file is generated: change the migrations, never the file, and generate
 it again. Commit it, and check it in CI, as [Deploy and
-CI](/docs/database/deploy/#ci) shows.
+CI](/docs/database/deploy/#ci) shows. Leave the generated files out of the
+linter and the formatter: they are laid out as Prettier, and Biome set to
+spaces, lay out code by default, and `--check` compares their code, not
+their layout.
 
 ## Columns
 

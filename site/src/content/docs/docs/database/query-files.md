@@ -104,6 +104,9 @@ and `any(:statuses)` against an enum column is a `readonly OrderStatus[]`.
 An array is written as the literal Postgres reads, as
 [`database()`](/docs/database/queries/#arrays) writes one.
 
+Postgres types a `limit` and an `offset` as `int8`, so `limit :count` takes
+a `bigint`, and `limit :count::int4` a `number`.
+
 A parameter is not NULL unless it says it may be, with `?` where it first
 appears:
 
