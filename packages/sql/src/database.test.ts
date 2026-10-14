@@ -19,6 +19,7 @@ import { schema } from "../test-utils/fixtures/schema/db.generated.ts";
 import type { DatabaseOptions } from "./database.ts";
 import { checkBun, database } from "./database.ts";
 import { migrate } from "./migrate.ts";
+import { queryRows } from "./queries.ts";
 
 let db: Kysely<DB>;
 
@@ -638,6 +639,120 @@ describe("db.connection()", () => {
 
     expect(outcome).toBe(reason);
     expect(ran).toBe(false);
+  });
+});
+
+describe("a number", () => {
+  beforeAll(async () => {
+    await client`
+      create table numbers (i2 int2, i4 int4, i8 int8, f4 float4, f8 float8, n numeric)`;
+  });
+
+  /** The SQLSTATE a query fails with. */
+  async function sqlstate(query: Promise<unknown>): Promise<unknown> {
+    try {
+      await query;
+    } catch (error) {
+      return (error as { errno?: unknown }).errno;
+    }
+
+    throw new Error("the query did not fail");
+  }
+
+  test("that is not whole is refused by an integer column, not rounded to it", async () => {
+    for (const column of ["i2", "i4", "i8"]) {
+      for (const value of [
+        2.5,
+        3.5,
+        0.1 + 0.2,
+        Number.NaN,
+        Number.NEGATIVE_INFINITY,
+      ]) {
+        expect(
+          await sqlstate(
+            sql`insert into numbers (${sql.ref(column)}) values (${value})`.execute(
+              db,
+            ),
+          ),
+        ).toBe("22P02");
+      }
+    }
+
+    const { rows } = await sql`select count(*) as count from numbers`.execute(
+      db,
+    );
+
+    expect(rows).toEqual([{ count: 0n }]);
+  });
+
+  test("that is not whole goes into a float8, a float4 and a numeric as the number it is", async () => {
+    const { rows } = await sql`
+      insert into numbers (f4, f8, n) values (${2.5}, ${0.1 + 0.2}, ${0.1 + 0.2})
+      returning f4, f8, n`.execute(db);
+
+    expect(rows).toEqual([
+      { f4: 2.5, f8: 0.30000000000000004, n: "0.30000000000000004" },
+    ]);
+  });
+
+  test("that is NaN or infinite goes into a float8 as it is", async () => {
+    const { rows } = await sql`
+      select ${Number.NaN}::float8 as nan, ${Number.POSITIVE_INFINITY}::float8 as up,
+        ${Number.NEGATIVE_INFINITY}::float8 as down`.execute(db);
+
+    expect(rows).toEqual([
+      {
+        nan: Number.NaN,
+        up: Number.POSITIVE_INFINITY,
+        down: Number.NEGATIVE_INFINITY,
+      },
+    ]);
+  });
+
+  test("that is whole goes in as it is, past 2⁵³ as well", async () => {
+    const { rows } = await sql`
+      insert into numbers (i4, i8, f8, n) values (${7}, ${2 ** 53 + 2}, ${2 ** 53 + 2}, ${2 ** 70})
+      returning i4, i8, f8, n`.execute(db);
+
+    expect(rows).toEqual([
+      {
+        i4: 7,
+        i8: 9007199254740994n,
+        f8: 9007199254740994,
+        n: "1180591620717411300000",
+      },
+    ]);
+  });
+
+  test("that is not whole is refused where the builder or a query file compares, limits or casts to an integer", async () => {
+    expect(
+      await sqlstate(
+        db
+          .selectFrom("orders")
+          .select("id")
+          .where("number", "=", 10.5)
+          .execute(),
+      ),
+    ).toBe("22P02");
+    expect(
+      await sqlstate(db.selectFrom("orders").select("id").limit(1.5).execute()),
+    ).toBe("22P02");
+    expect(
+      await sqlstate(
+        queryRows(
+          db,
+          { text: "select $1::int4 as n", names: ["n"], arrays: {} },
+          { n: 2.5 },
+        ),
+      ),
+    ).toBe("22P02");
+  });
+
+  test("that is not whole is read as text in raw SQL where nothing gives it a type", async () => {
+    const { rows } =
+      await sql`select ${2.5} as text, ${2.5}::float8 as cast`.execute(db);
+
+    expect(rows).toEqual([{ text: "2.5", cast: 2.5 }]);
   });
 });
 

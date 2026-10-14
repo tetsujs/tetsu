@@ -75,6 +75,16 @@ test("a bigint or a number bound to int8 is stored exactly", async () => {
   expect(await stored("i8", 5)).toBe('string "5"');
 });
 
+test("a number that is not whole bound to int8 is rounded to the even, as Bun binds it as a float8", async () => {
+  expect(await stored("i8", 2.5)).toBe('string "2"');
+  expect(await stored("i8", 3.5)).toBe('string "4"');
+});
+
+test("a string bound to int8 is read as int8, which refuses a fraction", async () => {
+  expect(await stored("i8", "42")).toBe('string "42"');
+  expect(await stored("i8", "2.5")).toBe("throws 22P02");
+});
+
 test("a Date bound to timestamptz is the same instant, and to timestamp its UTC wall time", async () => {
   expect(await stored("tstz", date)).toBe('string "2026-10-09 21:30:00+00"');
   expect(await stored("ts", date)).toBe('string "2026-10-09 21:30:00"');

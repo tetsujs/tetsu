@@ -104,6 +104,13 @@ The driver mends what Bun does not do:
 
 - a `Date` is written to any timestamp and to a `date` as its instant, in
   ISO text; an invalid `Date` throws a `RangeError` before anything is sent;
+- a number that is not a safe integer, such as `2.5`, is sent as its text,
+  which Postgres reads as the type the query gives the parameter. An integer
+  column refuses it, `invalid input syntax for type integer: "2.5"`, where
+  Bun would send a `float8` the column rounds to the even, `2`, without an
+  error; a `float8`, a `float4` and a `numeric` read the number it is. In
+  raw SQL, where nothing gives the parameter a type, cast it:
+  `` sql`${ratio}::float8` ``;
 - an `int4[]` or a `float4[]`, which Bun reads as an `Int32Array` or a
   `Float32Array` when a query has parameters, is read as an array, as it is
   without them.

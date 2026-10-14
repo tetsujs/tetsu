@@ -11,14 +11,19 @@
  * the pool's connections but one, when it has more than one, so that one is
  * always left to the queries of the pool.
  *
- * Values go through as Bun binds and reads them, but for three, which it
+ * Values go through as Bun binds and reads them, but for four, which it
  * makes what the generated types say. A `Date` is bound as its ISO text,
- * which a `date` reads as well as a timestamp. An `Int32Array` or a
- * `Float32Array`, which Bun reads an `int4[]` or a `float4[]` as when a
- * query has parameters, is read as an array, as it is without them. And a
- * commit that Postgres turns into a rollback, as it does when a query of
- * the transaction failed and the failure was caught, fails as Bun's own
- * `sql.begin()` does, rather than resolve with nothing written.
+ * which a `date` reads as well as a timestamp. A number that is not a safe
+ * integer is bound as its text, which Postgres reads as the type the query
+ * gives the parameter: Bun would bind `2.5` as a `float8`, which an integer
+ * column rounds to the even, `2`, where as text an integer column refuses
+ * it, and a `float8`, a `float4` or a `numeric` reads the number it is. An
+ * `Int32Array` or a `Float32Array`, which Bun reads an `int4[]` or a
+ * `float4[]` as when a query has parameters, is read as an array, as it is
+ * without them. And a commit that Postgres turns into a rollback, as it
+ * does when a query of the transaction failed and the failure was caught,
+ * fails as Bun's own `sql.begin()` does, rather than resolve with nothing
+ * written.
  *
  * @module
  */
@@ -511,9 +516,19 @@ function lastOf(result: Result): Result {
     : result;
 }
 
-/** A parameter as Bun binds it right: a `Date` as its ISO text. */
+/**
+ * A parameter as Bun binds it right: a `Date` as its ISO text, and a
+ * number that is not a safe integer as its text, which Postgres reads as
+ * the type the query gives the parameter.
+ */
 function bindable(value: unknown): unknown {
-  return value instanceof Date ? isoOf(value) : value;
+  if (value instanceof Date) {
+    return isoOf(value);
+  }
+
+  return typeof value === "number" && !Number.isSafeInteger(value)
+    ? String(value)
+    : value;
 }
 
 /**

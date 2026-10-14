@@ -17,11 +17,12 @@ API.
   `isViolation()`, and makes each SQL file of `queries/` a function typed
   by Postgres, the NULLs of its joins included. `database()` returns Kysely
   on a driver of the package's own, which runs queries on Bun's pool and
-  writes arrays and dates as Postgres reads them; `atomic()` holds a unit
-  of work together inside another's transaction; `verifySchema()` checks
-  the database as the application starts; and `testDatabase()` gives each
-  test file a database of its own. It needs Bun 1.4.3 and Postgres 14 or
-  later: see [Database](https://tetsujs.com/docs/database/).
+  writes arrays, dates and fractions as Postgres reads them; `atomic()`
+  holds a unit of work together inside another's transaction;
+  `verifySchema()` checks the database as the application starts; and
+  `testDatabase()` gives each test file a database of its own. It needs
+  Bun 1.4.3 and Postgres 14 or later: see
+  [Database](https://tetsujs.com/docs/database/).
 
 ## 0.6.3 — 2026-10-06
 
