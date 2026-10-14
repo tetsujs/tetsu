@@ -35,9 +35,20 @@ bunx tetsu-sql migrations:run
 The command applies the pending migrations to the database `DATABASE_URL`
 names, or `--url`, and prints a line for each step: `applying …`, then
 `applied … in 12 ms`, or `nothing to apply`. A failure is printed on stderr,
-and the command exits with 1. With `--json`, each line is a JSON object
-with its time and level, for a log collector, and so is a failure, on
-stdout with the rest.
+and the command exits with 1. What Postgres adds to it follows, a line
+each, as psql prints it: the SQLSTATE, then the detail and the hint when
+there are any.
+
+```text wrap
+error: 20261014120500_unique_email.sql failed: could not create unique index "customers_email_key"
+sqlstate: 23505
+detail: Key (email)=(ann@example.com) is duplicated.
+```
+
+The detail holds values of rows, as here. With `--json`, each line is a
+JSON object with its time and level, for a log collector, and so is a
+failure, on stdout with the rest, with `sqlstate`, `detail` and `hint` as
+fields of its own.
 
 The same run, from code, is `migrate()`, on a Bun.SQL client of its own:
 
@@ -177,6 +188,7 @@ the schema they create already, so its first run fails, and says what to do:
 
 ```text wrap
 error: 20261015120000_schema.sql failed: relation "customers" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has>
+sqlstate: 42P07
 ```
 
 A baseline records migrations in the journal as applied, with their

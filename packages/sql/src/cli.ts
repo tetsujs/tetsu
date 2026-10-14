@@ -14,10 +14,12 @@
  * ```
  *
  * It prints a line for each step as the step is taken, and a failure on
- * stderr. With `--json`, each line is a JSON object with its time and
- * level, for a log collector, and a failure is one too, on stdout with the
- * rest, so that stdout holds the whole run. A mistake in the command line
- * itself is told in words on stderr either way.
+ * stderr, with a line for each of what Postgres adds to it, as psql does:
+ * the SQLSTATE, the detail and the hint. With `--json`, each line is a
+ * JSON object with its time and level, for a log collector, and a failure
+ * is one too, with those as fields, on stdout with the rest, so that
+ * stdout holds the whole run. A mistake in the command line itself is told
+ * in words on stderr either way.
  *
  * @module
  */
@@ -25,6 +27,7 @@
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 import { parseArgs } from "node:util";
+import { SQL } from "bun";
 import { clientOf } from "./client.ts";
 import { MigrationError } from "./errors.ts";
 import { generate } from "./generate.ts";
@@ -428,14 +431,39 @@ function clientCode(error: unknown): string | undefined {
   return typeof code === "string" && errno === undefined ? code : undefined;
 }
 
-/** What a failure says, in words. */
+/**
+ * What Postgres says of a failure past its message, as psql prints it: its
+ * SQLSTATE, and its detail and hint when it gives them. Of the failure
+ * itself, or of the error it wraps, as a failed migration wraps its
+ * statement's. The detail may hold values of rows, such as a key that is
+ * taken.
+ */
+function postgresFields(error: unknown): Record<string, string> {
+  const postgres = [error, (error as { cause?: unknown } | null)?.cause].find(
+    (each) => each instanceof SQL.PostgresError && each.errno !== undefined,
+  ) as SQL.PostgresError | undefined;
+  const { errno, detail, hint } = postgres ?? {};
+
+  return errno === undefined
+    ? {}
+    : {
+        sqlstate: errno,
+        ...(detail === undefined ? {} : { detail }),
+        ...(hint === undefined ? {} : { hint }),
+      };
+}
+
+/** What a failure says, in words: a line, then one for each of {@link postgresFields}. */
 function failureLine(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const code = clientCode(error);
+  const line =
+    code === undefined ? `error: ${message}` : `error: ${message} (${code})`;
+  const fields = Object.entries(postgresFields(error)).map(
+    ([key, value]) => `${key}: ${value}`,
+  );
 
-  return code === undefined
-    ? `error: ${message}`
-    : `error: ${message} (${code})`;
+  return [line, ...fields].join("\n");
 }
 
 /** What a failure says, as JSON fields: its message, and what comes with it. */
@@ -449,10 +477,16 @@ function failureFields(error: unknown): object {
       message,
       reason: error.reason,
       ...(error.migration === undefined ? {} : { migration: error.migration }),
+      ...postgresFields(error),
     };
   }
 
-  return { event: "error", message, ...(code === undefined ? {} : { code }) };
+  return {
+    event: "error",
+    message,
+    ...(code === undefined ? {} : { code }),
+    ...postgresFields(error),
+  };
 }
 
 let json = false;

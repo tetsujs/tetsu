@@ -280,8 +280,28 @@ describe("migrations:run", () => {
         "applying 20261011120000_broken.sql",
         "",
       ].join("\n"),
-      stderr: "error: 20261011120000_broken.sql failed: division by zero\n",
+      stderr:
+        "error: 20261011120000_broken.sql failed: division by zero\nsqlstate: 22012\n",
     });
+  });
+
+  test("says what Postgres adds to a failure, a line each, as psql does: its SQLSTATE, detail and hint", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_refused.sql"),
+      "do $$ begin raise exception 'refused' using detail = 'the detail', hint = 'the hint', errcode = '22023'; end $$;",
+    );
+
+    const result = run([
+      "migrations:run",
+      ...["--dir", dir, "--url", url, "--table", "cli_refused"],
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      "error: 20261010120000_refused.sql failed: refused\nsqlstate: 22023\ndetail: the detail\nhint: the hint\n",
+    );
   });
 
   test("says when the database is ahead of the files, as after a rollback", async () => {
@@ -411,7 +431,7 @@ describe("migrations:run", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
-      'error: database "tetsu_sql_no_such_database" does not exist\n',
+      'error: database "tetsu_sql_no_such_database" does not exist\nsqlstate: 3D000\n',
     );
   });
 
@@ -501,7 +521,7 @@ describe("migrations:baseline", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe(
-      'error: 20261010120000_first.sql failed: relation "cli_hinted" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has> --table cli_hinted_journal\n',
+      'error: 20261010120000_first.sql failed: relation "cli_hinted" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has> --table cli_hinted_journal\nsqlstate: 42P07\n',
     );
   });
 
@@ -617,6 +637,39 @@ describe("--json", () => {
       message: "20261011120000_broken.sql failed: division by zero",
       reason: "failed",
       migration: "20261011120000_broken.sql",
+      sqlstate: "22012",
+    });
+  });
+
+  test("gives what Postgres adds to a failure as fields: the key a unique index finds taken, and its SQLSTATE", async () => {
+    const dir = await directory();
+
+    await Bun.write(
+      join(dir, "20261010120000_users.sql"),
+      "create table cli_users (email text); insert into cli_users values ('a@example.com'), ('a@example.com');",
+    );
+    await Bun.write(
+      join(dir, "20261011120000_unique_email.sql"),
+      "create unique index cli_users_email_key on cli_users (email);",
+    );
+
+    const result = run([
+      "migrations:run",
+      "--json",
+      ...["--dir", dir, "--url", url, "--table", "cli_json_unique"],
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(lines(result.stdout).at(-1)).toEqual({
+      time: expect.any(String),
+      level: "error",
+      event: "error",
+      message:
+        '20261011120000_unique_email.sql failed: could not create unique index "cli_users_email_key"',
+      reason: "failed",
+      migration: "20261011120000_unique_email.sql",
+      sqlstate: "23505",
+      detail: "Key (email)=(a@example.com) is duplicated.",
     });
   });
 
@@ -704,6 +757,30 @@ describe("--json", () => {
         event: "error",
         message: expect.any(String),
         code: "ERR_POSTGRES_CONNECTION_REFUSED",
+      },
+    ]);
+  });
+
+  test("names the SQLSTATE of a server that refuses the session", async () => {
+    const nowhere = new URL(url);
+
+    nowhere.pathname = "/tetsu_sql_cli_nowhere";
+
+    const result = run([
+      "migrations:run",
+      "--json",
+      ...["--dir", await directory()],
+      ...["--url", nowhere.href],
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(lines(result.stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "error",
+        event: "error",
+        message: 'database "tetsu_sql_cli_nowhere" does not exist',
+        sqlstate: "3D000",
       },
     ]);
   });
@@ -1044,7 +1121,8 @@ describe("types:generate", () => {
     expect(result).toEqual({
       exitCode: 1,
       stdout: "",
-      stderr: "error: 20261010120000_broken.sql failed: division by zero\n",
+      stderr:
+        "error: 20261010120000_broken.sql failed: division by zero\nsqlstate: 22012\n",
     });
     expect(await Bun.file(out).exists()).toBe(false);
   });
