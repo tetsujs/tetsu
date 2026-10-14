@@ -25,6 +25,7 @@
 
 import { afterAll, beforeAll } from "bun:test";
 import type { Kysely } from "kysely";
+import type { DatabaseOptions } from "./database.ts";
 import { database } from "./database.ts";
 import { migrateScratch } from "./migrate.ts";
 import { readMigrations } from "./migration-files.ts";
@@ -32,8 +33,12 @@ import type { Schema } from "./schema.ts";
 import type { Scratch } from "./scratch.ts";
 import { createScratch, scratchName, urlOf } from "./scratch.ts";
 
-/** Where a test's database is made, and what it is built from. */
-export interface TestDatabaseOptions {
+/**
+ * Where a test's database is made, and what it is built from; the rest
+ * are the options of `database()`, which `db` is made with, so that tests
+ * run on a pool set as the application's.
+ */
+export interface TestDatabaseOptions extends Omit<DatabaseOptions, "url"> {
   /**
    * A `postgres://` URL of a database on the server the tests may create
    * databases on: its user needs that right. It is usually read from the
@@ -48,8 +53,9 @@ export interface TestDatabaseOptions {
 /** The database of a test file, or of a `describe`. */
 export interface TestDatabase<DB> {
   /**
-   * Kysely on it, as `database()` makes it. It connects on its first
-   * query, which a test makes once the database exists.
+   * Kysely on it, as `database()` makes it with the options given beside
+   * `url` and `dir`. It connects on its first query, which a test makes
+   * once the database exists.
    */
   readonly db: Kysely<DB>;
 
@@ -102,7 +108,7 @@ export function testDatabase<DB>(
   schema: Schema<DB>,
   options: TestDatabaseOptions,
 ): TestDatabase<DB> {
-  const { url: server, dir } = options;
+  const { url: server, dir, ...pool } = options;
 
   if (server === undefined || server === "") {
     throw new Error(
@@ -112,7 +118,7 @@ export function testDatabase<DB>(
 
   const name = scratchName();
   const url = urlOf(server, name);
-  const db = database(schema, { url });
+  const db = database(schema, { ...pool, url });
   let created: Promise<Scratch> | undefined;
 
   beforeAll(async () => {

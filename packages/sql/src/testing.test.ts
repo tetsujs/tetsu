@@ -2,7 +2,9 @@
  * `@tetsujs/sql/testing`: the database a test file gets is built from the
  * migrations, and gone once the file ends — however its tests went, when a
  * `-t` filter skips them, when its types are stale, and when a test keeps
- * a connection. Each case runs a fixture in a child `bun test`.
+ * a connection; and its pool is made with the options of `database()`
+ * given beside its own. A case that needs a test file of its own runs a
+ * fixture in a child `bun test`.
  *
  * @module
  */
@@ -10,6 +12,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { SQL } from "bun";
+import { sql } from "kysely";
 import { schema } from "../test-utils/fixtures/schema/db.generated.ts";
 import { testDatabase } from "./testing.ts";
 
@@ -168,6 +171,26 @@ describe("a test file's database", () => {
     },
     CHILD_RUN_MS,
   );
+});
+
+describe("a test file's database, given the options of database()", () => {
+  const { db } = testDatabase(schema, {
+    url: Bun.env["DATABASE_URL"],
+    dir: join(import.meta.dir, "../test-utils/fixtures/schema/migrations"),
+    max: 3,
+    connection: {
+      application_name: "tetsu_sql_options",
+      statement_timeout: "4s",
+    },
+  });
+
+  test("is reached by a pool made with them", async () => {
+    const { rows } = await sql<{ name: string; timeout: string }>`
+      select current_setting('application_name') as name,
+        current_setting('statement_timeout') as timeout`.execute(db);
+
+    expect(rows).toEqual([{ name: "tetsu_sql_options", timeout: "4s" }]);
+  });
 });
 
 describe("a test file's database needs a server", () => {

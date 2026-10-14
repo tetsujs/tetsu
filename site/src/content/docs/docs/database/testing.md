@@ -58,7 +58,9 @@ test("lists a customer's orders, with the shipment of each", async () => {
 `testDatabase()` registers two hooks of `bun:test` where it is called — at
 the top level of a file for the file, in a `describe` for that `describe` —
 and returns the database's `db`, its `url` for code under test that opens
-connections of its own, and its `name`.
+connections of its own, and its `name`. Its options besides `url` and `dir`
+are `database()`'s, such as `max` and `connection`, so that the tests run
+on a pool set as the application's.
 
 - **`beforeAll`** creates a database from `template0` on the server `url`
   names, and applies the migrations of `dir`. It fails when the newest
