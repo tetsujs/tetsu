@@ -15,8 +15,9 @@ API.
   the migrations on a scratch database and writes Kysely types from what
   Postgres describes, with the names of the constraints for
   `isViolation()`, and makes each SQL file of `queries/` a function typed
-  by Postgres, the NULLs of its joins included; an `int8` reads as a
-  `bigint`, or with `--int8 string` as a string. `database()` returns Kysely
+  by Postgres, the NULLs of its joins included, refusing a literal a
+  column's check never allows; an `int8` reads as a `bigint`, or with
+  `--int8 string` as a string. `database()` returns Kysely
   on a driver of the package's own, which runs queries on Bun's pool and
   writes arrays, dates and fractions as Postgres reads them; `atomic()`
   holds a unit of work together inside another's transaction;

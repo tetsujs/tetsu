@@ -152,6 +152,17 @@ export interface Lookup {
 
   /** A type, by its OID. */
   type(type: number): TypeOrigin;
+
+  /**
+   * The values a column of a relation the model describes may hold, by
+   * the names of its schema, its relation and itself: those of the list
+   * or the enum that narrows it, or nothing when none does.
+   */
+  allowed(
+    schema: string,
+    relation: string,
+    column: string,
+  ): readonly (string | number)[] | undefined;
 }
 
 /** The catalog, read: the model, and what typing a query reads of it. */
@@ -339,6 +350,8 @@ export async function readCatalog(
     lookup: {
       column: (relation, position) => builder.origin(relation, position),
       type: (type) => builder.typeOrigin(type),
+      allowed: (schema, relation, column) =>
+        builder.allowed(schema, relation, column),
     },
   };
 }
@@ -425,6 +438,9 @@ class Builder {
   /** The columns of the model, by the OID of their relation and their number. */
   private readonly origins = new Map<string, ColumnOrigin>();
 
+  /** The same columns, by the names of their schema, their relation and themselves. */
+  private readonly named = new Map<string, ColumnOrigin>();
+
   /**
    * Whether the model is built: from then on, typing names no alias and
    * uses no helper, as the file is written already.
@@ -483,6 +499,20 @@ class Builder {
   /** A column of the model, by the OID of its relation and its number. */
   origin(relation: number, position: number): ColumnOrigin | undefined {
     return this.origins.get(`${relation}:${position}`);
+  }
+
+  /** {@link Lookup.allowed}. */
+  allowed(
+    schema: string,
+    relation: string,
+    column: string,
+  ): readonly (string | number)[] | undefined {
+    const reads = this.named.get(JSON.stringify([schema, relation, column]))
+      ?.values.reads;
+
+    return reads?.kind === "alias"
+      ? this.aliases.find((alias) => alias.name === reads.name)?.values
+      : undefined;
   }
 
   /**
@@ -558,10 +588,13 @@ class Builder {
           this.use("Generated");
         }
 
-        this.origins.set(`${relation.id}:${column.position}`, {
-          values: typed.values,
-          nullable,
-        });
+        const origin = { values: typed.values, nullable };
+
+        this.origins.set(`${relation.id}:${column.position}`, origin);
+        this.named.set(
+          JSON.stringify([relation.schema, relation.name, column.name]),
+          origin,
+        );
 
         return {
           name: column.name,

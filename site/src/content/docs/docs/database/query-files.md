@@ -122,6 +122,13 @@ select id, placed_at from orders
 where :since?::timestamptz is null or placed_at >= :since
 ```
 
+A parameter compared with a `text` column whose check lists its values is
+a `string`, where the column reads as the union of the list: Postgres
+types the parameter `text`, and knows nothing of the check. An enum, made
+with `create type … as enum`, types the parameter as its union, and a
+column of one takes no other value. A [literal](#when-a-file-is-refused)
+outside a list is refused either way.
+
 ## Which columns may be NULL
 
 Postgres describes a query's columns, and the table and column each is read
@@ -188,6 +195,18 @@ with Postgres's own hint:
 ```text
 error: queries/customer-orders.sql:6:7: column o.customer does not exist (hint: Perhaps you meant to reference the column "o.customer_id".)
 ```
+
+A literal the query compares a column with is refused when it is outside
+the list the column's checks allow. Postgres runs such a comparison without
+a word, and it never holds, or always does: `state = 'opne'` finds nothing.
+A column of an enum refuses such a literal itself, in Postgres's words.
+
+```text
+error: queries/open-tickets.sql:2:15: tickets.state never holds 'opne', only 'open', 'closed'
+```
+
+The comparisons are read from the plan of the query: a column of a table
+it reads, `=` or `<>` a literal, `in` and `not in` a list of them.
 
 `types:generate --check` checks the file of functions as it checks the file
 of types: in CI, a query that no longer fits the schema fails the build,

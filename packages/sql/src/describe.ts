@@ -22,11 +22,17 @@
  * column whose name is marked `!` is never NULL, and one marked `?` may
  * be, whatever the rest says.
  *
+ * A literal the plan compares a column with, which the list or the enum
+ * that narrows the column does not hold, refuses the file: the comparison
+ * never holds, or always does.
+ *
  * @module
  */
 
 import { SQL } from "bun";
 import type { Lookup, Values } from "./catalog.ts";
+import type { Outside } from "./literals.ts";
+import { literalsOutside } from "./literals.ts";
 import type { QueryFile, QueryParameter } from "./query-files.ts";
 import { QueryFileError } from "./query-files.ts";
 import type { Statement, Wire } from "./wire.ts";
@@ -87,9 +93,10 @@ const MULTIPLE = "cannot insert multiple commands into a prepared statement";
  * that database.
  *
  * @throws {QueryFileError} for each query Postgres refuses, whose
- * parameters it counts otherwise than the file names them, or that
- * returns a column without a name, two of one name, or a marker of no
- * column: all of them at once, as one error with each on a line.
+ * parameters it counts otherwise than the file names them, that compares
+ * a column with a literal the column never holds, or that returns a
+ * column without a name, two of one name, or a marker of no column: all
+ * of them at once, as one error with each on a line.
  */
 export async function describeQueries(
   wire: Wire,
@@ -254,6 +261,17 @@ async function describe(
       );
     }
 
+    const plan = await planOf(wire, file, statement, lookup);
+    const outside = literalsOutside(plan, (schema, relation, column) =>
+      lookup.allowed(schema, relation, column),
+    );
+
+    if (outside.length > 0) {
+      throw new QueryFileError(
+        outside.map((literal) => outsideLine(file, literal)).join("\n"),
+      );
+    }
+
     return {
       file,
       parameters: file.parameters.map((parameter, index) => {
@@ -264,7 +282,7 @@ async function describe(
       fields:
         statement.fields === null
           ? null
-          : await fieldsOf(wire, file, statement, lookup),
+          : fieldsOf(file, statement, lookup, plan),
     };
   } finally {
     await wire.query(`deallocate ${QUERY}`);
@@ -278,12 +296,12 @@ async function describe(
  * @throws {QueryFileError} when it returns none, one without a name or
  * two of one name, or a marker names none of them.
  */
-async function fieldsOf(
-  wire: Wire,
+function fieldsOf(
   file: QueryFile,
   statement: Statement,
   lookup: Lookup,
-): Promise<DescribedField[]> {
+  plan: unknown,
+): DescribedField[] {
   const fields = statement.fields ?? [];
   const names = new Set<string>();
 
@@ -317,7 +335,7 @@ async function fieldsOf(
     }
   }
 
-  const nullables = await nullablesOf(wire, file, statement, lookup);
+  const nullables = planNullables(plan, fields.length);
 
   return fields.map((field, index) => {
     const origin =
@@ -340,18 +358,18 @@ async function fieldsOf(
 }
 
 /**
- * The columns of a query its plan may make NULL, by their place: planned
- * for any values of its parameters, with NULL for each. A parameter of a
- * domain is planned as of the type under the domain, as NULL breaks a
- * domain that is `not null`. Nothing when the query cannot be planned, as
- * a `SHOW` cannot.
+ * The plan of a query, as `EXPLAIN (VERBOSE, FORMAT JSON)` gives it:
+ * planned for any values of its parameters, with NULL for each. A
+ * parameter of a domain is planned as of the type under the domain, as
+ * NULL breaks a domain that is `not null`. Nothing when the query cannot
+ * be planned, as a `SHOW` cannot.
  */
-async function nullablesOf(
+async function planOf(
   wire: Wire,
   file: QueryFile,
   statement: Statement,
   lookup: Lookup,
-): Promise<ReadonlySet<number> | undefined> {
+): Promise<unknown> {
   const bases = statement.parameters.map((type) => lookup.type(type).base);
   const planned = bases.some(
     (base, index) => base !== statement.parameters[index],
@@ -372,10 +390,7 @@ async function nullablesOf(
       `explain (verbose, format json) execute ${planned}${values}`,
     );
 
-    return planNullables(
-      JSON.parse(row?.[0] ?? "null"),
-      statement.fields?.length ?? 0,
-    );
+    return JSON.parse(row?.[0] ?? "null");
   } catch (error) {
     if (isRefusal(error)) {
       return undefined;
@@ -424,6 +439,30 @@ function problemOf(file: QueryFile, error: SQL.PostgresError): string {
       : error.hint;
 
   return `${where}: ${named(file, error.message)}${hint === undefined ? "" : ` (hint: ${named(file, hint)})`}`;
+}
+
+/**
+ * A literal compared with a column that never holds it, as a line: where
+ * the file writes it, when it can be found there, the column, and what the
+ * column holds.
+ */
+function outsideLine(file: QueryFile, outside: Outside): string {
+  const literal = sqlLiteral(outside.value);
+  const index =
+    typeof outside.value === "string" ? file.text.indexOf(literal) : -1;
+  const where =
+    index === -1
+      ? file.path
+      : file.at([...file.text.slice(0, index)].length + 1);
+
+  return `${where}: ${outside.column} never holds ${literal}, only ${outside.allowed.map(sqlLiteral).join(", ")}`;
+}
+
+/** A value as SQL writes it: a string quoted, an integer as it is. */
+function sqlLiteral(value: string | number): string {
+  return typeof value === "string"
+    ? `'${value.replaceAll("'", "''")}'`
+    : String(value);
 }
 
 /** A message of Postgres's, with its `$1`s as the parameters' names. */

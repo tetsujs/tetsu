@@ -504,6 +504,7 @@ describe("a column a query returns", () => {
       {
         column: () => ({ values, nullable: false }),
         type: () => ({ values, literal: undefined, base: 20 }),
+        allowed: () => undefined,
       },
     );
 
@@ -645,5 +646,41 @@ describe("a query Postgres refuses", () => {
     expect(await problems({ alias: 'select o.id from orders "o!"' })).toEqual([
       'alias.sql: marks "o!", which is not a column the query returns',
     ]);
+  });
+});
+
+describe("a literal a query compares a column with", () => {
+  test("outside the list the column's checks allow refuses the file, where the file writes it", async () => {
+    expect(
+      await problems({
+        typo: "select id from orders\nwhere channel = 'wbe'",
+        listed: "select id from orders where channel in ('web', 'shpo')",
+        kept: "select id from customers where size <> 'xl'",
+        updated: "update orders set total = 1 where channel = 'shpo'",
+      }),
+    ).toEqual([
+      "typo.sql:2:17: orders.channel never holds 'wbe', only 'web', 'shop'",
+      "listed.sql:1:48: orders.channel never holds 'shpo', only 'web', 'shop'",
+      "kept.sql:1:40: customers.size never holds 'xl', only 's', 'm'",
+      "updated.sql:1:45: orders.channel never holds 'shpo', only 'web', 'shop'",
+    ]);
+  });
+
+  test("outside an enum's labels, through a cast to text, refuses the file too", async () => {
+    expect(
+      await problems({
+        cast: "select id from orders where status::text = 'nwe'",
+      }),
+    ).toEqual([
+      "cast.sql:1:44: orders.status never holds 'nwe', only 'new', 'paid'",
+    ]);
+  });
+
+  test("that the column may hold, or that is a parameter, passes", async () => {
+    expect(
+      await columns(
+        "select id from orders where channel in ('web', 'shop') and channel <> :other",
+      ),
+    ).toEqual(["id: bigint"]);
   });
 });

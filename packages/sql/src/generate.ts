@@ -122,8 +122,9 @@ export interface GeneratedFiles {
  * `database()` reads it.
  *
  * @throws {MigrationError} when the migrations do not apply.
- * @throws {QueryFileError} when a query file cannot be read as a query, or
- * Postgres refuses its query: each of them, on a line of the message.
+ * @throws {QueryFileError} when a query file cannot be read as a query,
+ * Postgres refuses its query, or it compares a column with a literal the
+ * column never holds: each of them, on a line of the message.
  * @throws {TypeError} when `url` is not a `postgres://` or
  * `postgresql://` URL, `table` cannot name a journal, or `int8` is
  * neither `"bigint"` nor `"string"`.
