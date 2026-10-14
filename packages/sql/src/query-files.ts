@@ -66,8 +66,15 @@ export interface QueryFile {
   at(position: number): string;
 }
 
-/** A query file that cannot be read as one, and why. */
+/**
+ * A query file that cannot be read as one, and why. The class keeps its
+ * name in a bundle, as `MigrationError` does.
+ */
 export class QueryFileError extends Error {
+  static {
+    Object.defineProperty(QueryFileError, "name", { value: "QueryFileError" });
+  }
+
   override readonly name = "QueryFileError";
 }
 

@@ -51,8 +51,18 @@ export type MigrationErrorReason =
   | "own-transaction"
   | "recorded";
 
-/** A migration run that was refused or failed, with the file to blame. */
+/**
+ * A migration run that was refused or failed, with the file to blame.
+ *
+ * The class keeps its name where a bundle renames it, as Bun 1.4.3 does
+ * to a class it moves into a chunk two entry points share: a logger that
+ * prints `constructor.name`, as pino does, prints `MigrationError`.
+ */
 export class MigrationError extends Error {
+  static {
+    Object.defineProperty(MigrationError, "name", { value: "MigrationError" });
+  }
+
   override readonly name = "MigrationError";
 
   /** Why the run stopped. */

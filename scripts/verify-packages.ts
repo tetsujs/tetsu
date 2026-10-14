@@ -30,7 +30,9 @@
  * - One core: `@tetsujs/core` resolves to the same file from every
  *   package, or `instanceof HttpError` and the `onMount` symbol would stop
  *   meaning anything across them.
- * - A smoke script imports every entry point and serves one request.
+ * - A smoke script imports every entry point, checks that each class one
+ *   exports is named as it is exported — a bundle can rename a class, and
+ *   a logger prints `constructor.name` — and serves one request.
  * - `tsc` checks the smoke script with `skipLibCheck` off, under `bundler`
  *   and `nodenext`, so every published `.d.ts` is compiled as a user's
  *   compiler sees it. `@types/bun` is installed, because the declarations
@@ -255,10 +257,11 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
 }
 
 /**
- * Imports every specifier, checks each exports something, and serves once
- * with every hook package mounted the way an application mounts it — so
- * the published declarations are checked against the form users write,
- * a hook per slot, not only imported.
+ * Imports every specifier, checks each exports something and names its
+ * classes as it exports them, and serves once with every hook package
+ * mounted the way an application mounts it — so the published
+ * declarations are checked against the form users write, a hook per slot,
+ * not only imported.
  */
 function smokeScript(specifiers: string[]): string {
   const binding = (specifier: string) =>
@@ -281,6 +284,18 @@ ${entries.join("\n")}
 for (const [specifier, namespace] of entries) {
   if (Object.keys(namespace).length === 0) {
     throw new Error(\`\${specifier} exports nothing\`);
+  }
+
+  for (const [name, value] of Object.entries(namespace)) {
+    if (
+      typeof value === "function" &&
+      /^class\\b/.test(Function.prototype.toString.call(value)) &&
+      value.name !== name
+    ) {
+      throw new Error(
+        \`\${specifier} exports the class \${name} named \${value.name}, which a logger prints\`,
+      );
+    }
   }
 }
 
