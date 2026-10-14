@@ -2,12 +2,18 @@
  * The functions of the fixture's query files, as TypeScript types them: a
  * column taken from a table is typed as Kysely selects that column, made
  * NULL by a join that may find no row; a parameter is typed as its type is
- * written; and a function takes a transaction as well as the database.
+ * written; and a function takes a transaction as well as the database,
+ * as `queryRows` and `queryCount` do, called on their own.
  *
  * @module
  */
 
-import type { Kysely, SelectType, Transaction } from "kysely";
+import type {
+  ControlledTransaction,
+  Kysely,
+  SelectType,
+  Transaction,
+} from "kysely";
 import type { DB } from "../test-utils/fixtures/schema/db.generated.ts";
 import type {
   InsertOrderParams,
@@ -24,9 +30,13 @@ import {
   shipOrder,
 } from "../test-utils/fixtures/schema/queries.generated.ts";
 import type { Equal, Expect } from "../test-utils/types.ts";
+import type { FileQuery } from "./queries.ts";
+import { queryCount, queryRows } from "./queries.ts";
 
 declare const db: Kysely<DB>;
 declare const trx: Transaction<DB>;
+declare const controlled: ControlledTransaction<DB>;
+declare const query: FileQuery;
 
 type Orders = DB["orders"];
 
@@ -92,3 +102,16 @@ export const stringDocument = documents(db, { documents: ['{"a": 1}'] });
 export const extraParameters = now(db, {});
 
 export const element = documents(db, { documents: [{ a: 1 }, [1], null] });
+
+export const onTheirOwn = [
+  queryRows(trx, query, { id: 1n }),
+  queryCount(trx, query, { id: 1n }),
+  queryCount(controlled, query),
+  queryRows<DB, { id: bigint }>(db, query),
+] as const;
+
+export type ofTheirOwn = [
+  Expect<Equal<(typeof onTheirOwn)[0], Promise<unknown[]>>>,
+  Expect<Equal<(typeof onTheirOwn)[1], Promise<bigint>>>,
+  Expect<Equal<(typeof onTheirOwn)[3], Promise<{ id: bigint }[]>>>,
+];

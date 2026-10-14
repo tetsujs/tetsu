@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { Kysely } from "kysely";
+import type { ControlledTransaction, Kysely, Transaction } from "kysely";
 import { CompiledQuery } from "kysely";
 import { arrayLiteral } from "./values.ts";
 
@@ -26,13 +26,14 @@ export interface FileQuery {
 }
 
 /**
- * Runs `query` with the values of `params` and resolves to its rows: what
- * a function of the generated file of queries does.
+ * Runs `query` on `db`, the database or a transaction, with the values of
+ * `params`, and resolves to its rows: what a function of the generated
+ * file of queries does.
  *
  * @throws {TypeError} when `params` lacks a parameter of the query.
  */
 export async function queryRows<DB, Row>(
-  db: Kysely<DB>,
+  db: Kysely<DB> | Transaction<DB> | ControlledTransaction<DB>,
   query: FileQuery,
   params: object = {},
 ): Promise<Row[]> {
@@ -42,14 +43,15 @@ export async function queryRows<DB, Row>(
 }
 
 /**
- * Runs `query`, which returns no rows, with the values of `params`, and
- * resolves to how many rows it inserted, updated, deleted or merged: what
- * a function of the generated file of queries does.
+ * Runs `query`, which returns no rows, on `db`, the database or a
+ * transaction, with the values of `params`, and resolves to how many rows
+ * it inserted, updated, deleted or merged: what a function of the
+ * generated file of queries does.
  *
  * @throws {TypeError} when `params` lacks a parameter of the query.
  */
 export async function queryCount<DB>(
-  db: Kysely<DB>,
+  db: Kysely<DB> | Transaction<DB> | ControlledTransaction<DB>,
   query: FileQuery,
   params: object = {},
 ): Promise<bigint> {
