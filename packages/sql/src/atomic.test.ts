@@ -233,6 +233,46 @@ describe("inside a transaction", () => {
     expect(stored).not.toContain(71);
   });
 
+  test.each([
+    ["withSchema()", 80, (trx: Kysely<Notes>) => trx.withSchema("public")],
+    [
+      "withPlugin()",
+      82,
+      (trx: Kysely<Notes>) =>
+        trx.withPlugin({
+          transformQuery: (args) => args.node,
+          transformResult: async (args) => args.result,
+        }),
+    ],
+  ])(
+    "beside another unit is refused, though given a Kysely %s made of the transaction",
+    async (_, id, derive) => {
+      const outcome = await refusal(
+        atomic(db, async (outer) => {
+          const [first, second] = await Promise.allSettled([
+            atomic(outer, async (unit) => {
+              await sql`select pg_sleep(0.1)`.execute(unit);
+              await write(unit, id);
+
+              return "first";
+            }),
+            atomic(derive(outer), async (unit) => {
+              await write(unit, id + 1);
+
+              return "second";
+            }),
+          ]);
+
+          expect(first).toEqual({ status: "fulfilled", value: "first" });
+          expect(second).toMatchObject({ status: "rejected" });
+        }),
+      );
+
+      expect(outcome).toBe("resolved");
+      expect(await notes()).not.toContain(id + 1);
+    },
+  );
+
   test("controlled, marks a savepoint as well", async () => {
     const trx = await db.startTransaction().execute();
 

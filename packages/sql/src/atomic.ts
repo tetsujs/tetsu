@@ -7,12 +7,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SQL } from "bun";
-import type {
-  ControlledTransaction,
-  Kysely,
-  KyselyPlugin,
-  Transaction,
-} from "kysely";
+import type { ControlledTransaction, Kysely, Transaction } from "kysely";
 import { sql } from "kysely";
 
 /** A unit open inside a transaction, with its savepoint. */
@@ -25,23 +20,18 @@ let savepoints = 0;
 const running = new AsyncLocalStorage<Unit>();
 
 /**
- * The transaction a unit's own transaction object belongs to: the one
- * `atomic` was given, all the way up.
+ * The units open inside each transaction, innermost last, by the
+ * connection it runs on: the one object every Kysely of the transaction
+ * shares, those `withSchema()`, `withPlugin()` and `withTables()` make of
+ * it and a controlled transaction's savepoints included, each an object of
+ * its own. The driver makes a connection object for each transaction.
  */
-const transactions = new WeakMap<object, object>();
-
-/** The units open inside each transaction, innermost last. */
 const stacks = new WeakMap<object, Unit[]>();
 
-/**
- * What the transaction object a unit is handed carries over the one it was
- * given: nothing but being an object of its own, which the unit's own units
- * are told apart by.
- */
-const OWN: KyselyPlugin = {
-  transformQuery: (args) => args.node,
-  transformResult: async (args) => args.result,
-};
+/** The connection a transaction runs on, as its executor hands it out. */
+function connectionOf(trx: Transaction<unknown>): Promise<object> {
+  return trx.getExecutor().provideConnection(async (connection) => connection);
+}
 
 /**
  * Runs `work` as one unit: all it writes is kept, or none of it.
@@ -62,8 +52,10 @@ const OWN: KyselyPlugin = {
  * Units inside one transaction run one after another, or one inside
  * another, never side by side, as with `Promise.all`: rolling one back
  * would undo what the other wrote. A unit opened beside another that is
- * still open is refused before it writes anything. Queries of the
- * transaction that run beside a unit are not seen: await the unit.
+ * still open is refused before it writes anything, whichever Kysely of the
+ * transaction each was given: the transaction, or one `withSchema()`,
+ * `withPlugin()` or `withTables()` made of it. Queries of the transaction
+ * that run beside a unit are not seen: await the unit.
  *
  * @example
  * ```ts
@@ -87,8 +79,8 @@ export async function atomic<DB, T>(
   }
 
   const trx = executor as Transaction<DB>;
-  const transaction = transactions.get(trx) ?? trx;
-  const stack = stacks.get(transaction) ?? [];
+  const connection = await connectionOf(trx as Transaction<unknown>);
+  const stack = stacks.get(connection) ?? [];
   const inside = stack.at(-1);
 
   if (inside !== undefined && inside !== running.getStore()) {
@@ -98,12 +90,10 @@ export async function atomic<DB, T>(
   }
 
   const unit: Unit = {};
-  const own = trx.withPlugin(OWN);
 
   savepoints += 1;
   stack.push(unit);
-  stacks.set(transaction, stack);
-  transactions.set(own, transaction);
+  stacks.set(connection, stack);
 
   const name = sql.id(`atomic_${savepoints}`);
 
@@ -113,7 +103,7 @@ export async function atomic<DB, T>(
     let result: T;
 
     try {
-      result = await running.run(unit, () => work(own));
+      result = await running.run(unit, () => work(trx));
     } catch (error) {
       await sql`rollback to savepoint ${name}; release savepoint ${name}`
         .execute(trx)
