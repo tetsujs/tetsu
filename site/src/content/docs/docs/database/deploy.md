@@ -140,6 +140,14 @@ database apart from the URL, so the URL wins. A client of your own, such as
 one handed to `migrate()`, needs the same: `new SQL({ url, database: "shop"
 })`.
 
+### A unix socket
+
+Bun reaches a server on the unix socket that `path` names in the URL:
+`postgres://shop@localhost/shop?path=/var/run/postgresql/.s.PGSQL.5432`.
+`tetsu-sql types:generate` and `generate()` build the types over it, but
+describe query files on a connection of their own, which reaches a server
+only by its host and port: with query files, they refuse a URL with `path`.
+
 ### The size of the pool
 
 `max` is per process, and a process that cancels a query opens one

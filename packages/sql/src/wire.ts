@@ -10,10 +10,15 @@
  * parameters, such as `options` with a `search_path`. Bun keeps part of
  * them in a form it does not document: the tests hold this module to Bun's
  * own, and a Bun that keeps them otherwise is refused with an error rather
- * than connected to elsewhere. It authenticates by password, MD5 or
- * SCRAM-SHA-256, and prepares a query under a name, which `EXPLAIN
- * EXECUTE` can then plan, or runs a plain query, whose values it reads as
- * text. Requests run one after another.
+ * than connected to elsewhere. It connects over TCP only: Bun keeps a
+ * unix socket, which `path` names in a URL, out of a client's settings,
+ * and {@link socketOf} reads it from the URL, for the generator to refuse
+ * such a URL.
+ *
+ * It authenticates by password, MD5 or SCRAM-SHA-256, and prepares a
+ * query under a name, which `EXPLAIN EXECUTE` can then plan, or runs a
+ * plain query, whose values it reads as text. Requests run one after
+ * another.
  *
  * @module
  */
@@ -294,6 +299,23 @@ export function settingsOf(sql: SQL): Settings {
         ? Math.min(connectionTimeout, TIMER_MAX_MS)
         : CONNECT_MS,
   };
+}
+
+/**
+ * The unix socket Bun.SQL reaches the server of `url` on: the one `path`
+ * names, in any case, unless it is empty. Bun keeps it out of a client's
+ * settings, so {@link settingsOf} does not see it, and a {@link Wire}
+ * would reach the host and the port of the URL instead, which may be
+ * another server.
+ */
+export function socketOf(url: string): string | undefined {
+  for (const [key, value] of new URL(url).searchParams) {
+    if (key.toLowerCase() === "path" && value !== "") {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 /**

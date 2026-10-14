@@ -20,6 +20,7 @@ import {
   test,
 } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQL } from "bun";
@@ -585,6 +586,58 @@ describe("the URL", () => {
     ).rejects.toThrow(
       "generate runs on Postgres: url must be a postgres:// or postgresql:// URL",
     );
+  });
+
+  test("may reach the server on a unix socket, by path, for the types", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tetsu-sql-socket-"));
+    const socket = join(dir, "s.sock");
+    const server = new URL(url);
+    let connections = 0;
+    const proxy = createServer((client) => {
+      const upstream = connect(Number(server.port), server.hostname);
+
+      connections += 1;
+      client.pipe(upstream).pipe(client);
+      client.on("error", () => upstream.destroy());
+      upstream.on("error", () => client.destroy());
+    });
+
+    await new Promise<void>((resolve) => proxy.listen(socket, resolve));
+
+    const through = new URL(url);
+
+    through.host = "127.0.0.1:1";
+    through.searchParams.set("path", socket);
+
+    try {
+      const { types } = await generate({
+        url: through.href,
+        dir: join(fixtures, "migrations"),
+      });
+
+      expect(types).toBe(golden);
+      expect(connections).toBeGreaterThan(0);
+    } finally {
+      proxy.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("on a unix socket is refused with query files, described over TCP, before any database is made", async () => {
+    const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      await expect(
+        generate({
+          url: `${url}${url.includes("?") ? "&" : "?"}path=%2Ftmp%2F.s.PGSQL.5432`,
+          dir,
+          queries,
+        }),
+      ).rejects.toThrow(
+        "generate describes query files over TCP: url must reach the server by its host and port, not by a unix socket in path",
+      );
+    });
+
+    expect(made).toEqual([]);
   });
 
   test("holds for the scratch database as written, options and all, whatever DATABASE_URL says", async () => {

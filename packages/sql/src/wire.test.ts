@@ -16,6 +16,10 @@ import {
   test,
 } from "bun:test";
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { SQL } from "bun";
 import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
@@ -33,7 +37,7 @@ import {
   stubServer,
 } from "../test-utils/stub-server.ts";
 import { clientOf } from "./client.ts";
-import { settingsOf, tlsOptionsOf, Wire } from "./wire.ts";
+import { settingsOf, socketOf, tlsOptionsOf, Wire } from "./wire.ts";
 
 setDefaultTimeout(DATABASE_MS);
 
@@ -274,6 +278,53 @@ describe("the settings of a connection", () => {
         },
       } as unknown as SQL),
     ).toThrow("in a form @tetsujs/sql does not know");
+  });
+});
+
+describe("the unix socket of a URL", () => {
+  test("is the one path names, in any case, which Bun reaches the server on", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tetsu-sql-socket-"));
+    const socket = join(dir, "s.sock");
+    let sessions = 0;
+    const server = createServer((peer) => {
+      sessions += 1;
+      peer.once("data", () => {
+        peer.end(
+          errorResponse({
+            S: "FATAL",
+            V: "FATAL",
+            C: "28000",
+            M: "answered on the socket",
+          }),
+        );
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(socket, resolve));
+
+    try {
+      for (const key of ["path", "PATH", "Path"]) {
+        const url = `postgres://u@127.0.0.1:1/db?${key}=${encodeURIComponent(socket)}`;
+        const client = new SQL(url);
+
+        sessions = 0;
+
+        const error = await client`select 1`.catch((error: unknown) => error);
+
+        await closeCut(client);
+        expect(error).toMatchObject({ message: "answered on the socket" });
+        expect(sessions).toBeGreaterThan(0);
+        expect(socketOf(url)).toBe(socket);
+      }
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("is none for an empty path, or none at all", () => {
+    expect(socketOf("postgres://u@h/db?path=")).toBeUndefined();
+    expect(socketOf("postgres://u@h/db?sslmode=disable")).toBeUndefined();
   });
 });
 

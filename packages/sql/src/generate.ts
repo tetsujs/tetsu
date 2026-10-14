@@ -41,7 +41,7 @@ import { readQueryFiles } from "./query-files.ts";
 import { render } from "./render.ts";
 import { renderQueries } from "./render-queries.ts";
 import { createScratch } from "./scratch.ts";
-import { Wire } from "./wire.ts";
+import { socketOf, Wire } from "./wire.ts";
 
 export type { CreateMigrationOptions } from "./migration-files.ts";
 export { createMigration } from "./migration-files.ts";
@@ -117,6 +117,10 @@ export interface GeneratedFiles {
  * the types on a server of their own, such as a container, and create
  * roles only where they are missing.
  *
+ * The query files are described on a connection of the generator's own,
+ * over TCP, at the host and the port of `url`: with them, a URL that has
+ * Bun reach the server on a unix socket, by `path`, is refused.
+ *
  * Each column is typed as Bun reads it with `bigint: true`, or with
  * `bigint: false` when `int8` is `"string"`, which is how the package's
  * `database()` reads it.
@@ -126,8 +130,9 @@ export interface GeneratedFiles {
  * Postgres refuses its query, or it compares a column with a literal the
  * column never holds: each of them, on a line of the message.
  * @throws {TypeError} when `url` is not a `postgres://` or
- * `postgresql://` URL, `table` cannot name a journal, or `int8` is
- * neither `"bigint"` nor `"string"`.
+ * `postgresql://` URL, or names a unix socket while there are query files
+ * to describe, `table` cannot name a journal, or `int8` is neither
+ * `"bigint"` nor `"string"`.
  */
 export async function generate(
   options: GenerateOptions,
@@ -138,6 +143,12 @@ export async function generate(
   if (protocol !== "postgres:" && protocol !== "postgresql:") {
     throw new TypeError(
       "generate runs on Postgres: url must be a postgres:// or postgresql:// URL",
+    );
+  }
+
+  if (options.queries !== undefined && socketOf(url) !== undefined) {
+    throw new TypeError(
+      "generate describes query files over TCP: url must reach the server by its host and port, not by a unix socket in path",
     );
   }
 
