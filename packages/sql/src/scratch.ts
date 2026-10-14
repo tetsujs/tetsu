@@ -94,8 +94,9 @@ export function connectOptionsOf(options: ConnectOptions): ConnectOptions {
  * Both connections are made from `url` itself, with `options`, so what it
  * says — `sslmode`, `options` with a `search_path` — holds for each, and
  * nothing of the environment does: not even `PGDATABASE`, which Bun 1.4.3
- * takes over the database a URL names. The user needs the right to create
- * databases.
+ * takes over the database a URL names. Each client holds one connection:
+ * its queries run one after another, and a test file's pool is made apart
+ * from them. The user needs the right to create databases.
  */
 export async function createScratch(
   url: string,
@@ -106,7 +107,7 @@ export async function createScratch(
     throw new TypeError(`${name} is not the name of a scratch database`);
   }
 
-  const server = clientOf(url, options);
+  const server = clientOf(url, { ...options, max: 1 });
 
   try {
     await dropLeftBehind(server);
@@ -122,7 +123,7 @@ export async function createScratch(
       : error;
   }
 
-  const scratch = clientOf(urlOf(url, name), options);
+  const scratch = clientOf(urlOf(url, name), { ...options, max: 1 });
 
   return {
     name,

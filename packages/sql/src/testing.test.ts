@@ -193,6 +193,31 @@ describe("a test file's database, given the options of database()", () => {
   });
 });
 
+describe("a test file's database, given a pool of two", () => {
+  const application = `tetsu_sql_pool_of_two_${process.pid}`;
+  const tagged = new URL(Bun.env["DATABASE_URL"] ?? "");
+
+  tagged.searchParams.set("application_name", application);
+
+  const { db } = testDatabase(schema, {
+    url: tagged.href,
+    dir: join(import.meta.dir, "../test-utils/fixtures/schema/migrations"),
+    max: 2,
+  });
+
+  test("holds the pool's connections and two more: its migrations', and the server's, which makes and drops it", async () => {
+    await Promise.all(
+      Array.from({ length: 6 }, () => sql`select pg_sleep(0.05)`.execute(db)),
+    );
+
+    const [row] = await server`
+      select count(*)::int4 as sessions from pg_stat_activity
+      where application_name = ${application}`;
+
+    expect(row.sessions).toBeLessThanOrEqual(4);
+  });
+});
+
 describe("a test file's database, given a password apart from its URL", () => {
   const signed = new URL(Bun.env["DATABASE_URL"] ?? "");
   const password = decodeURIComponent(signed.password);
