@@ -369,6 +369,7 @@ const RESERVED = [
   "CalendarDate",
   "Json",
   "Bytea",
+  "Int8",
   "ArrayOf",
   "ArrayOfNullable",
   "ArrayLiteral",

@@ -337,6 +337,18 @@ describe("an alias", () => {
     expect(source).toContain("  nothing: Record<never, never>;\n");
   });
 
+  test("never takes the name of the type of int8 read as a string", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create type int_8 as enum ('x', 'y');
+        create table ledger (amount int8 not null, kind int_8 not null);`,
+    });
+    const { types: source } = await generate({ url, dir, int8: "string" });
+
+    expect(source).toContain('export type Int82 = "x" | "y";');
+    expect(source).toContain("    amount: Int8;\n    kind: Int82;\n");
+  });
+
   test("of a relation that would share its key with another is refused", async () => {
     const dir = await directory({
       "20261010120000_first.sql": `
