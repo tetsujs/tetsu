@@ -49,6 +49,20 @@ export function isSameCode(a: string, b: string): boolean {
   );
 }
 
+/**
+ * Whether a source holds `code`, its tokens in a row, whatever the layout
+ * of either: how a run reads what a file it wrote records, such as
+ * `int8: "string"`, once a formatter has laid the file out its own way.
+ */
+export function holdsCode(source: string, code: string): boolean {
+  const tokens = tokensOf(source);
+  const wanted = tokensOf(code);
+
+  return tokens.some((_, start) =>
+    wanted.every((token, offset) => tokens[start + offset] === token),
+  );
+}
+
 /** The tokens of a source that count. */
 function tokensOf(source: string): string[] {
   const raw: string[] = [];

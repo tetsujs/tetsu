@@ -35,7 +35,7 @@ import type {
 } from "./migrate.ts";
 import { baseline, migrate } from "./migrate.ts";
 import { createMigration } from "./migration-files.ts";
-import { isSameCode } from "./same-code.ts";
+import { holdsCode, isSameCode } from "./same-code.ts";
 
 const usage = `Usage: tetsu-sql <command> [options]
 
@@ -404,8 +404,7 @@ async function main(
 async function int8Of(path: string): Promise<"string" | undefined> {
   const file = Bun.file(path);
 
-  return (await file.exists()) &&
-    /^ {2}int8: "string",$/m.test(await file.text())
+  return (await file.exists()) && holdsCode(await file.text(), 'int8: "string"')
     ? "string"
     : undefined;
 }

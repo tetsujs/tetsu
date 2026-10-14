@@ -777,6 +777,30 @@ describe("types:generate", () => {
       stderr: "",
     });
     expect(run(["types:generate", ...flags]).exitCode).toBe(0);
+
+    const laid = await directory();
+
+    await Bun.write(
+      join(laid, "src", "db.generated.ts"),
+      (await Bun.file(join(int8, "db.generated.ts")).text()).replace(
+        '  int8: "string",',
+        "\tint8: 'string',",
+      ),
+    );
+
+    expect(
+      run(
+        [
+          "types:generate",
+          ...["--dir", join(int8, "migrations"), "--url", url, "--check"],
+        ],
+        { cwd: laid },
+      ),
+    ).toEqual({
+      exitCode: 0,
+      stdout: "src/db.generated.ts is up to date\n",
+      stderr: "",
+    });
     expect(run(["types:generate", "--int8", "bigint", ...flags])).toEqual({
       exitCode: 1,
       stdout: "",

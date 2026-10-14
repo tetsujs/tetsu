@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { isSameCode } from "./same-code.ts";
+import { holdsCode, isSameCode } from "./same-code.ts";
 
 const root = join(import.meta.dir, "../../..");
 const biome = join(root, "node_modules/.bin/biome");
@@ -189,5 +189,26 @@ describe("other code", () => {
         source.slice(0, source.indexOf("export type Constraint")),
       ),
     ).toBe(false);
+  });
+});
+
+describe("code a source holds", () => {
+  test.each([
+    ["as written", 'export const schema = {\n  int8: "string",\n};'],
+    [
+      "in tabs and single quotes",
+      "export const schema = {\n\tint8: 'string'\n}",
+    ],
+    ["under a quoted key", 'export const schema = { "int8": "string" };'],
+  ])("is found %s", (_, source) => {
+    expect(holdsCode(source, 'int8: "string"')).toBe(true);
+  });
+
+  test.each([
+    ["in a comment", '/** int8: "string" */\nexport const schema = {};'],
+    ["as a type", "interface Row {\n  int8: string;\n}"],
+    ["with another value", 'export const schema = { int8: "bigint" };'],
+  ])("is not found %s", (_, source) => {
+    expect(holdsCode(source, 'int8: "string"')).toBe(false);
   });
 });
