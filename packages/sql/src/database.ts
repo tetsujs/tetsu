@@ -76,8 +76,9 @@ export interface DatabaseOptions
  * order they come, at one fewer connection than `max`, at least one: the
  * one left is the pool's, which Bun would otherwise hand to reservations
  * for as long as they kept coming, while every other query waited. A query
- * given a signal that is aborted while it waits for a connection is never
- * run.
+ * given a signal that is aborted while it waits for a connection none can
+ * take it on, as when reservations hold every one, is never run; on a pool
+ * busy with other queries, Bun has sent it already, behind theirs.
  *
  * A transaction whose commit Postgres turns into a rollback, as it does
  * when a query of the transaction failed and the failure was caught, fails

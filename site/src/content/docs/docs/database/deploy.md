@@ -127,7 +127,9 @@ in the URL: `sslmode=require`
 encrypts, and `sslmode=verify-full` also checks the server's certificate and
 its name. A certificate signed by an authority of your own goes in Bun's
 [`tls` option](https://bun.com/docs/runtime/sql), which `database()` passes
-on.
+on. `tetsu-sql` and `generate()` take only a URL: name the authority's file
+in `NODE_EXTRA_CA_CERTS`, which Bun trusts for every connection, theirs
+included.
 
 `sslmode=prefer` hangs on a server that offers no TLS, in Bun 1.4.3: use
 `require`, or `disable` on a network of your own.

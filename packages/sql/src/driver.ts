@@ -291,7 +291,9 @@ class BunDriver implements Driver {
  * A query given a signal that is aborted while the query waits in Bun's
  * queue for a connection is taken out of the queue, as Kysely never runs
  * a query given up before it had a connection; one already sent runs to
- * its end, as Kysely's `ignore query` says.
+ * its end, as Kysely's `ignore query` says. Bun queues a query only when no
+ * connection can take it on, as when reservations hold every one: on a
+ * pool busy with other queries, it sends one at once, behind theirs.
  */
 class BunConnection implements DatabaseConnection {
   private readonly pool: SQL;

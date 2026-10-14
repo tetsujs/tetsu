@@ -324,8 +324,12 @@ const totals = await db
 The promise then fails with the signal's reason. What happens to the query
 depends on where it was:
 
-- **Waiting for a connection,** in Bun's queue, it is taken out, and never
-  runs. A write given up while the pool was busy is not made later.
+- **Waiting for a connection** none can take it on, as when transactions
+  reserve every one, it is taken out of Bun's queue, and never runs. On a
+  pool busy with other queries, Bun sends a query at once, down a
+  connection behind theirs, so it is sent, as below: a write given up there
+  may still be made. Make a write one that can run twice, with a key of its
+  own, before trying it again.
 - **Sent, with the default `ignore query`,** it runs to its end on the
   server, and its answer is dropped.
 - **Sent, with `cancel query`,** a connection of the database's own sends

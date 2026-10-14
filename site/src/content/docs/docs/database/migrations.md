@@ -153,6 +153,12 @@ long transaction would stall the application; failing early and running
 again later does not. `--lock-timeout-ms` changes the limit, or the
 `lockTimeoutMs` option of `migrate()`; `0` waits as long as it takes.
 
+A `statement_timeout` or a `transaction_timeout` that the role or the
+database sets holds for a migration in a transaction, as for any query of
+the role: a long backfill under a role with a limit fails, `canceling
+statement due to statement timeout`. Lift it in the migration, for its own
+transaction only: `set local statement_timeout = 0;`.
+
 ## Outside a transaction
 
 A migration whose first line is `-- no-transaction` runs outside one, as
@@ -164,8 +170,9 @@ create index concurrently orders_status_idx on orders (status);
 ```
 
 Postgres runs the statements of such a file together, so a `concurrently`
-statement must be the only one in it. It runs without a lock timeout:
-`create index concurrently` waits for every older transaction to end,
+statement must be the only one in it. It runs without a lock timeout, and
+without a statement or a transaction timeout the role or the database
+sets: `create index concurrently` waits for every older transaction to end,
 without holding up the application, and building the index may take long.
 One that fails leaves an invalid index behind: drop it, with `drop index
 concurrently`, before running the migration again.
