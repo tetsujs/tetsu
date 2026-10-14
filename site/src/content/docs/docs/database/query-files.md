@@ -213,7 +213,9 @@ it reads, `=` or `<>` a literal, `in` and `not in` a list of them. A literal
 the file writes is refused only when no column the plan compares it with
 may hold it: the planner copies a condition into each table a `union all`
 reads, and a join hands it to the column it makes equal, so `status in
-('captured', 'settled')` over two tables of their own lists passes.
+('captured', 'settled')` over two tables of their own lists passes. In a
+database with a nondeterministic collation, lists of strings are not
+checked: the plan does not tell which collation compares.
 
 `types:generate --check` checks the file of functions as it checks the file
 of types: in CI, a query that no longer fits the schema fails the build,
