@@ -156,13 +156,23 @@ export interface Lookup {
   /**
    * The values a column of a relation the model describes may hold, by
    * the names of its schema, its relation and itself: those of the list
-   * or the enum that narrows it, or nothing when none does.
+   * or the enum that narrows it, or nothing when none does. A partition's
+   * are its root's, whose checks it holds. No strings are named in a
+   * database with a collation that does not tell values apart by their
+   * characters, where a column may hold `'OPEN'` beside `'open'`, and a
+   * plan does not show which collation compares.
    */
   allowed(
     schema: string,
     relation: string,
     column: string,
-  ): readonly (string | number)[] | undefined;
+  ):
+    | {
+        /** The column, as `DB` keys its relation: `relation.column`. */
+        readonly column: string;
+        readonly values: readonly (string | number)[];
+      }
+    | undefined;
 }
 
 /** The catalog, read: the model, and what typing a query reads of it. */
@@ -244,6 +254,20 @@ interface Rows {
   readonly labels: readonly { type: number; label: string }[];
   readonly checks: readonly CheckRow[];
   readonly names: readonly { name: string }[];
+
+  /** The partitions, each with the root it belongs to. */
+  readonly partitions: readonly PartitionRow[];
+
+  /** Whether a collation of the database does not tell values apart by their characters. */
+  readonly nondeterministic: boolean;
+}
+
+/** A partition, and the root of its tree of partitions, by their names. */
+interface PartitionRow {
+  readonly schema: string;
+  readonly name: string;
+  readonly root_schema: string;
+  readonly root_name: string;
 }
 
 /** The schemas Postgres keeps for itself, left out. */
@@ -340,8 +364,29 @@ export async function readCatalog(
     [journal],
   );
 
+  const partitions: PartitionRow[] = await sql.unsafe(
+    `select n.nspname as schema, c.relname as name,
+            rn.nspname as root_schema, r.relname as root_name
+     from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       join pg_class r on r.oid = pg_partition_root(c.oid)
+       join pg_namespace rn on rn.oid = r.relnamespace
+     where c.relispartition`,
+  );
+  const [collations]: { nondeterministic: boolean }[] = await sql.unsafe(
+    "select exists (select from pg_collation where not collisdeterministic) as nondeterministic",
+  );
   const builder = new Builder(
-    { relations, columns, types, labels, checks, names },
+    {
+      relations,
+      columns,
+      types,
+      labels,
+      checks,
+      names,
+      partitions,
+      nondeterministic: collations?.nondeterministic === true,
+    },
     int8,
   );
 
@@ -507,13 +552,34 @@ class Builder {
     schema: string,
     relation: string,
     column: string,
-  ): readonly (string | number)[] | undefined {
-    const reads = this.named.get(JSON.stringify([schema, relation, column]))
-      ?.values.reads;
+  ): ReturnType<Lookup["allowed"]> {
+    const partition = this.catalog.partitions.find(
+      (row) => row.schema === schema && row.name === relation,
+    );
+    const owner = {
+      schema: partition?.root_schema ?? schema,
+      name: partition?.root_name ?? relation,
+    };
+    const reads = this.named.get(
+      JSON.stringify([owner.schema, owner.name, column]),
+    )?.values.reads;
+    const values =
+      reads?.kind === "alias"
+        ? this.aliases.find((alias) => alias.name === reads.name)?.values
+        : undefined;
 
-    return reads?.kind === "alias"
-      ? this.aliases.find((alias) => alias.name === reads.name)?.values
-      : undefined;
+    if (
+      values === undefined ||
+      (this.catalog.nondeterministic &&
+        values.some((value) => typeof value === "string"))
+    ) {
+      return undefined;
+    }
+
+    const key =
+      owner.schema === "public" ? owner.name : `${owner.schema}.${owner.name}`;
+
+    return { column: `${key}.${column}`, values };
   }
 
   /**

@@ -14,13 +14,22 @@ import { literalsOutside } from "./literals.ts";
 /** The lists of the columns of these tests, by schema, relation and column. */
 const LISTS: Readonly<Record<string, readonly (string | number)[]>> = {
   "public.tasks.status": ["pending", "done"],
+  "public.card_payments.status": ["authorized", "captured"],
+  "public.bank_payments.status": ["pending", "settled"],
+  "public.products.category": ["books", "toys"],
   "public.tasks.kind": ["a", "b"],
   "public.orders.rank": [10, 20],
   "billing.invoices.state": ["open", "it's paid"],
 };
 
-const allowed: Allowed = (schema, relation, column) =>
-  LISTS[`${schema}.${relation}.${column}`];
+const allowed: Allowed = (schema, relation, column) => {
+  const values = LISTS[`${schema}.${relation}.${column}`];
+  const key = schema === "public" ? relation : `${schema}.${relation}`;
+
+  return values === undefined
+    ? undefined
+    : { column: `${key}.${column}`, values };
+};
 
 /** A scan of a relation, with the conditions of its node. */
 interface Scan {
@@ -175,6 +184,117 @@ describe("a literal compared with a column of a list", () => {
         allowed,
       ).map(({ column, value }) => `${column} ${String(value)}`),
     ).toEqual(["orders.rank 30"]);
+  });
+});
+
+describe("a literal the plan compares with more than one column", () => {
+  /** The literals outside, as `column value`, of these scans. */
+  function outside(...scans: readonly Scan[]): string[] {
+    return literalsOutside(plan(...scans), allowed).map(
+      ({ column, value }) => `${column} ${String(value)}`,
+    );
+  }
+
+  test("passes where one of them holds it, as across the tables of a union", () => {
+    expect(
+      outside(
+        {
+          relation: "card_payments",
+          alias: "card_payments",
+          conditions: {
+            Filter:
+              "(card_payments.status = ANY ('{captured,settled}'::text[]))",
+          },
+        },
+        {
+          relation: "bank_payments",
+          alias: "bank_payments",
+          conditions: {
+            Filter:
+              "(bank_payments.status = ANY ('{captured,settled}'::text[]))",
+          },
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  test("is refused where none of them holds it, at each", () => {
+    expect(
+      outside(
+        {
+          relation: "card_payments",
+          alias: "card_payments",
+          conditions: { Filter: "(card_payments.status = 'setled'::text)" },
+        },
+        {
+          relation: "bank_payments",
+          alias: "bank_payments",
+          conditions: { Filter: "(bank_payments.status = 'setled'::text)" },
+        },
+      ),
+    ).toEqual(["card_payments.status setled", "bank_payments.status setled"]);
+  });
+
+  test("passes where the other is a column of no list, as a join derives it", () => {
+    expect(
+      outside(
+        {
+          relation: "categories",
+          alias: "c",
+          conditions: { "Index Cond": "(c.name = 'garden'::text)" },
+        },
+        {
+          relation: "products",
+          alias: "p",
+          conditions: { Filter: "(p.category = 'garden'::text)" },
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  test("passes where the plan uses it in no comparison with a column, as a join derives it from an expression", () => {
+    expect(
+      outside(
+        {
+          relation: "categories",
+          alias: "c",
+          conditions: { Filter: "(lower(c.name) = 'garden'::text)" },
+        },
+        {
+          relation: "products",
+          alias: "p",
+          conditions: { Filter: "(p.category = 'garden'::text)" },
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  test("passes where the other is a relation the plan does not scan", () => {
+    expect(
+      outside({
+        relation: "products",
+        alias: "p",
+        conditions: {
+          Filter:
+            "((p.category = 'garden'::text) AND (c.name = 'garden'::text))",
+        },
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("a condition of an upsert", () => {
+  test("is read too", () => {
+    expect(
+      literalsOutside(
+        plan({
+          relation: "tasks",
+          alias: "tasks",
+          conditions: { "Conflict Filter": "(tasks.status = 'zzz'::text)" },
+        }),
+        allowed,
+      ).map(({ value }) => value),
+    ).toEqual(["zzz"]);
   });
 });
 

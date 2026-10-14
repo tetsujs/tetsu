@@ -60,6 +60,30 @@ beforeAll(async () => {
       partition by range (at);
     create table events_2026 partition of events
       for values from ('2026-01-01') to ('2027-01-01');
+    create table card_payments (
+      id int8 primary key,
+      status text not null check (status in ('authorized', 'captured'))
+    );
+    create table bank_payments (
+      id int8 primary key,
+      status text not null check (status in ('pending', 'settled'))
+    );
+    create view payments as
+      select id, status from card_payments
+      union all select id, status from bank_payments;
+    create table categories (name text primary key);
+    create table products (
+      id int8 primary key,
+      category text not null check (category in ('books', 'toys'))
+    );
+    create view live_orders as select * from orders where channel <> 'phone';
+    create table tickets (
+      id int8 not null,
+      state text not null check (state in ('open', 'closed')),
+      level int4 not null check (level in (1, 2))
+    ) partition by list (state);
+    create table tickets_open partition of tickets for values in ('open');
+    create table tickets_closed partition of tickets for values in ('closed');
   `);
   lookup = (await readCatalog(sql, "public.migrations")).lookup;
   wire = await Wire.connect(clientOf(url));
@@ -673,6 +697,52 @@ describe("a literal a query compares a column with", () => {
       }),
     ).toEqual([
       "cast.sql:1:44: orders.status never holds 'nwe', only 'new', 'paid'",
+    ]);
+  });
+
+  test("that one of the tables a union reads may hold passes, and one none of them holds is refused at each", async () => {
+    expect(
+      await columns(
+        "select id from payments where status in ('captured', 'settled')",
+      ),
+    ).toEqual(["id: bigint | null"]);
+    expect(
+      await problems({
+        union: "select id from payments where status <> 'setled'",
+      }),
+    ).toEqual([
+      "union.sql:1:41: card_payments.status never holds 'setled', only 'authorized', 'captured'",
+      "union.sql:1:41: bank_payments.status never holds 'setled', only 'pending', 'settled'",
+    ]);
+  });
+
+  test("that a join compares with a column of its own passes, though the plan compares it with the other", async () => {
+    expect(
+      await columns(
+        "select c.name, p.id from categories c left join products p on p.category = c.name where c.name = 'garden'",
+      ),
+    ).toEqual(["name: string", "id: bigint | null"]);
+    expect(
+      await columns(
+        "select c.name from categories c where c.name = 'garden' and not exists (select from products p where p.category = c.name)",
+      ),
+    ).toEqual(["name: string"]);
+  });
+
+  test("that a view the query reads holds, not the file, is left to the view's migration", async () => {
+    expect(await columns("select id from live_orders where id = 1")).toEqual([
+      "id: bigint | null",
+    ]);
+  });
+
+  test("compared with a column of a partitioned table is held to the table's list, and an integer is told where it is", async () => {
+    expect(
+      await problems({
+        parts: "select id from tickets\nwhere state <> 'opne' and level <> 3",
+      }),
+    ).toEqual([
+      "parts.sql:2:16: tickets.state never holds 'opne', only 'open', 'closed'",
+      "parts.sql:2:36: tickets.level never holds 3, only 1, 2",
     ]);
   });
 

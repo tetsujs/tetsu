@@ -9,22 +9,34 @@
  * VERBOSE` writes them: a column of a table the plan scans, `=` or `<>` a
  * literal on either side, and `= ANY` or `<> ALL` an array of them, which
  * is how Postgres writes `in` and `not in`. A cast of the column to `text`,
- * as of a `varchar`, is looked through. Any other comparison, and a column
- * the plan reads from a subquery, a CTE or a function, is left as it is:
- * a literal is refused only where it is certain to be outside.
+ * as of a `varchar`, is looked through.
+ *
+ * A literal is refused only where it is certain to be outside: when every
+ * place the plan's conditions hold it is such a comparison, with a column
+ * whose values leave it out. The planner copies a condition into each
+ * table a `union all` or a parent of tables reads, and derives one for a
+ * column a join makes equal to another, so the same literal stands beside
+ * columns the query never named; one of them that may hold it, or a place
+ * that is no such comparison, as `lower(name) = 'garden'`, lets it pass.
  *
  * @module
  */
 
 /**
  * The values a column may hold, by the names of its schema, its relation
- * and itself: nothing when no list and no enum narrows it.
+ * and itself, with the name the column is told by: nothing when no list
+ * and no enum narrows it.
  */
 export type Allowed = (
   schema: string,
   relation: string,
   column: string,
-) => readonly (string | number)[] | undefined;
+) =>
+  | {
+      readonly column: string;
+      readonly values: readonly (string | number)[];
+    }
+  | undefined;
 
 /** A literal a query compares a column with, which the column never holds. */
 export interface Outside {
@@ -50,6 +62,7 @@ interface PlanNode {
 /** The fields of a node that hold a condition. */
 const CONDITIONS = [
   "Filter",
+  "Conflict Filter",
   "Join Filter",
   "Index Cond",
   "Recheck Cond",
@@ -107,9 +120,16 @@ const INTEGERS: ReadonlySet<string> = new Set([
   "bigint",
 ]);
 
+/** Any literal a condition writes: a string with its cast, of an array or not, or an integer. */
+const TOKEN = new RegExp(
+  String.raw`'(?<text>(?:[^']|'')*)'(?:::${TYPE}(?<array>\[\])?)?|(?<![\w$.])(?<integer>\d+)(?![\w.])`,
+  "g",
+);
+
 /**
  * The literals the plan of a query compares a column with that the column
- * never holds, by `allowed`: each once, though the plan writes a condition
+ * never holds, by `allowed`, where nothing else of the plan may hold them:
+ * each beside each such column once, though the plan writes a condition
  * twice, as an index condition and its recheck.
  */
 export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
@@ -148,33 +168,44 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
     visit(top);
   }
 
-  const found = new Map<string, Outside>();
+  const verdicts = new Map<string, Verdict>();
 
   for (const condition of conditions) {
     for (const comparison of comparisons(condition)) {
       const relation = relations.get(comparison.alias);
-      const values =
+      const narrowed =
         relation === undefined
           ? undefined
           : allowed(relation.schema, relation.name, comparison.column);
-
-      if (relation === undefined || values === undefined) {
-        continue;
-      }
-
-      const numeric = values.every((value) => typeof value === "number");
+      const values = narrowed?.values;
+      const numeric =
+        values?.every((value) => typeof value === "number") ?? false;
 
       for (const literal of comparison.literals) {
-        const value = literalValue(literal, numeric);
+        const key = keyOf(literal);
+        const verdict = verdicts.get(key) ?? {
+          compared: 0,
+          held: false,
+          outside: new Map<string, Outside>(),
+        };
+        const value =
+          values === undefined ? undefined : literalValue(literal, numeric);
 
-        if (value === undefined || values.includes(value)) {
+        verdicts.set(key, verdict);
+        verdict.compared += 1;
+
+        if (
+          narrowed === undefined ||
+          values === undefined ||
+          value === undefined ||
+          values.includes(value)
+        ) {
+          verdict.held = true;
           continue;
         }
 
-        const column = `${relation.schema === "public" ? "" : `${relation.schema}.`}${relation.name}.${comparison.column}`;
-
-        found.set(`${column}\u0000${typeof value}\u0000${value}`, {
-          column,
+        verdict.outside.set(narrowed.column, {
+          column: narrowed.column,
           value,
           allowed: values,
         });
@@ -182,7 +213,66 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
     }
   }
 
-  return [...found.values()];
+  const written = new Map<string, number>();
+
+  for (const condition of conditions) {
+    for (const key of literalsIn(condition)) {
+      written.set(key, (written.get(key) ?? 0) + 1);
+    }
+  }
+
+  return [...verdicts].flatMap(([key, verdict]) =>
+    verdict.held || verdict.compared !== written.get(key)
+      ? []
+      : [...verdict.outside.values()],
+  );
+}
+
+/** What the plan says of one literal, across the comparisons it stands in. */
+interface Verdict {
+  /** How many comparisons with a column it stands in. */
+  compared: number;
+
+  /** Whether a column it is compared with may hold it, or cannot be told. */
+  held: boolean;
+
+  /** The columns that never hold it, by their names. */
+  readonly outside: Map<string, Outside>;
+}
+
+/**
+ * A literal's key, the same wherever the plan writes it: an integer, bare
+ * or cast to an integer type, or a string.
+ */
+function keyOf(literal: Literal): string {
+  return isInteger(literal)
+    ? `integer\u0000${Number(literal.text)}`
+    : `string\u0000${literal.text}`;
+}
+
+/** Whether a literal is an integer: bare, or a whole number cast to an integer type. */
+function isInteger(literal: Literal): boolean {
+  return (
+    literal.type === undefined ||
+    (INTEGERS.has(literal.type) && /^-?\d+$/.test(literal.text))
+  );
+}
+
+/** The keys of every literal a condition writes, each element of an array one. */
+function* literalsIn(condition: string): Generator<string> {
+  for (const match of condition.matchAll(TOKEN)) {
+    const { text, type, array, integer } = match.groups ?? {};
+
+    if (integer !== undefined) {
+      yield keyOf({ text: integer, type: undefined });
+    } else if (text !== undefined && array !== undefined) {
+      for (const element of elementsOf(text.replaceAll("''", "'")) ?? []) {
+        yield keyOf({ text: element, type: type ?? "text" });
+      }
+    } else if (text !== undefined) {
+      yield keyOf({ text: text.replaceAll("''", "'"), type: type ?? "text" });
+    }
+  }
 }
 
 /** A literal as a condition writes it: its text, and the type it is cast to. */

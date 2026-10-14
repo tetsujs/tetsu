@@ -155,6 +155,37 @@ describe("int8 read as a string", () => {
   });
 });
 
+describe("a literal in a database with a collation that does not tell values apart", () => {
+  test("is not held to a list of strings, as the plan does not tell which collation compares", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create collation ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+        create domain state as text check (value in ('open', 'closed'));
+        create table tickets (id int8 primary key, state state collate ci not null);
+        create table labels (
+          id int8 primary key,
+          name text not null check (name in ('red', 'blue'))
+        );`,
+    });
+    const files = await directory({
+      "open-tickets.sql": "select id from tickets where state = 'OPEN'",
+      "red-labels.sql": "select id from labels where name = 'RED' collate ci",
+    });
+    const generated = await generate({
+      url,
+      dir,
+      queries: {
+        dir: files,
+        out: join(files, "queries.generated.ts"),
+        types: join(files, "db.generated.ts"),
+      },
+    });
+
+    expect(generated.queries).toContain("export function openTickets(");
+    expect(generated.queries).toContain("export function redLabels(");
+  });
+});
+
 describe("the functions of the fixture queries", () => {
   test("are the file checked in beside them, with the same types, each time, and leave no database", async () => {
     const dir = join(fixtures, "migrations");

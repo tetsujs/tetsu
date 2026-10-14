@@ -22,9 +22,10 @@
  * column whose name is marked `!` is never NULL, and one marked `?` may
  * be, whatever the rest says.
  *
- * A literal the plan compares a column with, which the list or the enum
- * that narrows the column does not hold, refuses the file: the comparison
- * never holds, or always does.
+ * A literal the file writes, which the plan compares only with columns
+ * whose lists or enums do not hold it, refuses the file: the comparison
+ * never holds, or always does. One a view or a function the query reads
+ * writes is left to the migration that wrote it.
  *
  * @module
  */
@@ -264,12 +265,14 @@ async function describe(
     const plan = await planOf(wire, file, statement, lookup);
     const outside = literalsOutside(plan, (schema, relation, column) =>
       lookup.allowed(schema, relation, column),
-    );
+    ).flatMap((literal) => {
+      const at = placeOf(file.text, literal.value);
+
+      return at === -1 ? [] : [outsideLine(file, literal, at)];
+    });
 
     if (outside.length > 0) {
-      throw new QueryFileError(
-        outside.map((literal) => outsideLine(file, literal)).join("\n"),
-      );
+      throw new QueryFileError(outside.join("\n"));
     }
 
     return {
@@ -442,20 +445,23 @@ function problemOf(file: QueryFile, error: SQL.PostgresError): string {
 }
 
 /**
- * A literal compared with a column that never holds it, as a line: where
- * the file writes it, when it can be found there, the column, and what the
- * column holds.
+ * Where a query's text writes a literal, as the index of its first
+ * character: a string as SQL quotes it, an integer as a word of its own.
+ * -1 when it does not write it, as when a view the query reads does.
  */
-function outsideLine(file: QueryFile, outside: Outside): string {
-  const literal = sqlLiteral(outside.value);
-  const index =
-    typeof outside.value === "string" ? file.text.indexOf(literal) : -1;
-  const where =
-    index === -1
-      ? file.path
-      : file.at([...file.text.slice(0, index)].length + 1);
+function placeOf(text: string, value: string | number): number {
+  return typeof value === "string"
+    ? text.indexOf(sqlLiteral(value))
+    : (new RegExp(String.raw`(?<![\w$.'])${value}(?![\w.'])`).exec(text)
+        ?.index ?? -1);
+}
 
-  return `${where}: ${outside.column} never holds ${literal}, only ${outside.allowed.map(sqlLiteral).join(", ")}`;
+/**
+ * A literal compared with a column that never holds it, as a line: where
+ * the file writes it, the column, and what the column holds.
+ */
+function outsideLine(file: QueryFile, outside: Outside, at: number): string {
+  return `${file.at([...file.text.slice(0, at)].length + 1)}: ${outside.column} never holds ${sqlLiteral(outside.value)}, only ${outside.allowed.map(sqlLiteral).join(", ")}`;
 }
 
 /** A value as SQL writes it: a string quoted, an integer as it is. */
