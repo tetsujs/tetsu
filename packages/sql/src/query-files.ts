@@ -23,6 +23,7 @@
 
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { textOf } from "./migration-files.ts";
 
 /** A parameter of a query. */
 export interface QueryParameter {
@@ -213,7 +214,14 @@ export async function readQueryFiles(dir: string): Promise<QueryFile[]> {
       }
 
       named.set(name, path);
-      files.push(parseQuery(path, name, await Bun.file(path).text()));
+
+      const text = await textOf(path);
+
+      if (text === undefined) {
+        throw new QueryFileError(`${path}: is not UTF-8: save it as UTF-8`);
+      }
+
+      files.push(parseQuery(path, name, text));
     } catch (error) {
       if (!(error instanceof QueryFileError)) {
         throw error;

@@ -317,6 +317,25 @@ describe("a directory of query files", () => {
     ]);
   });
 
+  test("refuses a file that is not UTF-8, where Bun would read its bytes as U+FFFD", async () => {
+    const dir = await directory({ "fine.sql": "select 1" });
+
+    await writeFile(
+      join(dir, "latin1.sql"),
+      new Uint8Array([
+        ...new TextEncoder().encode("select 'C"),
+        0xf4,
+        ...new TextEncoder().encode("te' as name"),
+      ]),
+    );
+
+    const error = await readQueryFiles(dir).catch((failure) => failure);
+
+    expect((error as Error).message).toBe(
+      `${join(dir, "latin1.sql")}: is not UTF-8: save it as UTF-8`,
+    );
+  });
+
   test("reads a file a link leads to, and refuses a link that leads nowhere", async () => {
     const dir = await directory({ "target.txt": "select 1" });
 

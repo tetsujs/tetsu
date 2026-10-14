@@ -149,6 +149,27 @@ describe("reading a directory", () => {
     expect(file?.checksum).toBe(checksum(text));
   });
 
+  test("refuses a file that is not UTF-8, with its name, where Bun would read its bytes as U+FFFD", async () => {
+    const dir = await directory({ "20261010120000_first.sql": "select 1;" });
+
+    await Bun.write(
+      join(dir, "20261011120000_latin1.sql"),
+      new Uint8Array([
+        ...new TextEncoder().encode("insert into countries values ('C"),
+        0xf4,
+        ...new TextEncoder().encode("te d''Ivoire');"),
+      ]),
+    );
+
+    const error = await rejection(readMigrations(dir));
+
+    expect(error.reason).toBe("encoding");
+    expect(error.migration).toBe("20261011120000_latin1.sql");
+    expect(error.message).toBe(
+      "20261011120000_latin1.sql is not UTF-8: save it as UTF-8",
+    );
+  });
+
   test("runs a migration outside a transaction only when its first line says so", async () => {
     const dir = await directory({
       "20261010120000_a.sql":

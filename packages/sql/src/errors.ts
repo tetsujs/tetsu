@@ -16,6 +16,8 @@
  * - `name` — a `.sql` file is not named `YYYYMMDDHHMMSS_name.sql`, or a new
  *   migration's name is not lowercase letters, digits and underscores, or
  *   its file exists.
+ * - `encoding` — a migration file is not UTF-8: read as it is, its other
+ *   bytes would run, and be summed, as U+FFFD.
  * - `empty` — a pending migration holds nothing to run, or one a baseline
  *   would record.
  * - `table` — the journal table exists and is not a journal.
@@ -41,6 +43,7 @@
 export type MigrationErrorReason =
   | "directory"
   | "name"
+  | "encoding"
   | "empty"
   | "table"
   | "behind"

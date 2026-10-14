@@ -19,10 +19,7 @@ export interface MigrationFile {
   /** The file's name, `YYYYMMDDHHMMSS_name.sql`. */
   readonly name: string;
 
-  /**
-   * Its SQL, with `\n` line ends. Bun drops a byte order mark when it
-   * reads the file.
-   */
+  /** Its SQL, with `\n` line ends, a byte order mark left out. */
   readonly text: string;
 
   /** The SHA-256 of {@link text}, in hex: what the journal compares. */
@@ -34,6 +31,24 @@ export interface MigrationFile {
 
 /** What the name of a migration file looks like. */
 const FILE = /^(\d{14})_[a-z0-9_]+\.sql$/;
+
+/** Reads UTF-8 strictly, a byte order mark left out: a byte that is not UTF-8 throws. */
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * The text of a file, read as UTF-8: nothing when a byte of it is not,
+ * which Bun would read as U+FFFD, so that the file would run, and be
+ * summed, as another text.
+ */
+export async function textOf(path: string): Promise<string | undefined> {
+  const bytes = await Bun.file(path).bytes();
+
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
 
 /** What the name part of a new migration may hold. */
 const NAME = /^[a-z0-9_]+$/;
@@ -121,10 +136,17 @@ export async function readMigrations(dir: string): Promise<MigrationFile[]> {
       });
     }
 
-    const text = (await Bun.file(join(dir, name)).text()).replaceAll(
-      "\r\n",
-      "\n",
-    );
+    const read = await textOf(join(dir, name));
+
+    if (read === undefined) {
+      throw new MigrationError(
+        "encoding",
+        `${name} is not UTF-8: save it as UTF-8`,
+        { migration: name },
+      );
+    }
+
+    const text = read.replaceAll("\r\n", "\n");
 
     files.push({
       name,

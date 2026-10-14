@@ -90,6 +90,7 @@ names the file to blame.
 | --- | --- |
 | `directory` | the migrations directory is not there |
 | `name` | a `.sql` file is not named as a migration, or a new migration's name is not lowercase letters, digits and underscores, or its file exists |
+| `encoding` | a migration file is not UTF-8 |
 | `empty` | a pending migration holds nothing to run, or one a baseline would record |
 | `table` | the journal's table exists, and is not a journal |
 | `missing` | an applied migration's file is gone, though newer files are there, or the directory holds no migration at all; for a baseline, the migration named is not there |
