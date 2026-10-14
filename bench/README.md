@@ -250,6 +250,92 @@ have no such limit. The 2-route row is the one place the others are
 cheaper: the first routes build the inference machinery once, and every
 later one reuses it.
 
+## Database queries
+
+`DATABASE_URL=postgres://… bun run --cwd bench sql` — what an operation
+costs through `@tetsujs/sql`, next to Bun.SQL alone and to Drizzle on the
+same client.
+
+The script creates a database of its own on the server `DATABASE_URL`
+names, fills it with 10 000 items and the accounts its transactions move
+units between, and drops it once done. Commits on it do not wait for the
+disk (`synchronous_commit = off`), so that a write measures the clients
+and the server rather than a flush. Every target is a process of its own
+(`src/sql/worker.ts`), on a pool of 10 connections, Bun's default, and
+makes the same four operations (`src/sql/targets.ts`) the way an
+application on its library writes them: one row by its primary key; 100
+rows in order from a key on; an insert that returns its key; and a
+transaction of two updates. Each operation's answer is checked against
+the rows the database holds before anything is timed.
+
+| target | what it runs |
+| --- | --- |
+| `bun` | Bun.SQL's tagged templates, and `sql.begin()` |
+| `tetsu` | `database()`: Kysely's builder, and `atomic()` |
+| `tetsu-files` | query files: the functions generated from them, on `queryRows` and `queryCount` |
+| `kysely` | Kysely on the package's driver alone, without what `database()` adds |
+| `drizzle` | Drizzle 0.45.3 on the same Bun.SQL client |
+| `drizzle-prepared` | the same, each query prepared once; its transaction is `drizzle`'s, as a query prepared on the database runs outside a transaction |
+
+Each target reads, inside its own process, the **processor µs per
+operation**, from `process.cpuUsage()` with 32 operations in flight — what
+the client side costs, and the reading to compare; the **operations a
+second** with those 32 in flight; and the **p50 latency** of one operation
+at a time. `ROUNDS=5` repeats the targets, each round in another order,
+and reports medians; `ONLY=` takes a comma-separated list of target names.
+Raw readings land in `out/sql.json`.
+
+### Snapshot (Bun 1.4.3, Postgres 18.6 in Docker on the same machine, Apple M5 Pro, 2026-10-14, 5 rounds)
+
+Processor µs per operation, lower is better:
+
+| | one row | 100 rows | insert | transaction |
+| --- | --- | --- | --- | --- |
+| Bun.SQL | 7.44 | 26.92 | 9.50 | 47.61 |
+| **`@tetsujs/sql`, query files** | **8.96** | **30.06** | **11.29** | **52.84** |
+| **`@tetsujs/sql`, builder** | **12.35** | **38.59** | **14.19** | **63.88** |
+| Kysely on the driver alone | 10.78 | 34.07 | 12.53 | 63.76 |
+| Drizzle 0.45.3 | 17.13 | 64.37 | 17.29 | 64.26 |
+| Drizzle, prepared | 8.07 | 52.41 | 10.37 | 67.76 |
+
+Operations a second, 32 in flight:
+
+| | one row | 100 rows | insert | transaction |
+| --- | --- | --- | --- | --- |
+| Bun.SQL | 112,986 | 44,927 | 79,826 | 11,578 |
+| `@tetsujs/sql`, query files | 110,618 | 40,978 | 77,050 | 12,335 |
+| `@tetsujs/sql`, builder | 89,883 | 32,340 | 72,294 | 11,180 |
+| Kysely on the driver alone | 99,183 | 36,236 | 77,611 | 10,435 |
+| Drizzle 0.45.3 | 70,650 | 21,659 | 65,788 | 11,221 |
+| Drizzle, prepared | 112,411 | 26,216 | 80,264 | 10,648 |
+
+One at a time, every target's p50 is 81–96 µs for one row, 123–152 µs for
+100 rows, 84–101 µs for an insert and 305–320 µs for a transaction: a
+round trip to the server is most of it. A target's readings move by about
+±10% between rounds, a transaction's by up to ±20%, so a microsecond on
+one row is within the noise.
+
+Reading:
+
+- **Query files cost 1.5 µs over Bun.SQL on one row**, 1.8 on an insert
+  and 3 on 100 rows, for 98% of its throughput on one row: Kysely's
+  executor and the driver's handling of the result. They are within a
+  microsecond of prepared Drizzle, and ahead of it on 100 rows, which
+  Drizzle maps column by column.
+- **The builder costs 4.9 µs over Bun.SQL on one row:** the 1.5 query
+  files pay too, 1.8 for Kysely building and compiling the query, and 1.6
+  for the plugin of `database()` that writes arrays, which rebuilds every
+  query's tree to look for them. It costs 28% less than Drizzle's builder.
+- **Transactions are level**, 10–12 k a second for every target: each holds
+  a connection for four round trips, and the server sets the pace.
+- **Pipelining is what keeps a query cheap under load.** A query runs on
+  Bun's pool, which sends the queries of many callers down one
+  connection; reserving a connection for each query, as the driver did at
+  first, held one-row reads here to about 42 k a second. A transaction,
+  `db.connection()` and a query that may be cancelled reserve one, taking
+  turns at all of the pool's connections but one, which is left to the
+  other queries.
+
 ## Comparing results
 
 Two runs back to back are two different machines: the baseline drifts
