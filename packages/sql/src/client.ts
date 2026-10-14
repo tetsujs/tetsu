@@ -11,7 +11,7 @@ import { SQL } from "bun";
  * its path, or, with none, the one of its user's name, as Postgres's own
  * clients take it. The name is given apart from the URL as well: Bun 1.4.3
  * takes `PGDATABASE`, when it is set, over the name a URL holds, and would
- * reach another database.
+ * reach another database (oven-sh/bun#45276).
  */
 export function clientOf(
   url: string,

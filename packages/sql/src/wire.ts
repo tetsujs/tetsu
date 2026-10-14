@@ -2,7 +2,7 @@
  * A client of Postgres's own protocol, as small as the generator needs:
  * Postgres describes a query without running it — the types of its
  * parameters, and its columns with the table and the column each is taken
- * from — and Bun.SQL does not hand that on.
+ * from — and Bun.SQL does not hand that on (oven-sh/bun#45277).
  *
  * It connects where a Bun.SQL client would, with the settings Bun resolved
  * for that client from its URL and the environment: the same server,

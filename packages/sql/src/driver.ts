@@ -158,9 +158,9 @@ export class BunDialect implements Dialect {
  *
  * Reservations take turns at one fewer connection than the pool holds, at
  * least one. Bun hands a connection that comes free to a reservation that
- * waits before a query of the pool, so that, were every connection for
- * reservations to take, a query of the pool would wait for as long as
- * they kept coming.
+ * waits before a query of the pool (oven-sh/bun#45275), so that, were
+ * every connection for reservations to take, a query of the pool would
+ * wait for as long as they kept coming.
  *
  * A transaction whose `begin` or `rollback` fails closes its connection
  * and hands its turn back at once. Neither fails on a sound connection,

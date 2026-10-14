@@ -28,11 +28,12 @@ and fail once Bun fixes it, so that the workaround goes with the bug.
 | Bun | the package | left to you |
 | --- | --- | --- |
 | before 1.4.3, could hand a query the rows of another after a failure on the same connection | `database()` throws on a Bun older than 1.4.3 | |
-| takes `PGDATABASE`, when it is set, over the database a URL names | gives Bun the URL's database apart from the URL | give a client of your own its `database` too |
+| takes `PGDATABASE`, when it is set, over the database a URL names ([#45276](https://github.com/oven-sh/bun/issues/45276)) | gives Bun the URL's database apart from the URL | give a client of your own its `database` too |
 | connects without TLS when neither the URL nor `PGSSLMODE` names an `sslmode`, where Postgres's own clients try TLS first | | name the mode: [TLS](/docs/database/deploy/#tls) |
 | hangs on `sslmode=prefer` against a server that offers no TLS | | use `require`, or `disable` |
 | has no cursor | `stream()` throws, saying so | read a long result in pages, by key |
-| hands a connection that comes free to a waiting reservation before any other query, so reservations beyond the pool's size hold every query up | lets reservations take turns at one fewer connection than `max` | |
+| cannot describe a query without running it ([#45277](https://github.com/oven-sh/bun/issues/45277)) | describes query files over a connection of its own, by host and port, with TLS as `sslmode` says | give `types:generate` a URL with a host and a port, not a [unix socket](/docs/database/deploy/#a-unix-socket), and an authority of your own in [`NODE_EXTRA_CA_CERTS`](/docs/database/deploy/#tls) |
+| hands a connection that comes free to a waiting reservation before any other query, so reservations beyond the pool's size hold every query up ([#45275](https://github.com/oven-sh/bun/issues/45275)) | lets reservations take turns at one fewer connection than `max` | |
 | may wait forever to close a connection the server ended | supports `cancel query`, not `kill session` | |
 | gives `error.column` as a number when Postgres names no column, as for a broken constraint ([#45064](https://github.com/oven-sh/bun/issues/45064)) | reads the constraint's name, in `isViolation()` | read `constraint` for a broken constraint |
 
