@@ -327,7 +327,11 @@ Reading:
   plugin of `database()` that writes arrays included. The plugin reads a
   query before it rebuilds one, and leaves one that holds no array as it
   is: rebuilding every query cost 1.6 µs a query, and reading one costs
-  about 0.3. The builder costs a third less than Drizzle's.
+  about 0.3. The builder costs a third less than Drizzle's. The plugin that
+  writes a fraction to a column as text, added since, reads an insert, an
+  update or a merge for one and leaves a read alone: in a run of five
+  rounds beside Kysely on the driver alone, it cost 0.4 µs on an insert,
+  0.35 on a transaction of two updates, and nothing on a read.
 - **Transactions are level**, 12–13 k a second for every target: each holds
   a connection for four round trips, and the server sets the pace.
 - **Pipelining is what keeps a query cheap under load.** A query runs on
@@ -337,6 +341,49 @@ Reading:
   `db.connection()` and a query that may be cancelled reserve one, taking
   turns at all of the pool's connections but one, which is left to the
   other queries.
+
+## A load probe of the database driver
+
+`DATABASE_URL=postgres://… bun run --cwd bench sql-load` — not a
+measurement, a check: many workers on one pool of `@tetsujs/sql`, for a
+while, each answer compared with what was asked. It looks for what a
+benchmark misses: an answer handed to another caller, a transaction left
+open, a reservation never given back, a promise rejected with nobody to
+catch it, a pool that does not close.
+
+Each of 64 workers runs a mix, drawn by weight, on a pool of 10: a query
+that echoes a marker of its own, and a burst of 20; a read by key; an
+insert that returns its key; a transfer between two accounts in a
+transaction; a unit of work that nests another with `atomic()`, which
+breaks a unique key; a transaction that fails, and one whose failure is
+caught before its commit; a session of `db.connection()` that sets a
+setting and reads it back; a query given up by its signal with `cancel
+query`; a write that breaks a unique key; and a fraction written to an
+integer column. The mix runs alone, then again while the server ends a
+backend of the pool every half second or so, where a lost connection is
+the only failure taken.
+
+After each run: the accounts still hold what they held; each worker's
+counter is what its units of work made it; its inserts are there; no
+session of the pool is left in a transaction or running; and the pool
+answers. At the end, `db.destroy()` resolves, no promise was rejected
+unhandled, and the heap, once collected, is weighed after each run.
+`WORKERS`, `POOL`, `MIX_SECONDS` (60) and `KILL_SECONDS` (30) change the
+run; it exits with 1 when a check fails.
+
+### Snapshot (Bun 1.4.3, Postgres 18.6 and 14.24 in Docker, Apple M5 Pro, 2026-10-14)
+
+Every check held on both servers, 60 s of the mix and 30 s with backends
+ended: about 1.17 million operations each, none answered wrong and none
+failed unexpectedly; 57 and 58 backends ended, every failure of those 30 s
+a lost connection; the heap, collected, 7 MB after each run. A plain query
+kept a p50 of 0.3 ms and a p99 of 1.7 ms while transactions, sessions and
+cancels took turns at the reserved connections, at a p50 of 11–12 ms.
+
+A run of ten minutes on Postgres 18.6, 480 s of the mix and 120 s with
+backends ended, held every check as well: about 6.4 million operations,
+239 backends ended, and the heap, collected, 7.2 MB after the mix and 7.4
+MB after the rest, as after the short run.
 
 ## Comparing results
 
