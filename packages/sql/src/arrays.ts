@@ -20,7 +20,6 @@
  */
 
 import type {
-  BinaryOperationNode,
   ColumnUpdateNode,
   FunctionNode,
   InsertQueryNode,
@@ -37,6 +36,7 @@ import type {
 } from "kysely";
 import {
   AliasNode,
+  BinaryOperationNode,
   ColumnNode,
   IdentifierNode,
   JoinNode,
@@ -67,6 +67,8 @@ const COMMA = ",";
  * The plugin, for the columns of arrays the generated file names. It keeps
  * one transformer, and resets it after each query, whether it was
  * transformed or not: a query is transformed whole before the next one is.
+ * A query that holds no array is left as it is: the transformer rebuilds
+ * every node of a query it reads, and most queries hold none.
  */
 export class ArraysPlugin implements KyselyPlugin {
   private readonly transformer: Transformer;
@@ -83,6 +85,10 @@ export class ArraysPlugin implements KyselyPlugin {
   }
 
   transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
+    if (!holdsArray(args.node)) {
+      return args.node;
+    }
+
     try {
       return this.transformer.transformNode(args.node, args.queryId);
     } finally {
@@ -230,10 +236,7 @@ class Transformer extends OperationNodeTransformer {
     queryId?: QueryId,
   ): BinaryOperationNode {
     const transformed = super.transformBinaryOperation(node, queryId);
-    const operator = OperatorNode.is(transformed.operator)
-      ? transformed.operator.operator
-      : undefined;
-    const list = operator === "in" || operator === "not in";
+    const list = isIn(transformed.operator);
     const left = this.literalOf(transformed.leftOperand);
 
     if (left !== undefined) {
@@ -382,6 +385,59 @@ class Transformer extends OperationNodeTransformer {
 
     return undefined;
   }
+}
+
+/**
+ * Whether a query holds what the transformer may write as a literal: an
+ * array as a value, or as an item of a list, or a list compared other than
+ * by `in`, which is how Kysely builds an array a column is compared with.
+ * A value is never read into: it is whatever the query binds.
+ */
+function holdsArray(node: OperationNode): boolean {
+  if (ValueNode.is(node)) {
+    return Array.isArray(node.value);
+  }
+
+  if (PrimitiveValueListNode.is(node)) {
+    return node.values.some((value) => Array.isArray(value));
+  }
+
+  if (
+    BinaryOperationNode.is(node) &&
+    !isIn(node.operator) &&
+    (PrimitiveValueListNode.is(node.leftOperand) ||
+      PrimitiveValueListNode.is(node.rightOperand))
+  ) {
+    return true;
+  }
+
+  for (const key in node) {
+    const child = (node as unknown as Readonly<Record<string, unknown>>)[key];
+
+    if (Array.isArray(child) ? child.some(holdsArrayIn) : holdsArrayIn(child)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Whether `value` is a node, and one that holds an array. */
+function holdsArrayIn(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly kind?: unknown }).kind === "string" &&
+    holdsArray(value as OperationNode)
+  );
+}
+
+/** Whether `operator` is `in` or `not in`, whose list is a list of values. */
+function isIn(operator: OperationNode): boolean {
+  return (
+    OperatorNode.is(operator) &&
+    (operator.operator === "in" || operator.operator === "not in")
+  );
 }
 
 /** The rows of an insert, their arrays written as literals by column. */

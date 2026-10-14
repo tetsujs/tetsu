@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Compilable, Kysely as KyselyType } from "kysely";
 import {
+  createQueryId,
   DummyDriver,
   Kysely,
   PostgresAdapter,
@@ -232,6 +233,31 @@ describe("a merge", () => {
   });
 });
 
+describe("a query that holds no array", () => {
+  const plugin = new ArraysPlugin({ orders: { tags: "," } });
+  const bare = db.withoutPlugins();
+
+  test.each([
+    ["a select", bare.selectFrom("orders").selectAll().where("id", "=", 1n)],
+    [
+      "a select whose in holds values",
+      bare.selectFrom("orders").select("id").where("id", "in", [1n, 2n]),
+    ],
+    ["an insert", bare.insertInto("orders").values({ id: 1n, note: "x" })],
+    [
+      "an update",
+      bare.updateTable("orders").set({ note: "x" }).where("id", "=", 1n),
+    ],
+    ["raw SQL", sql`select ${1} as one`],
+  ])("is left as it is, as %s", (_, query) => {
+    const node = query.toOperationNode();
+
+    expect(plugin.transformQuery({ node, queryId: createQueryId() })).toBe(
+      node,
+    );
+  });
+});
+
 describe("a comparison with a column of arrays", () => {
   test("writes an array as a literal", () => {
     expect(
@@ -288,6 +314,25 @@ describe("a comparison with a column of arrays", () => {
           .where("billing.invoices.codes", "@>", (eb) => eb.val(["c"])),
       )[1],
     ).toEqual(['{"c"}']);
+  });
+
+  test("of a subquery writes an array as a literal", () => {
+    expect(
+      compiled(
+        db
+          .selectFrom("orders")
+          .select("id")
+          .where("id", "in", (eb) =>
+            eb
+              .selectFrom("items")
+              .select("order_id")
+              .where("tags", "@>", ["a"]),
+          ),
+      ),
+    ).toEqual([
+      'select "id" from "orders" where "id" in (select "order_id" from "items" where "tags" @> $1)',
+      ['{"a"}'],
+    ]);
   });
 
   test("finds it on either side", () => {

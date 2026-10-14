@@ -291,42 +291,44 @@ Processor µs per operation, lower is better:
 
 | | one row | 100 rows | insert | transaction |
 | --- | --- | --- | --- | --- |
-| Bun.SQL | 7.44 | 26.92 | 9.50 | 47.61 |
-| **`@tetsujs/sql`, query files** | **8.96** | **30.06** | **11.29** | **52.84** |
-| **`@tetsujs/sql`, builder** | **12.35** | **38.59** | **14.19** | **63.88** |
-| Kysely on the driver alone | 10.78 | 34.07 | 12.53 | 63.76 |
-| Drizzle 0.45.3 | 17.13 | 64.37 | 17.29 | 64.26 |
-| Drizzle, prepared | 8.07 | 52.41 | 10.37 | 67.76 |
+| Bun.SQL | 7.04 | 26.20 | 8.82 | 44.74 |
+| **`@tetsujs/sql`, query files** | **8.86** | **29.58** | **10.52** | **52.02** |
+| **`@tetsujs/sql`, builder** | **10.37** | **33.77** | **11.96** | **55.27** |
+| Kysely on the driver alone | 10.10 | 33.25 | 12.22 | 54.82 |
+| Drizzle 0.45.3 | 15.71 | 62.57 | 15.22 | 59.73 |
+| Drizzle, prepared | 8.16 | 47.84 | 9.21 | 59.47 |
 
 Operations a second, 32 in flight:
 
 | | one row | 100 rows | insert | transaction |
 | --- | --- | --- | --- | --- |
-| Bun.SQL | 112,986 | 44,927 | 79,826 | 11,578 |
-| `@tetsujs/sql`, query files | 110,618 | 40,978 | 77,050 | 12,335 |
-| `@tetsujs/sql`, builder | 89,883 | 32,340 | 72,294 | 11,180 |
-| Kysely on the driver alone | 99,183 | 36,236 | 77,611 | 10,435 |
-| Drizzle 0.45.3 | 70,650 | 21,659 | 65,788 | 11,221 |
-| Drizzle, prepared | 112,411 | 26,216 | 80,264 | 10,648 |
+| Bun.SQL | 121,154 | 46,190 | 85,972 | 12,568 |
+| `@tetsujs/sql`, query files | 112,375 | 41,660 | 84,669 | 12,509 |
+| `@tetsujs/sql`, builder | 105,526 | 36,236 | 83,982 | 12,493 |
+| Kysely on the driver alone | 106,721 | 36,572 | 80,200 | 12,222 |
+| Drizzle 0.45.3 | 78,154 | 22,531 | 76,318 | 12,636 |
+| Drizzle, prepared | 114,274 | 28,705 | 88,935 | 12,627 |
 
-One at a time, every target's p50 is 81–96 µs for one row, 123–152 µs for
-100 rows, 84–101 µs for an insert and 305–320 µs for a transaction: a
+One at a time, every target's p50 is 71–87 µs for one row, 119–136 µs for
+100 rows, 78–87 µs for an insert and 286–311 µs for a transaction: a
 round trip to the server is most of it. A target's readings move by about
-±10% between rounds, a transaction's by up to ±20%, so a microsecond on
-one row is within the noise.
+±5% between rounds, and by up to ±10% on a busy machine, so a fraction of
+a microsecond on one row is within the noise.
 
 Reading:
 
-- **Query files cost 1.5 µs over Bun.SQL on one row**, 1.8 on an insert
-  and 3 on 100 rows, for 98% of its throughput on one row: Kysely's
-  executor and the driver's handling of the result. They are within a
-  microsecond of prepared Drizzle, and ahead of it on 100 rows, which
-  Drizzle maps column by column.
-- **The builder costs 4.9 µs over Bun.SQL on one row:** the 1.5 query
-  files pay too, 1.8 for Kysely building and compiling the query, and 1.6
-  for the plugin of `database()` that writes arrays, which rebuilds every
-  query's tree to look for them. It costs 28% less than Drizzle's builder.
-- **Transactions are level**, 10–12 k a second for every target: each holds
+- **Query files cost 1.8 µs over Bun.SQL on one row**, 1.7 on an insert
+  and 3.4 on 100 rows, for 93% of its throughput on one row: Kysely's
+  executor and the driver's handling of the result. They are 0.7 µs
+  behind prepared Drizzle on one row and 1.3 on an insert, and ahead of it
+  on 100 rows, which Drizzle maps column by column.
+- **The builder costs 3.3 µs over Bun.SQL on one row:** the 1.8 query
+  files pay too, and 1.5 for Kysely building and compiling the query, the
+  plugin of `database()` that writes arrays included. The plugin reads a
+  query before it rebuilds one, and leaves one that holds no array as it
+  is: rebuilding every query cost 1.6 µs a query, and reading one costs
+  about 0.3. The builder costs a third less than Drizzle's.
+- **Transactions are level**, 12–13 k a second for every target: each holds
   a connection for four round trips, and the server sets the pace.
 - **Pipelining is what keeps a query cheap under load.** A query runs on
   Bun's pool, which sends the queries of many callers down one
