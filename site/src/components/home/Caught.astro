@@ -88,19 +88,22 @@ import { caught } from "./samples";
   }
   #caught-0:checked ~ .panels .panel-0,
   #caught-1:checked ~ .panels .panel-1,
-  #caught-2:checked ~ .panels .panel-2 {
+  #caught-2:checked ~ .panels .panel-2,
+  #caught-3:checked ~ .panels .panel-3 {
     visibility: visible;
   }
   #caught-0:checked ~ .list label[for="caught-0"],
   #caught-1:checked ~ .list label[for="caught-1"],
-  #caught-2:checked ~ .list label[for="caught-2"] {
+  #caught-2:checked ~ .list label[for="caught-2"],
+  #caught-3:checked ~ .list label[for="caught-3"] {
     background: var(--sl-color-gray-6);
     border-left-color: var(--tetsu-red);
     color: var(--sl-color-white);
   }
   #caught-0:focus-visible ~ .list label[for="caught-0"],
   #caught-1:focus-visible ~ .list label[for="caught-1"],
-  #caught-2:focus-visible ~ .list label[for="caught-2"] {
+  #caught-2:focus-visible ~ .list label[for="caught-2"],
+  #caught-3:focus-visible ~ .list label[for="caught-3"] {
     outline: 2px solid var(--sl-color-accent-high);
     outline-offset: 2px;
   }

@@ -20,6 +20,18 @@ const usersController = [
 const code = (setup: string[], lines: string[]) =>
   [...setup, cut, ...lines].join("\n");
 
+/**
+ * The files `tetsu-sql types:generate` wrote for `examples/sql`, as a
+ * project imports them.
+ */
+const generated = [
+  "// @filename: src/db.generated.ts",
+  'export * from "@examples/sql/db.generated";',
+  "// @filename: src/queries.generated.ts",
+  'export * from "@examples/sql/queries.generated";',
+  "// @filename: src/orders.ts",
+];
+
 export const caught = [
   {
     label: "Hook without its user",
@@ -79,6 +91,32 @@ export const caught = [
         '  path: "/files/*/raw",',
         '  handler: () => new Response("…"),',
         "});",
+      ],
+    ),
+  },
+  {
+    label: "NULL from a left join",
+    code: code(
+      [
+        ...generated,
+        'import type { Kysely } from "kysely";',
+        'import type { DB } from "./db.generated";',
+        "declare const db: Kysely<DB>;",
+        "declare const customerId: bigint;",
+      ],
+      [
+        "// queries/customer-orders.sql",
+        "//   select o.id, o.status, o.total, s.carrier, s.shipped_at",
+        "//   from orders o",
+        "//     left join shipments s on s.order_id = o.id",
+        "//   where o.customer_id = :customerId",
+        "",
+        'import { customerOrders } from "./queries.generated";',
+        "",
+        "// @errors: 18047",
+        "for (const order of await customerOrders(db, { customerId })) {",
+        "  console.log(order.shipped_at.toISOString());",
+        "}",
       ],
     ),
   },
@@ -243,6 +281,38 @@ export const tabs = [
         'test("the application, over HTTP", async () => {',
         '  expect((await request("/users/1")).status).toBe(200);',
         "});",
+      ],
+    ),
+  },
+  {
+    label: "Database",
+    text: "Migrations are SQL, and the types come from the database they build. A query is Kysely's, or a file of SQL that Postgres types; the controller takes the database as it takes any dependency.",
+    code: code(
+      [...generated, "declare const config: { DATABASE_URL: string };"],
+      [
+        'import { controller, createApp, route } from "@tetsujs/core";',
+        'import { database } from "@tetsujs/sql";',
+        'import type { Kysely } from "kysely";',
+        'import { z } from "zod";',
+        'import { type DB, schema } from "./db.generated";',
+        'import { customerOrders } from "./queries.generated";',
+        "",
+        'const ordersController = controller("Orders", (db: Kysely<DB>) => ({',
+        "  list: route({",
+        '    method: "GET",',
+        '    path: "/customers/:id/orders",',
+        "    schema: { params: z.object({ id: z.coerce.bigint() }) },",
+        "    handler: async (ctx) => {",
+        "      const orders = await customerOrders(db, { customerId: ctx.params.id });",
+        "",
+        "      return orders.map((order) => ({ ...order, id: String(order.id) }));",
+        "    },",
+        "  }),",
+        "}));",
+        "",
+        "const db = database(schema, { url: config.DATABASE_URL });",
+        "",
+        "export default createApp({ routes: ordersController(db) });",
       ],
     ),
   },
