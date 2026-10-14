@@ -84,6 +84,8 @@ beforeAll(async () => {
     ) partition by list (state);
     create table tickets_open partition of tickets for values in ('open');
     create table tickets_closed partition of tickets for values in ('closed');
+    create domain grade as int4 check (value in (1, 2, 3));
+    create table reviews (id int8 primary key, grade grade not null);
   `);
   lookup = (await readCatalog(sql, "public.migrations")).lookup;
   wire = await Wire.connect(clientOf(url));
@@ -744,6 +746,12 @@ describe("a literal a query compares a column with", () => {
       "parts.sql:2:16: tickets.state never holds 'opne', only 'open', 'closed'",
       "parts.sql:2:36: tickets.level never holds 3, only 1, 2",
     ]);
+  });
+
+  test("compared with a column of a domain over an integer is held to the domain's list", async () => {
+    expect(
+      await problems({ graded: "select id from reviews where grade = 5" }),
+    ).toEqual(["graded.sql:1:38: reviews.grade never holds 5, only 1, 2, 3"]);
   });
 
   test("that the column may hold, or that is a parameter, passes", async () => {

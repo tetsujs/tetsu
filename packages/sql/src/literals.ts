@@ -9,7 +9,8 @@
  * VERBOSE` writes them: a column of a table the plan scans, `=` or `<>` a
  * literal on either side, and `= ANY` or `<> ALL` an array of them, which
  * is how Postgres writes `in` and `not in`. A cast of the column to `text`,
- * as of a `varchar`, is looked through.
+ * `integer` or `smallint`, as of a `varchar` or of a domain to its base, is
+ * looked through.
  *
  * A literal is refused only where it is certain to be outside: when every
  * place the plan's conditions hold it is such a comparison, with a column
@@ -107,9 +108,12 @@ const ANY = new RegExp(
   "g",
 );
 
-/** A column cast to `text`, as a `varchar` is to be compared. */
-const TO_TEXT = new RegExp(
-  String.raw`\((${IDENT}\.${IDENT})\)::text${AFTER}`,
+/**
+ * A column cast to `text`, `integer` or `smallint`, as a `varchar` or a
+ * domain over one is to be compared.
+ */
+const TO_BASE = new RegExp(
+  String.raw`\((${IDENT}\.${IDENT})\)::(?:text|integer|smallint)${AFTER}`,
   "g",
 );
 
@@ -155,7 +159,7 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
       const condition = node[field];
 
       if (typeof condition === "string") {
-        conditions.push(condition.replaceAll(TO_TEXT, "$1"));
+        conditions.push(condition.replaceAll(TO_BASE, "$1"));
       }
     }
 

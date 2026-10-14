@@ -111,6 +111,22 @@ describe("a literal compared with a column of a list", () => {
     ]);
   });
 
+  test("of integers is found through a cast of the column to its base, as of a domain", () => {
+    expect(
+      literalsOutside(
+        plan({
+          relation: "orders",
+          alias: "o",
+          conditions: {
+            Filter:
+              "(((o.rank)::integer = 15) OR ((o.rank)::integer = ANY ('{10,30}'::integer[])))",
+          },
+        }),
+        allowed,
+      ).map(({ value }) => value),
+    ).toEqual([15, 30]);
+  });
+
   test("of integers is found as an integer, bare or cast", () => {
     expect(
       literalsOutside(
