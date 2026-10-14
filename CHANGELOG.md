@@ -10,17 +10,18 @@ API.
 - `@tetsujs/sql`, a new package: Postgres on Bun's own client, with Kysely.
   The schema is a directory of SQL migrations, which `migrate()` and
   `tetsu-sql migrations:run` apply in order, each in a transaction of its
-  own, recorded in a journal. `tetsu-sql types:generate` builds them on a
-  scratch database and writes Kysely types from what Postgres describes,
-  with the names of the constraints for `isViolation()`, and makes each SQL
-  file of `queries/` a function typed by Postgres, the NULLs of its joins
-  included. `database()` returns Kysely on a driver of the package's own,
-  which runs queries on Bun's pool and writes arrays and dates as Postgres
-  reads them; `atomic()` holds a unit of work together inside another's
-  transaction; `verifySchema()` checks the database as the application
-  starts; and `testDatabase()` gives each test file a database of its own.
-  It needs Bun 1.4.3 and Postgres 14 or later: see
-  [Database](https://tetsujs.com/docs/database/).
+  own, recorded in a journal; `tetsu-sql migrations:baseline` records the
+  ones a database built before them has. `tetsu-sql types:generate` builds
+  the migrations on a scratch database and writes Kysely types from what
+  Postgres describes, with the names of the constraints for
+  `isViolation()`, and makes each SQL file of `queries/` a function typed
+  by Postgres, the NULLs of its joins included. `database()` returns Kysely
+  on a driver of the package's own, which runs queries on Bun's pool and
+  writes arrays and dates as Postgres reads them; `atomic()` holds a unit
+  of work together inside another's transaction; `verifySchema()` checks
+  the database as the application starts; and `testDatabase()` gives each
+  test file a database of its own. It needs Bun 1.4.3 and Postgres 14 or
+  later: see [Database](https://tetsujs.com/docs/database/).
 
 ## 0.6.3 — 2026-10-06
 

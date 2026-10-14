@@ -35,7 +35,7 @@
 import { dirname } from "node:path";
 import { readCatalog } from "./catalog.ts";
 import { describeQueries } from "./describe.ts";
-import { checkJournal, migrate, resolveJournal } from "./migrate.ts";
+import { checkJournal, migrateScratch, resolveJournal } from "./migrate.ts";
 import { readMigrations } from "./migration-files.ts";
 import { readQueryFiles } from "./query-files.ts";
 import { render } from "./render.ts";
@@ -144,7 +144,7 @@ export async function generate(
   try {
     const journal = await resolveJournal(scratch.sql, table);
 
-    await migrate(scratch.sql, { dir: options.dir, table });
+    await migrateScratch(scratch.sql, { dir: options.dir, table });
 
     const catalog = await readCatalog(scratch.sql, journal.name);
     const types = render(catalog.model, {

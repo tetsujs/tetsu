@@ -28,8 +28,12 @@ import { parseArgs } from "node:util";
 import { clientOf } from "./client.ts";
 import { MigrationError } from "./errors.ts";
 import { generate } from "./generate.ts";
-import type { MigrateResult, MigrationRecord } from "./migrate.ts";
-import { migrate } from "./migrate.ts";
+import type {
+  BaselineRecord,
+  MigrateResult,
+  MigrationRecord,
+} from "./migrate.ts";
+import { baseline, migrate } from "./migrate.ts";
 import { createMigration } from "./migration-files.ts";
 import { isSameCode } from "./same-code.ts";
 
@@ -38,6 +42,9 @@ const usage = `Usage: tetsu-sql <command> [options]
 Commands:
   migrations:new <name>    Create an empty migration, named with the current UTC time
   migrations:run           Apply the pending migrations
+  migrations:baseline <migration>
+                           Record the migrations up to this one as applied, without
+                           running them, in a database built before them
   types:generate           Write the Kysely types of the database the migrations build,
                            on a scratch database of the server, and the functions of
                            the query files, when there are any
@@ -71,6 +78,7 @@ const QUERIES_OUT = "src/queries.generated.ts";
 const FLAGS: Readonly<Record<string, readonly string[]>> = {
   "migrations:new": ["dir"],
   "migrations:run": ["dir", "url", "table", "lock-timeout-ms"],
+  "migrations:baseline": ["dir", "url", "table"],
   "types:generate": [
     "dir",
     "url",
@@ -88,11 +96,12 @@ class UsageError extends Error {
 }
 
 /**
- * A line the command prints: a step of a run, a migration created, the end
- * of a run with its result, or what became of the types.
+ * A line the command prints: a step of a run or of a baseline, a migration
+ * created, the end of a run with its result, or what became of the types.
  */
 type Line =
   | MigrationRecord
+  | BaselineRecord
   | { readonly event: "created"; readonly path: string }
   | ({ readonly event: "done" } & MigrateResult)
   | { readonly event: "generated"; readonly path: string }
@@ -171,6 +180,8 @@ function textOf(line: Line): string | undefined {
       return `applying ${line.migration}`;
     case "applied":
       return `applied ${line.migration} in ${Math.round(line.durationMs)} ms`;
+    case "recorded":
+      return `recorded ${line.migration} as applied`;
     case "created":
       return `created ${line.path}`;
     case "done":
@@ -233,7 +244,11 @@ async function main(
     }
   }
 
-  if (command !== "migrations:new" && rest.length > 0) {
+  if (
+    command !== "migrations:new" &&
+    command !== "migrations:baseline" &&
+    rest.length > 0
+  ) {
     throw new UsageError(
       `${command} takes no names: pass the directory as --dir`,
     );
@@ -247,6 +262,7 @@ async function main(
   }
 
   const dir = values.dir ?? DIR;
+  const table = values.table === undefined ? {} : { table: values.table };
 
   if (command === "migrations:new") {
     const [name] = rest;
@@ -260,11 +276,30 @@ async function main(
     return 0;
   }
 
+  if (command === "migrations:baseline") {
+    const [migration] = rest;
+
+    if (migration === undefined || rest.length > 1) {
+      throw new UsageError(
+        "migrations:baseline takes one migration: the last one the database has",
+      );
+    }
+
+    const sql = clientOf(databaseUrl(command, values.url));
+
+    try {
+      await baseline(sql, { dir, migration, write: print, ...table });
+
+      return 0;
+    } finally {
+      await sql.close();
+    }
+  }
+
   const lockTimeout = values["lock-timeout-ms"];
   const lockTimeoutMs =
     lockTimeout === undefined ? undefined : milliseconds(lockTimeout);
   const url = databaseUrl(command, values.url);
-  const table = values.table === undefined ? {} : { table: values.table };
 
   if (command === "migrations:run") {
     const sql = clientOf(url);

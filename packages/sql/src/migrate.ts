@@ -11,9 +11,14 @@
  * advisory lock for its whole length, so runners started together apply
  * each migration once.
  *
+ * A database built before its migrations takes a baseline instead: the
+ * ones it has are recorded as applied, without running, and the runner
+ * applies the rest.
+ *
  * @module
  */
 
+import { basename, dirname, resolve } from "node:path";
 import type { ReservedSQL, SQL } from "bun";
 import { MigrationError } from "./errors.ts";
 import type { MigrationFile } from "./migration-files.ts";
@@ -95,6 +100,45 @@ export interface MigrateResult {
   readonly ahead: readonly string[];
 }
 
+/** Where the migrations are, and which of them the database has. */
+export interface BaselineOptions {
+  /** The directory of the migration files, from the working directory. */
+  readonly dir: string;
+
+  /**
+   * The last migration the database has, with or without `.sql`, or as its
+   * path in {@link dir}: it and every migration before it are recorded.
+   */
+  readonly migration: string;
+
+  /** The journal table: see {@link MigrateOptions.table}. */
+  readonly table?: string;
+
+  /**
+   * Where the baseline reports its steps: `waiting` as it waits, and the
+   * migrations once all of them are recorded, so a `write` that throws
+   * leaves them recorded all the same. Nothing by default. A failure is
+   * not written: it is thrown.
+   */
+  readonly write?: (record: BaselineRecord) => void;
+}
+
+/**
+ * A step of a baseline, as {@link BaselineOptions.write} gets it.
+ *
+ * - `waiting` — a run holds the lock, and the baseline waits for it.
+ * - `recorded` — a migration was recorded as applied, without running.
+ */
+export type BaselineRecord =
+  | { readonly event: "waiting" }
+  | { readonly event: "recorded"; readonly migration: string };
+
+/** What a baseline did. */
+export interface BaselineResult {
+  /** The migrations recorded as applied, in order. */
+  readonly recorded: readonly string[];
+}
+
 /** The first key of the runner's advisory lock: `tsql` in ASCII. */
 const LOCK_CLASS = 1953722732;
 
@@ -118,6 +162,12 @@ const JOURNAL = [
 const RESET = "reset all; reset session authorization; discard temp";
 
 /**
+ * The SQLSTATEs of creating what exists already: a relation, another
+ * object such as a type or a constraint, a schema, a function, a column.
+ */
+const DUPLICATE = new Set(["42P07", "42710", "42P06", "42723", "42701"]);
+
+/**
  * Applies the pending migrations of `dir` and returns their names.
  *
  * Each migration runs in a transaction of its own and is recorded in the
@@ -127,7 +177,9 @@ const RESET = "reset all; reset session authorization; discard temp";
  * names it in `ahead` and applies nothing.
  * Each starts from the session's defaults: what one sets for the session,
  * such as `search_path` or a role, does not reach the next one or the
- * journal.
+ * journal. When the first migration of a journal that records nothing
+ * fails on what exists already, the error says to take a
+ * {@link baseline}: the database was likely built before its migrations.
  *
  * A migration whose first line is `-- no-transaction` runs outside one, as
  * `CREATE INDEX CONCURRENTLY` must, and is recorded once it has run.
@@ -169,16 +221,35 @@ export async function migrate(
   sql: SQL,
   options: MigrateOptions,
 ): Promise<MigrateResult> {
+  return await applyPending(sql, options, true);
+}
+
+/**
+ * {@link migrate} on a scratch database, which the package created empty
+ * for the types or the tests: it was not built before its migrations, so
+ * a failure says nothing of a baseline.
+ */
+export async function migrateScratch(
+  sql: SQL,
+  options: MigrateOptions,
+): Promise<MigrateResult> {
+  return await applyPending(sql, options, false);
+}
+
+/**
+ * {@link migrate}. Only an `adoptable` database may have been built before
+ * its migrations, and be told to take a baseline.
+ */
+async function applyPending(
+  sql: SQL,
+  options: MigrateOptions,
+  adoptable: boolean,
+): Promise<MigrateResult> {
   const { write } = options;
   const table = options.table ?? "migrations";
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
 
-  if (sql.options.adapter !== "postgres") {
-    throw new TypeError(
-      `migrate runs on Postgres, and this client is for ${String(sql.options.adapter)}`,
-    );
-  }
-
+  checkPostgres(sql, "migrate");
   checkJournal(table);
 
   if (
@@ -192,6 +263,162 @@ export async function migrate(
   }
 
   const files = await readMigrations(options.dir);
+
+  return await underLock(sql, table, write, async (connection, journal) => {
+    const recorded = await appliedIn(connection, journal.name);
+    const { pending, ahead } = planOf(files, recorded);
+    const applied: string[] = [];
+    const run = {
+      lockTimeoutMs,
+      applied,
+      fresh: adoptable && recorded.size === 0,
+      command: baselineCommand(options.dir, table),
+    };
+
+    for (const name of ahead) {
+      write?.({ event: "ahead", migration: name });
+    }
+
+    for (const file of pending) {
+      const startedAt = performance.now();
+
+      write?.({ event: "applying", migration: file.name });
+      await apply(connection, journal.name, file, run);
+      applied.push(file.name);
+      write?.({
+        event: "applied",
+        migration: file.name,
+        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+      });
+    }
+
+    return { applied, ahead };
+  });
+}
+
+/**
+ * Records the migrations of `dir` up to `migration`, that one included, as
+ * applied, without running them, and returns their names: for a database
+ * built before its migrations, whose schema they would create again.
+ * {@link migrate} then applies the ones after them.
+ *
+ * Only a database whose journal is missing or empty takes a baseline: once
+ * a migration is recorded, the journal says what the database has, and a
+ * baseline is refused. The migrations are recorded in one transaction,
+ * under the runner's lock, so a run started meanwhile waits for it, then
+ * applies only the ones after them.
+ *
+ * @example
+ * ```ts
+ * import { SQL } from "bun";
+ * import { baseline } from "@tetsujs/sql";
+ *
+ * const sql = new SQL(Bun.env.DATABASE_URL);
+ *
+ * await baseline(sql, {
+ *   dir: "./migrations",
+ *   migration: "20261015120000_schema",
+ * });
+ * await sql.close();
+ * ```
+ *
+ * @throws {MigrationError} with `recorded` when the journal records a
+ * migration already; with `missing` when `migration` is not one of `dir`;
+ * with `empty` when a migration to record holds nothing to run; and as
+ * {@link migrate} does, with `directory`, `name` or `table`.
+ * @throws {TypeError} when the journal's name is invalid, or `sql` is not a
+ * Postgres client.
+ * @throws the client's own error when the connection fails.
+ */
+export async function baseline(
+  sql: SQL,
+  options: BaselineOptions,
+): Promise<BaselineResult> {
+  const { dir, write } = options;
+  const table = options.table ?? "migrations";
+  const name = fileNameOf(options.migration, dir);
+
+  checkPostgres(sql, "baseline");
+  checkJournal(table);
+
+  const files = await readMigrations(dir);
+  const last = files.findIndex((file) => file.name === name);
+
+  if (last === -1) {
+    throw new MigrationError(
+      "missing",
+      `there is no migration ${name} in ${dir}: name the last migration the database has`,
+      { migration: name },
+    );
+  }
+
+  const recorded = files.slice(0, last + 1);
+
+  for (const file of recorded) {
+    if (isEmpty(file.text)) {
+      throw emptyFile(file);
+    }
+  }
+
+  await underLock(sql, table, write, async (connection, journal) => {
+    if ((await appliedIn(connection, journal.name)).size > 0) {
+      throw new MigrationError(
+        "recorded",
+        `${journal.name} records migrations already: a baseline is only for a journal that records none`,
+      );
+    }
+
+    await connection.begin(async (tx) => {
+      for (const file of recorded) {
+        await tx.unsafe(
+          `insert into ${journal.name} (name, checksum) values ($1, $2)`,
+          [file.name, file.checksum],
+        );
+      }
+    });
+  });
+
+  for (const file of recorded) {
+    write?.({ event: "recorded", migration: file.name });
+  }
+
+  return { recorded: recorded.map((file) => file.name) };
+}
+
+/**
+ * The file name a baseline's migration is given as: with or without
+ * `.sql`, or as its path in `dir`.
+ */
+function fileNameOf(migration: string, dir: string): string {
+  const name =
+    resolve(dirname(migration)) === resolve(dir)
+      ? basename(migration)
+      : migration;
+
+  return name.endsWith(".sql") ? name : `${name}.sql`;
+}
+
+/** Refuses a client that is not for Postgres, as a TypeError. */
+function checkPostgres(sql: SQL, runner: string): void {
+  if (sql.options.adapter !== "postgres") {
+    throw new TypeError(
+      `${runner} runs on Postgres, and this client is for ${String(sql.options.adapter)}`,
+    );
+  }
+}
+
+/**
+ * Runs `work` on a connection of its own, from the session's defaults,
+ * once it holds the runner's lock and the journal is open, and closes the
+ * connection at the end. The lock is taken for the session, so it lasts
+ * until then; a run that holds it is waited for, however long it takes.
+ */
+async function underLock<T>(
+  sql: SQL,
+  table: string,
+  write: ((record: { readonly event: "waiting" }) => void) | undefined,
+  work: (connection: ReservedSQL, journal: Journal) => Promise<T>,
+): Promise<T> {
   const connection = await sql.reserve();
 
   try {
@@ -212,30 +439,7 @@ export async function migrate(
     });
     await openJournal(connection, journal);
 
-    const { pending, ahead } = planOf(
-      files,
-      await appliedIn(connection, journal.name),
-    );
-    const applied: string[] = [];
-
-    for (const name of ahead) {
-      write?.({ event: "ahead", migration: name });
-    }
-
-    for (const file of pending) {
-      const startedAt = performance.now();
-
-      write?.({ event: "applying", migration: file.name });
-      await apply(connection, journal.name, file, { lockTimeoutMs, applied });
-      applied.push(file.name);
-      write?.({
-        event: "applied",
-        migration: file.name,
-        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
-      });
-    }
-
-    return { applied, ahead };
+    return await work(connection, journal);
   } finally {
     await connection.close();
   }
@@ -431,17 +635,23 @@ function planOf(
     }
 
     if (isEmpty(file.text)) {
-      throw new MigrationError(
-        "empty",
-        `${file.name} is empty: write the migration, or delete the file`,
-        {
-          migration: file.name,
-        },
-      );
+      throw emptyFile(file);
     }
   }
 
   return { pending, ahead };
+}
+
+/**
+ * The refusal of a migration that holds nothing to run: recorded, it would
+ * be refused as changed once it is written.
+ */
+function emptyFile(file: MigrationFile): MigrationError {
+  return new MigrationError(
+    "empty",
+    `${file.name} is empty: write the migration, or delete the file`,
+    { migration: file.name },
+  );
 }
 
 /** What a run carries from one migration to the next. */
@@ -451,6 +661,19 @@ interface Run {
 
   /** The migrations this run has applied so far. */
   readonly applied: readonly string[];
+
+  /**
+   * Whether the journal recorded nothing when the run started, on a
+   * database that may have been built before its migrations: its first
+   * migration then fails on what exists already.
+   */
+  readonly fresh: boolean;
+
+  /**
+   * The command that takes a baseline into this run's journal: see
+   * {@link baselineCommand}.
+   */
+  readonly command: string;
 }
 
 /**
@@ -510,10 +733,42 @@ async function apply(
 
     throw new MigrationError(
       "failed",
-      `${file.name} failed${lineOf(file.text, error)}: ${messageOf(error)}`,
+      `${file.name} failed${lineOf(file.text, error)}: ${messageOf(error)}${baselineHint(run, file, error)}`,
       { migration: file.name, cause: error, applied: run.applied },
     );
   }
+}
+
+/**
+ * What the failure of the first migration of a fresh journal adds when the
+ * migration creates what exists already: the database was likely built
+ * before its migrations, and takes a baseline instead. Not for a migration
+ * outside a transaction, which a schema built before them is not: a
+ * `CREATE INDEX CONCURRENTLY` run again finds the invalid index it left.
+ */
+function baselineHint(run: Run, file: MigrationFile, error: unknown): string {
+  const { errno } = error as { errno?: unknown };
+
+  return run.fresh &&
+    run.applied.length === 0 &&
+    file.transaction &&
+    typeof errno === "string" &&
+    DUPLICATE.has(errno)
+    ? `. If the database was built before its migrations, record the ones it has instead of running them: ${run.command}`
+    : "";
+}
+
+/**
+ * The command that takes a baseline into the journal a run uses, from the
+ * directory it reads: `--dir` and `--table` are named when they are not
+ * the command's own defaults.
+ */
+function baselineCommand(dir: string, table: string): string {
+  return [
+    "tetsu-sql migrations:baseline <the last one it has>",
+    ...(dir === "migrations" ? [] : [`--dir ${dir}`]),
+    ...(table === "migrations" ? [] : [`--table ${table}`]),
+  ].join(" ");
 }
 
 /** The refusal of a migration that ended the transaction it runs in. */

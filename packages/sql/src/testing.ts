@@ -26,7 +26,7 @@
 import { afterAll, beforeAll } from "bun:test";
 import type { Kysely } from "kysely";
 import { database } from "./database.ts";
-import { migrate } from "./migrate.ts";
+import { migrateScratch } from "./migrate.ts";
 import { readMigrations } from "./migration-files.ts";
 import type { Schema } from "./schema.ts";
 import type { Scratch } from "./scratch.ts";
@@ -120,7 +120,7 @@ export function testDatabase<DB>(
 
     const scratch = await created;
 
-    await migrate(scratch.sql, { dir, table: schema.journal });
+    await migrateScratch(scratch.sql, { dir, table: schema.journal });
     await checkTypes(schema, dir);
   }, HOOK_MS);
 

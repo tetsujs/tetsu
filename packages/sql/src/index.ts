@@ -21,7 +21,8 @@
  * ```
  *
  * `migrate()` applies the migrations, as a step of its own before the
- * application starts.
+ * application starts; `baseline()` records the ones a database built
+ * before them has.
  *
  * The package is being built, and is not published until every part of it
  * is in place.
@@ -35,11 +36,14 @@ export { database } from "./database.ts";
 export type { MigrationErrorReason } from "./errors.ts";
 export { MigrationError } from "./errors.ts";
 export type {
+  BaselineOptions,
+  BaselineRecord,
+  BaselineResult,
   MigrateOptions,
   MigrateResult,
   MigrationRecord,
 } from "./migrate.ts";
-export { migrate } from "./migrate.ts";
+export { baseline, migrate } from "./migrate.ts";
 export type { FileQuery } from "./queries.ts";
 export { queryCount, queryRows } from "./queries.ts";
 export type { Schema } from "./schema.ts";

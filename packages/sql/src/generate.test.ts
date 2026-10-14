@@ -435,6 +435,21 @@ describe("migrations that fail", () => {
     expect(await existing(made)).toEqual([]);
   });
 
+  test("say nothing of a baseline when the first finds what it creates there", async () => {
+    const dir = await directory({
+      "20261010120000_public.sql": "create schema public;",
+    });
+    const error = await generate({ url, dir }).catch(
+      (failure: unknown) => failure,
+    );
+
+    expect(error).toMatchObject({
+      reason: "failed",
+      message:
+        '20261010120000_public.sql failed: schema "public" already exists',
+    });
+  });
+
   test("with a journal name that cannot be one are refused before any database is made", async () => {
     const role = `tetsu_sql_role_${Bun.randomUUIDv7().replaceAll("-", "")}`;
 

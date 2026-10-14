@@ -127,6 +127,21 @@ describe("a test file's database", () => {
   );
 
   test(
+    "fails the file when its migrations fail, saying nothing of a baseline, and is dropped all the same",
+    async () => {
+      const { names, exitCode, output } = await runFixture("duplicate.ts");
+
+      expect(exitCode).toBe(1);
+      expect(output).toContain(
+        '20261010120000_public.sql failed: schema "public" already exists',
+      );
+      expect(output).not.toContain("baseline");
+      expect(await exists(names[0] ?? "")).toBe(false);
+    },
+    CHILD_RUN_MS,
+  );
+
+  test(
     "fails the file when a test keeps a connection, and is dropped all the same",
     async () => {
       const { names, exitCode, output } = await runFixture("leaks.ts");

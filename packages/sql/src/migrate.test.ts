@@ -1,8 +1,8 @@
 /**
  * The migration runner against a real Postgres: what it applies and
  * records, what it refuses before touching anything, how a failure and a
- * migration outside a transaction end, and how two runners share a
- * database.
+ * migration outside a transaction end, how two runners share a database,
+ * and how a database built before its migrations takes a baseline.
  *
  * Each `describe` has a database of its own, so its journal starts empty;
  * a test that needs migrations applied first applies them itself or in the
@@ -14,13 +14,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { SQL } from "bun";
 import { SQL as Client } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 import { MigrationError } from "./errors.ts";
-import type { MigrationRecord } from "./migrate.ts";
-import { migrate } from "./migrate.ts";
+import type { BaselineRecord, MigrationRecord } from "./migrate.ts";
+import { baseline, migrate, migrateScratch } from "./migrate.ts";
 import { checksum } from "./migration-files.ts";
 
 const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-migrate-"));
@@ -1020,5 +1020,443 @@ describe("the runner's advisory lock", () => {
       holder.release();
       await sql.close();
     }
+  });
+});
+
+describe("a baseline", () => {
+  const { sql } = testDatabase();
+
+  test("records the migrations up to the one named as applied, without running them, and a run then applies the rest", async () => {
+    const builtA = "create table built_a (x int);";
+    const builtB = "create table built_b (x int);";
+    const dir = await directory({
+      [first]: builtA,
+      [second]: builtB,
+      [third]: "create table built_c (x int);",
+    });
+    const records: BaselineRecord[] = [];
+
+    await sql.unsafe(`${builtA} ${builtB}`).simple();
+
+    expect(
+      await baseline(sql, {
+        dir,
+        migration: second,
+        write: (record) => {
+          records.push(record);
+        },
+      }),
+    ).toEqual({ recorded: [first, second] });
+    expect(records).toEqual([
+      { event: "recorded", migration: first },
+      { event: "recorded", migration: second },
+    ]);
+
+    const rows: { name: string; checksum: string }[] =
+      await sql`select name, checksum from migrations order by name`;
+
+    expect(rows).toEqual([
+      { name: first, checksum: checksum(builtA) },
+      { name: second, checksum: checksum(builtB) },
+    ]);
+    expect(await exists(sql, "built_c")).toBe(false);
+    expect(await migrate(sql, { dir })).toEqual({
+      applied: [third],
+      ahead: [],
+    });
+    expect(await exists(sql, "built_c")).toBe(true);
+  });
+
+  test.each([
+    ["its name without .sql", "named_bare", () => "20261010120000_first"],
+    [
+      "its path in the directory",
+      "named_path",
+      (dir: string) => join(dir, first),
+    ],
+    [
+      "its path from the working directory",
+      "named_relative",
+      (dir: string) => relative(process.cwd(), join(dir, first)),
+    ],
+  ])("takes the migration as %s", async (_, table, given) => {
+    const dir = await directory({
+      [first]: "select 1;",
+      [second]: "select 2;",
+    });
+
+    expect(await baseline(sql, { dir, migration: given(dir), table })).toEqual({
+      recorded: [first],
+    });
+    expect(await journal(sql, table)).toEqual([first]);
+  });
+
+  test("leaves an empty migration after the one named to the run", async () => {
+    const dir = await directory({
+      [first]: "select 1;",
+      [second]: "-- todo\n",
+    });
+
+    expect(
+      await baseline(sql, { dir, migration: first, table: "empty_after" }),
+    ).toEqual({ recorded: [first] });
+    expect(
+      (await refusal(migrate(sql, { dir, table: "empty_after" }))).reason,
+    ).toBe("empty");
+  });
+
+  test("goes into an empty journal, as a first run that failed leaves behind", async () => {
+    const dir = await directory({
+      [first]: "create table built_customers (id int primary key);",
+      [second]:
+        "create table built_orders (id int primary key, customer_id int references built_customers);",
+    });
+
+    await sql`create table built_customers (id int primary key)`;
+
+    const failed = await refusal(migrate(sql, { dir, table: "after_failure" }));
+
+    expect(failed.reason).toBe("failed");
+    expect(await journal(sql, "after_failure")).toEqual([]);
+    expect(
+      await baseline(sql, { dir, migration: first, table: "after_failure" }),
+    ).toEqual({ recorded: [first] });
+    expect(await migrate(sql, { dir, table: "after_failure" })).toEqual({
+      applied: [second],
+      ahead: [],
+    });
+  });
+
+  test("creates its journal, with the schema it names", async () => {
+    const dir = await directory({ [first]: "select 1;" });
+
+    await baseline(sql, { dir, migration: first, table: "adopted.journal" });
+
+    expect(await journal(sql, "adopted.journal")).toEqual([first]);
+  });
+});
+
+describe("before recording anything, a baseline refuses", () => {
+  const { sql } = testDatabase();
+
+  test("a journal that records migrations already", async () => {
+    const table = "recorded_journal";
+    const records: BaselineRecord[] = [];
+
+    await migrate(sql, {
+      dir: await directory({ [first]: "select 1;" }),
+      table,
+    });
+
+    const error = await refusal(
+      baseline(sql, {
+        dir: await directory({ [first]: "select 1;", [second]: "select 2;" }),
+        migration: second,
+        table,
+        write: (record) => {
+          records.push(record);
+        },
+      }),
+    );
+
+    expect(error.reason).toBe("recorded");
+    expect(error.message).toBe(
+      "public.recorded_journal records migrations already: a baseline is only for a journal that records none",
+    );
+    expect(records).toEqual([]);
+    expect(await journal(sql, table)).toEqual([first]);
+  });
+
+  test("a migration that is not in the directory, before it touches the database", async () => {
+    const dir = await directory({ [first]: "select 1;" });
+    const elsewhere = await directory({ [second]: "select 2;" });
+
+    for (const migration of ["20261010120000_frist", join(elsewhere, second)]) {
+      const error = await refusal(
+        baseline(sql, { dir, migration, table: "missing_journal" }),
+      );
+      const name = migration.endsWith(".sql") ? migration : `${migration}.sql`;
+
+      expect(error.reason).toBe("missing");
+      expect(error.migration).toBe(name);
+      expect(error.message).toBe(
+        `there is no migration ${name} in ${dir}: name the last migration the database has`,
+      );
+    }
+
+    expect(await exists(sql, "missing_journal")).toBe(false);
+  });
+
+  test("an empty migration among the ones to record", async () => {
+    const dir = await directory({
+      [first]: "-- todo\n",
+      [second]: "select 2;",
+    });
+    const error = await refusal(
+      baseline(sql, { dir, migration: second, table: "empty_journal" }),
+    );
+
+    expect(error.reason).toBe("empty");
+    expect(error.migration).toBe(first);
+    expect(await exists(sql, "empty_journal")).toBe(false);
+  });
+
+  test("a table of the journal's name that is not a journal", async () => {
+    await sql`create table not_a_journal (x int)`;
+
+    const error = await refusal(
+      baseline(sql, {
+        dir: await directory({ [first]: "select 1;" }),
+        migration: first,
+        table: "not_a_journal",
+      }),
+    );
+
+    expect(error.reason).toBe("table");
+  });
+
+  test("a journal name that cannot be one, as a TypeError", async () => {
+    const dir = await directory({ [first]: "select 1;" });
+
+    await expect(
+      baseline(sql, { dir, migration: first, table: "Journal" }),
+    ).rejects.toThrow(TypeError);
+  });
+
+  test("a client for another database, as a TypeError", async () => {
+    const lite = new Client(":memory:");
+
+    try {
+      const dir = await directory({ [first]: "select 1;" });
+
+      await expect(baseline(lite, { dir, migration: first })).rejects.toThrow(
+        "baseline runs on Postgres, and this client is for sqlite",
+      );
+    } finally {
+      await lite.close();
+    }
+  });
+});
+
+describe("a baseline the journal refuses part of", () => {
+  const { sql } = testDatabase();
+
+  test("records none of the migrations", async () => {
+    const records: BaselineRecord[] = [];
+
+    await sql
+      .unsafe(`
+        create table migrations (name text primary key, checksum text not null, applied_at timestamptz not null default now());
+        create function refuse_second() returns trigger language plpgsql as $$
+          begin
+            if new.name = '${second}' then
+              raise exception 'not this one';
+            end if;
+
+            return new;
+          end $$;
+        create trigger refuse_second before insert on migrations
+          for each row execute function refuse_second();`)
+      .simple();
+
+    await expect(
+      baseline(sql, {
+        dir: await directory({ [first]: "select 1;", [second]: "select 2;" }),
+        migration: second,
+        write: (record) => {
+          records.push(record);
+        },
+      }),
+    ).rejects.toThrow("not this one");
+    expect(records).toEqual([]);
+    expect(await journal(sql)).toEqual([]);
+  });
+});
+
+describe("a baseline started while a run holds the lock", () => {
+  const { sql, url } = testDatabase();
+
+  test("says it waits, then records once the run is done", async () => {
+    const other = new Client(url);
+    const holder = await other.reserve();
+    const records: BaselineRecord[] = [];
+
+    try {
+      await holder`select pg_advisory_lock(1953722732, hashtext('public.migrations'))`;
+
+      const recorded = baseline(sql, {
+        dir: await directory({ [first]: "select 1;" }),
+        migration: first,
+        write: (record) => {
+          records.push(record);
+        },
+      });
+
+      while (records.length === 0) {
+        await Bun.sleep(10);
+      }
+
+      expect(records).toEqual([{ event: "waiting" }]);
+
+      await holder`select pg_advisory_unlock(1953722732, hashtext('public.migrations'))`;
+
+      expect(await recorded).toEqual({ recorded: [first] });
+      expect(records).toEqual([
+        { event: "waiting" },
+        { event: "recorded", migration: first },
+      ]);
+    } finally {
+      await holder`select pg_advisory_unlock_all()`;
+      holder.release();
+      await other.close();
+    }
+  });
+});
+
+describe("the first migration of an empty journal, failing on what exists", () => {
+  const { sql } = testDatabase();
+
+  test("says to take a baseline, from the run's directory", async () => {
+    const dir = await directory({ [first]: "create table hinted (x int);" });
+
+    await sql`create table hinted (x int)`;
+
+    const error = await refusal(migrate(sql, { dir }));
+
+    expect(error.reason).toBe("failed");
+    expect(error.message).toBe(
+      `${first} failed: relation "hinted" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has> --dir ${dir}`,
+    );
+  });
+
+  test.each([
+    [
+      "42710",
+      "create type hinted_type as enum ('a')",
+      "create type hinted_type as enum ('a');",
+    ],
+    ["42P06", "create schema hinted_schema", "create schema hinted_schema;"],
+    [
+      "42723",
+      "create function hinted_function() returns int language sql as 'select 1'",
+      "create function hinted_function() returns int language sql as 'select 1';",
+    ],
+    [
+      "42701",
+      "create table hinted_columns (x int)",
+      "alter table hinted_columns add column x int;",
+    ],
+  ])(
+    "says so for %s too, into the run's journal",
+    async (code, existing, migration) => {
+      const dir = await directory({ [first]: migration });
+      const table = `journal_${code.toLowerCase()}`;
+
+      await sql.unsafe(existing);
+
+      const error = await refusal(migrate(sql, { dir, table }));
+
+      expect(sqlstate(error)).toBe(code);
+      expect(error.message).toEndWith(
+        `: tetsu-sql migrations:baseline <the last one it has> --dir ${dir} --table ${table}`,
+      );
+    },
+  );
+
+  test("says nothing of a baseline for a migration outside a transaction", async () => {
+    await sql`create table hinted_concurrently (x int)`;
+    await sql`create index hinted_concurrently_x on hinted_concurrently (x)`;
+
+    const error = await refusal(
+      migrate(sql, {
+        dir: await directory({
+          [first]:
+            "-- no-transaction\ncreate index concurrently hinted_concurrently_x on hinted_concurrently (x);",
+        }),
+        table: "journal_concurrently",
+      }),
+    );
+
+    expect(sqlstate(error)).toBe("42P07");
+    expect(error.message).toBe(
+      `${first} failed: relation "hinted_concurrently_x" already exists`,
+    );
+  });
+
+  test("says nothing of a baseline for another error", async () => {
+    await sql`create table hinted_rows (id int primary key)`;
+    await sql`insert into hinted_rows values (1)`;
+
+    const error = await refusal(
+      migrate(sql, {
+        dir: await directory({
+          [first]: "insert into hinted_rows values (1);",
+        }),
+        table: "journal_rows",
+      }),
+    );
+
+    expect(sqlstate(error)).toBe("23505");
+    expect(error.message).not.toContain("baseline");
+  });
+
+  test("says nothing of a baseline once the journal records a migration", async () => {
+    const table = "journal_recorded";
+
+    await sql`create table hinted_later (x int)`;
+    await migrate(sql, {
+      dir: await directory({ [first]: "select 1;" }),
+      table,
+    });
+
+    const error = await refusal(
+      migrate(sql, {
+        dir: await directory({
+          [first]: "select 1;",
+          [second]: "create table hinted_later (x int);",
+        }),
+        table,
+      }),
+    );
+
+    expect(error.message).toBe(
+      `${second} failed: relation "hinted_later" already exists`,
+    );
+  });
+
+  test("says nothing of a baseline on a scratch database", async () => {
+    await sql`create table hinted_scratch (x int)`;
+
+    const error = await refusal(
+      migrateScratch(sql, {
+        dir: await directory({
+          [first]: "create table hinted_scratch (x int);",
+        }),
+        table: "journal_scratch",
+      }),
+    );
+
+    expect(error.message).toBe(
+      `${first} failed: relation "hinted_scratch" already exists`,
+    );
+  });
+
+  test("says nothing of a baseline after the run applied one", async () => {
+    await sql`create table hinted_second (x int)`;
+
+    const error = await refusal(
+      migrate(sql, {
+        dir: await directory({
+          [first]: "select 1;",
+          [second]: "create table hinted_second (x int);",
+        }),
+        table: "journal_applied",
+      }),
+    );
+
+    expect(error.applied).toEqual([first]);
+    expect(error.message).toBe(
+      `${second} failed: relation "hinted_second" already exists`,
+    );
   });
 });

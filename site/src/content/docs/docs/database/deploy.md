@@ -27,6 +27,9 @@ The version before keeps running while the migrations apply, and until the
 new one is out, so a migration must not break it: [Changing a schema the
 application runs on](/docs/database/migrations/#changing-a-schema-the-application-runs-on).
 
+A database built before its migrations takes a baseline once, before its
+first run: [Adopting a database](/docs/database/migrations/#adopting-a-database).
+
 The migrations are read from disk by the step that applies them: ship the
 directory with it. The application itself reads none of them, so a binary
 built with `bun build --compile` holds only the generated files, which are

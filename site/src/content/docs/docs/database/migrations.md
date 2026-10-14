@@ -21,10 +21,10 @@ This creates `migrations/20261014120500_add_shipments.sql`, empty, and
 refuses to overwrite a file of that name. From code, `createMigration()` of
 `@tetsujs/sql/generate` does the same.
 
-A migration is the SQL Postgres runs, as `psql` would take it: any number of
-statements, comments and `$$` bodies. A pending migration that holds only
-comments and blank lines is refused rather than applied: once recorded, it
-could not be written.
+A migration is the SQL Postgres runs: any number of statements, comments
+and `$$` bodies, but none of the commands of `psql` itself, such as `\set`
+or `\i`. A pending migration that holds only comments and blank lines is
+refused rather than applied: once recorded, it could not be written.
 
 ## Applying them
 
@@ -90,11 +90,12 @@ names the file to blame.
 | --- | --- |
 | `directory` | the migrations directory is not there |
 | `name` | a `.sql` file is not named as a migration, or a new migration's name is not lowercase letters, digits and underscores, or its file exists |
-| `empty` | a pending migration holds nothing to run |
+| `empty` | a pending migration holds nothing to run, or one a baseline would record |
 | `table` | the journal's table exists, and is not a journal |
-| `missing` | an applied migration's file is gone, though newer files are there, or the directory holds no migration at all |
+| `missing` | an applied migration's file is gone, though newer files are there, or the directory holds no migration at all; for a baseline, the migration named is not there |
 | `changed` | an applied migration's file has changed |
 | `out-of-order` | a pending migration is older than the last one applied |
+| `recorded` | a baseline found migrations recorded in the journal already: [Adopting a database](#adopting-a-database) |
 | `failed` | a migration failed, and was rolled back, unless it runs outside a transaction; the Postgres error is the `cause` |
 | `own-transaction` | a migration ended its transaction itself, with a `COMMIT` or a `ROLLBACK` |
 
@@ -167,3 +168,47 @@ written to.
 
 `verifySchema()` reads the same journal when the application starts:
 [Deploy and CI](/docs/database/deploy/#checking-the-database-at-start).
+
+## Adopting a database
+
+A database built before its migrations, by another tool or by hand, has
+the schema they create already, so its first run fails, and says what to do:
+
+```text wrap
+error: 20261015120000_schema.sql failed: relation "customers" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has>
+```
+
+A baseline records migrations in the journal as applied, with their
+checksums, without running them:
+
+```bash
+bunx tetsu-sql migrations:baseline 20261015120000_schema
+```
+
+It records the migration named and every one before it, and
+`migrations:run` then applies the ones after. The name goes with or
+without `.sql`, or as the file's path, and `--dir`, `--url` and `--table`
+are the ones `migrations:run` is given. From code, it is `baseline(sql, {
+dir, migration })`, on a client of its own, as `migrate()` is.
+
+- **Name the last migration the database has.** Named too early, the next
+  run fails on what the database has; too late, the run skips what it
+  lacks.
+- **Only a journal that records nothing takes a baseline.** A missing one is
+  created. Once a migration is recorded, the journal says what the database
+  has, and a baseline is refused with `recorded`. A run whose first
+  migration failed leaves the journal empty; one that applied migrations
+  before failing, or a baseline named wrong, leaves rows to delete before
+  the next run: `delete from migrations`, or from the table `--table`
+  names.
+- **Each database built before the migrations takes one, once:**
+  production, staging. A new database, for the tests or a new environment,
+  runs every migration from the first, as the scratch database of
+  `types:generate` does, so the first migration must build the schema on
+  an empty database too.
+
+The first migration of such a database is usually its schema as it is,
+from `pg_dump --schema-only --no-owner --no-privileges`, trimmed to the
+statements you would have written. A recent `pg_dump` puts `\restrict` and
+`\unrestrict` lines around the dump: commands of `psql`, not SQL, so delete
+them.

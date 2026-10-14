@@ -431,6 +431,103 @@ describe("migrations:run", () => {
   });
 });
 
+describe("migrations:baseline", () => {
+  test("records the migrations up to the one named as applied, and says so; a run then applies the rest", async () => {
+    const dir = await directory();
+    const flags = ["--dir", dir, "--url", url, "--table", "cli_baseline"];
+
+    await Bun.write(
+      join(dir, "20261010120000_first.sql"),
+      "create table cli_built (x int);",
+    );
+    await Bun.write(
+      join(dir, "20261011120000_second.sql"),
+      "create table cli_after (x int);",
+    );
+    await sql`create table cli_built (x int)`;
+
+    expect(
+      run(["migrations:baseline", "20261010120000_first", ...flags]),
+    ).toEqual({
+      exitCode: 0,
+      stdout: "recorded 20261010120000_first.sql as applied\n",
+      stderr: "",
+    });
+
+    const applied = run(["migrations:run", ...flags]);
+
+    expect({ ...applied, stdout: timeless(applied.stdout) }).toEqual({
+      exitCode: 0,
+      stdout: [
+        "applying 20261011120000_second.sql",
+        "applied 20261011120000_second.sql in N ms",
+        "",
+      ].join("\n"),
+      stderr: "",
+    });
+  });
+
+  test("refuses a journal that records migrations already, and exits with 1", async () => {
+    const dir = await directory();
+    const flags = ["--dir", dir, "--url", url, "--table", "cli_recorded"];
+
+    await Bun.write(join(dir, "20261010120000_first.sql"), "select 1;");
+
+    expect(run(["migrations:run", ...flags]).exitCode).toBe(0);
+    expect(
+      run(["migrations:baseline", "20261010120000_first.sql", ...flags]),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        "error: public.cli_recorded records migrations already: a baseline is only for a journal that records none\n",
+    });
+  });
+
+  test("says to take a baseline, into the run's journal, when the first migration finds what it creates there", async () => {
+    const cwd = await directory();
+
+    await mkdir(join(cwd, "migrations"));
+    await Bun.write(
+      join(cwd, "migrations", "20261010120000_first.sql"),
+      "create table cli_hinted (x int);",
+    );
+    await sql`create table cli_hinted (x int)`;
+
+    const result = run(
+      ["migrations:run", "--url", url, "--table", "cli_hinted_journal"],
+      { cwd },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      'error: 20261010120000_first.sql failed: relation "cli_hinted" already exists. If the database was built before its migrations, record the ones it has instead of running them: tetsu-sql migrations:baseline <the last one it has> --table cli_hinted_journal\n',
+    );
+  });
+
+  test("needs exactly one migration, before it needs a database", () => {
+    for (const args of [
+      ["migrations:baseline"],
+      ["migrations:baseline", "a", "b"],
+    ]) {
+      const result = run(args);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toStartWith(
+        "migrations:baseline takes one migration: the last one the database has",
+      );
+      expect(result.stderr).toContain("Usage: tetsu-sql");
+    }
+  });
+
+  test("needs a database", async () => {
+    const result = run(["migrations:baseline", "20261010120000_first"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toStartWith("migrations:baseline needs a database");
+  });
+});
+
 describe("--json", () => {
   test("prints each step as a JSON line, with its time and level, and the result at the end", async () => {
     const dir = await directory();
@@ -547,6 +644,46 @@ describe("--json", () => {
         event: "done",
         applied: [],
         ahead: ["20261011120000_second.sql"],
+      },
+    ]);
+  });
+
+  test("prints each migration a baseline records as a JSON line, and its refusal", async () => {
+    const dir = await directory();
+    const flags = ["--json", "--dir", dir, "--url", url];
+
+    await Bun.write(join(dir, "20261010120000_first.sql"), "select 1;");
+    await Bun.write(join(dir, "20261011120000_second.sql"), "select 2;");
+
+    const baseline = [
+      "migrations:baseline",
+      "20261011120000_second",
+      ...flags,
+      ...["--table", "cli_json_baseline"],
+    ];
+
+    expect(lines(run(baseline).stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "recorded",
+        migration: "20261010120000_first.sql",
+      },
+      {
+        time: expect.any(String),
+        level: "info",
+        event: "recorded",
+        migration: "20261011120000_second.sql",
+      },
+    ]);
+    expect(lines(run(baseline).stdout)).toEqual([
+      {
+        time: expect.any(String),
+        level: "error",
+        event: "error",
+        message:
+          "public.cli_json_baseline records migrations already: a baseline is only for a journal that records none",
+        reason: "recorded",
       },
     ]);
   });
@@ -892,6 +1029,14 @@ describe("the command line", () => {
     [
       ["migrations:run", "--queries", "q"],
       "migrations:run does not take --queries",
+    ],
+    [
+      ["migrations:baseline", "a", "--lock-timeout-ms", "5"],
+      "migrations:baseline does not take --lock-timeout-ms",
+    ],
+    [
+      ["migrations:baseline", "a", "--check"],
+      "migrations:baseline does not take --check",
     ],
   ])("refuses %j, with the usage", (args, message) => {
     const result = run(args);
