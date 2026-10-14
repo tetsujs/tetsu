@@ -55,7 +55,9 @@ old and nobody is on it.
 - **A union for each enum,** such as `OrderStatus`, and for each list of
   values a check allows, such as `check (region in ('eu', 'us'))`.
 - **`Constraint`**, the names of the constraints, which
-  [`isViolation()`](/docs/database/transactions/#a-broken-constraint) takes.
+  [`isViolation()`](/docs/database/transactions/#a-broken-constraint) takes:
+  a key of a partitioned table under the name it has in each partition,
+  which is the one an error names.
 - **`schema`**, for the runtime: the journal, the migration the types were
   built from, which [`verifySchema()`](/docs/database/deploy/#checking-the-database-at-start)
   checks the database against, what an `int8` reads as, and the columns of

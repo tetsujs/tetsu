@@ -323,7 +323,6 @@ export type Constraint =
   | "bookings_pkey"
   | "ci_kind_check"
   | "events_2026_pkey"
-  | "events_pkey"
   | "inner_kind_check"
   | "invoices_order_id_fkey"
   | "invoices_pkey"

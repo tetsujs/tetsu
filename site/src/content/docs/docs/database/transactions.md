@@ -193,3 +193,12 @@ matches, `error` is narrowed to Bun's `PostgresError`, with that
 A failure inside a transaction aborts it all the same. Answer it outside
 the transaction, or run the write in a unit of its own with `atomic()`,
 whose savepoint takes the failure while the transaction goes on.
+
+A key, a unique index or an exclusion constraint of a partitioned table is
+each partition's own: a duplicate in `events` breaks `events_2026_pkey`, of
+the partition the row goes to, and never `events_pkey`. `Constraint` holds
+them under the names they have in the partitions the migrations create,
+not the table's. A partition made later, as by a job that adds one each
+month, is in no generated file: tell its violation by `errno`, `23505` for
+a duplicate, and by `table`, the partition. A foreign key or a check keeps
+the table's name in every partition.

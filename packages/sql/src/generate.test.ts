@@ -492,6 +492,57 @@ describe("a not-null constraint not valid yet, on Postgres 18", () => {
   });
 });
 
+describe("the constraints of a partitioned table", () => {
+  test("are named as Postgres names them: a key and a unique index as each partition has them, a foreign key and a check as the table has them", async () => {
+    const dir = await directory({
+      "20261010120000_events.sql": `
+        create table users (id int8 primary key);
+        create table events (
+          id int8,
+          at date,
+          user_id int8 references users,
+          kind text check (kind <> ''),
+          email text,
+          primary key (id, at),
+          unique (email, at)
+        ) partition by range (at);
+        create unique index events_kind_at_idx on events (kind, at);
+        create table events_2026 partition of events
+          for values from ('2026-01-01') to ('2027-01-01');`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain(
+      'export type Constraint =\n  | "events_2026_email_at_key"\n  | "events_2026_kind_at_idx"\n  | "events_2026_pkey"\n  | "events_kind_check"\n  | "events_user_id_fkey"\n  | "users_pkey";',
+    );
+  });
+
+  test("of exclusion, on Postgres 17 and later, is named as each partition has it", async () => {
+    const [server] =
+      await sql`select current_setting('server_version_num')::int as version`;
+
+    if (server.version < 170000) {
+      return;
+    }
+
+    const dir = await directory({
+      "20261010120000_slots.sql": `
+        create table slots (
+          id int8,
+          at date,
+          exclude using btree (id with =, at with =)
+        ) partition by range (at);
+        create table slots_2026 partition of slots
+          for values from ('2026-01-01') to ('2027-01-01');`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain(
+      'export type Constraint = "slots_2026_id_at_excl";',
+    );
+  });
+});
+
 describe("migrations that fail", () => {
   test("fail the run, and the scratch database is dropped", async () => {
     const dir = await directory({

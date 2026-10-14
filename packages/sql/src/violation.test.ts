@@ -157,6 +157,18 @@ describe("a broken constraint is told by its name", () => {
 
     expect(isViolation(error, "bookings_during_excl")).toBe(true);
   });
+
+  test("of a key of a partitioned table, by the name its partition has it under", async () => {
+    const event = { id: 1n, at: new Date("2026-05-01T00:00:00Z") };
+
+    await db.insertInto("events").values(event).execute();
+
+    const error = await failure(
+      db.insertInto("events").values(event).execute(),
+    );
+
+    expect(isViolation(error, "events_2026_pkey")).toBe(true);
+  });
 });
 
 describe("no constraint is taken as broken", () => {

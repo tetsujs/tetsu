@@ -87,7 +87,11 @@ export interface Model {
   /** The helper types the columns are built from. */
   readonly helpers: ReadonlySet<Helper>;
 
-  /** The names of its constraints, as an error names them. */
+  /**
+   * The names of its constraints, as an error names them: a key, a unique
+   * index or an exclusion constraint of a partitioned table by the name
+   * each partition has it under, which is the one Postgres names.
+   */
   readonly constraints: readonly string[];
 }
 
@@ -348,7 +352,9 @@ export async function readCatalog(
      where k.contype in ('p', 'u', 'f', 'c', 'x') and ${USER_SCHEMA}
        and k.conrelid is distinct from to_regclass($1)
        and not exists (
-         select 1 from pg_class c where c.oid = k.conrelid and c.relkind = 'f'
+         select 1 from pg_class c
+         where c.oid = k.conrelid
+           and (c.relkind = 'f' or (c.relkind = 'p' and k.contype in ('p', 'u', 'x')))
        )
      union
      select i.relname
@@ -357,6 +363,7 @@ export async function readCatalog(
        join pg_namespace n on n.oid = i.relnamespace
      where x.indisunique and ${USER_SCHEMA}
        and x.indrelid is distinct from to_regclass($1)
+       and i.relkind <> 'I'
        and not exists (
          select 1 from pg_constraint k
          where k.conindid = x.indexrelid and k.contype in ('p', 'u', 'x')
