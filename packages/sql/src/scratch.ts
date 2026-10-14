@@ -55,23 +55,58 @@ export function scratchName(): string {
 }
 
 /**
+ * The options of a connection that make how it signs in, and over what,
+ * where the URL does not say it: a password, TLS, a socket's path, and how
+ * long connecting may take.
+ */
+export type ConnectOptions = Pick<
+  SQL.PostgresOrMySQLOptions,
+  | "password"
+  | "tls"
+  | "ssl"
+  | "path"
+  | "connectionTimeout"
+  | "connection_timeout"
+>;
+
+/** The names of {@link ConnectOptions}. */
+const CONNECT = [
+  "password",
+  "tls",
+  "ssl",
+  "path",
+  "connectionTimeout",
+  "connection_timeout",
+] as const;
+
+/** Those of `options` that make how a connection signs in, and over what. */
+export function connectOptionsOf(options: ConnectOptions): ConnectOptions {
+  return Object.fromEntries(
+    CONNECT.flatMap((key) =>
+      options[key] === undefined ? [] : [[key, options[key]]],
+    ),
+  ) as ConnectOptions;
+}
+
+/**
  * Creates an empty database on the server of the database `url` names,
  * with a client of it: named `name`, a {@link scratchName} by default.
- * Both connections are made from `url` itself, so what it says —
- * `sslmode`, `options` with a `search_path` — holds for each, and nothing
- * of the environment does: not even `PGDATABASE`, which Bun 1.4.3 takes
- * over the database a URL names. The user needs the right to create
+ * Both connections are made from `url` itself, with `options`, so what it
+ * says — `sslmode`, `options` with a `search_path` — holds for each, and
+ * nothing of the environment does: not even `PGDATABASE`, which Bun 1.4.3
+ * takes over the database a URL names. The user needs the right to create
  * databases.
  */
 export async function createScratch(
   url: string,
   name = scratchName(),
+  options: ConnectOptions = {},
 ): Promise<Scratch> {
   if (!NAME.test(name)) {
     throw new TypeError(`${name} is not the name of a scratch database`);
   }
 
-  const server = clientOf(url);
+  const server = clientOf(url, options);
 
   try {
     await dropLeftBehind(server);
@@ -87,7 +122,7 @@ export async function createScratch(
       : error;
   }
 
-  const scratch = clientOf(urlOf(url, name));
+  const scratch = clientOf(urlOf(url, name), options);
 
   return {
     name,

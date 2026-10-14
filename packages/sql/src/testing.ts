@@ -31,12 +31,19 @@ import { migrateScratch } from "./migrate.ts";
 import { readMigrations } from "./migration-files.ts";
 import type { Schema } from "./schema.ts";
 import type { Scratch } from "./scratch.ts";
-import { createScratch, scratchName, urlOf } from "./scratch.ts";
+import {
+  connectOptionsOf,
+  createScratch,
+  scratchName,
+  urlOf,
+} from "./scratch.ts";
 
 /**
  * Where a test's database is made, and what it is built from; the rest
  * are the options of `database()`, which `db` is made with, so that tests
- * run on a pool set as the application's.
+ * run on a pool set as the application's. Of those, a password, TLS, a
+ * socket's path and how long connecting may take reach the server as the
+ * database is made and dropped, too.
  */
 export interface TestDatabaseOptions extends Omit<DatabaseOptions, "url"> {
   /**
@@ -122,7 +129,7 @@ export function testDatabase<DB>(
   let created: Promise<Scratch> | undefined;
 
   beforeAll(async () => {
-    created = createScratch(server, name);
+    created = createScratch(server, name, connectOptionsOf(pool));
 
     const scratch = await created;
 

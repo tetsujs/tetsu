@@ -193,6 +193,29 @@ describe("a test file's database, given the options of database()", () => {
   });
 });
 
+describe("a test file's database, given a password apart from its URL", () => {
+  const signed = new URL(Bun.env["DATABASE_URL"] ?? "");
+  const password = decodeURIComponent(signed.password);
+
+  signed.password = "";
+
+  const { db } = testDatabase(schema, {
+    url: signed.href,
+    dir: join(import.meta.dir, "../test-utils/fixtures/schema/migrations"),
+    password,
+  });
+
+  test("is made, migrated and reached with it", async () => {
+    const { rows } = await sql<{
+      tables: number;
+    }>`select count(*)::int4 as tables from pg_tables where tablename = 'orders'`.execute(
+      db,
+    );
+
+    expect(rows).toEqual([{ tables: 1 }]);
+  });
+});
+
 describe("a test file's database needs a server", () => {
   test("and says so when its URL is not set", () => {
     expect(() =>
