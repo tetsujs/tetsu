@@ -1,6 +1,6 @@
 /**
- * The names `isViolation()` takes: those the generated files register,
- * here the fixture's, and no other.
+ * The names `isViolation()` takes: those the generated files of the
+ * program register, the fixture's among them, and no other.
  *
  * @module
  */
@@ -13,7 +13,9 @@ import { isViolation } from "./violation.ts";
 
 declare const error: unknown;
 
-export type names = [Expect<Equal<ConstraintName, Constraint>>];
+export type names = [
+  Expect<Equal<Extract<ConstraintName, Constraint>, Constraint>>,
+];
 
 export const told = isViolation(error, "orders_email_key");
 
