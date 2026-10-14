@@ -753,6 +753,14 @@ describe("a literal a query compares a column with", () => {
     ).toEqual(["name: string"]);
   });
 
+  test("that a part of a union returns as a value passes, though the plan compares it with a column of the other part", async () => {
+    expect(
+      await columns(
+        "select x.channel, x.n from (select channel, count(*) as n from orders group by channel union all select 'total', count(*) from orders) x where x.channel = 'total'",
+      ),
+    ).toEqual(["channel: string | null", "n: bigint | null"]);
+  });
+
   test("that a view the query reads holds, not the file, is left to the view's migration", async () => {
     expect(await columns("select id from live_orders where id = 1")).toEqual([
       "id: bigint | null",

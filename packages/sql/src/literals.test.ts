@@ -285,6 +285,34 @@ describe("a literal the plan compares with more than one column", () => {
     ).toEqual([]);
   });
 
+  test("passes where the plan holds it as a value, as a part of a union returns it", () => {
+    expect(
+      literalsOutside(
+        [
+          {
+            Plan: {
+              "Node Type": "Append",
+              Plans: [
+                {
+                  "Node Type": "Seq Scan",
+                  "Relation Name": "tasks",
+                  Schema: "public",
+                  Alias: "tasks",
+                  Filter: "(tasks.status = 'total'::text)",
+                },
+                {
+                  "Node Type": "Aggregate",
+                  Output: ["'total'::text", "count(*)"],
+                },
+              ],
+            },
+          },
+        ],
+        allowed,
+      ),
+    ).toEqual([]);
+  });
+
   test("passes where the other is a relation the plan does not scan", () => {
     expect(
       outside({

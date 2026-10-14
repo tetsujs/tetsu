@@ -13,12 +13,13 @@
  * looked through.
  *
  * A literal is refused only where it is certain to be outside: when every
- * place the plan's conditions hold it is such a comparison, with a column
- * whose values leave it out. The planner copies a condition into each
- * table a `union all` or a parent of tables reads, and derives one for a
- * column a join makes equal to another, so the same literal stands beside
- * columns the query never named; one of them that may hold it, or a place
- * that is no such comparison, as `lower(name) = 'garden'`, lets it pass.
+ * place the plan holds it is such a comparison, with a column whose values
+ * leave it out. The planner copies a condition into each table a `union
+ * all` or a parent of tables reads, and derives one for a column a join
+ * makes equal to another, so the same literal stands beside columns the
+ * query never named; one of them that may hold it, or a place that is no
+ * such comparison — `lower(name) = 'garden'`, or the value a part of a
+ * union returns — lets it pass.
  *
  * @module
  */
@@ -141,6 +142,7 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
     ?.Plan;
   const relations = new Map<string, { schema: string; name: string }>();
   const conditions: string[] = [];
+  const texts: string[] = [];
 
   const visit = (node: PlanNode) => {
     const name = node["Relation Name"];
@@ -160,6 +162,16 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
 
       if (typeof condition === "string") {
         conditions.push(condition.replaceAll(TO_BASE, "$1"));
+      }
+    }
+
+    for (const [field, value] of Object.entries(node)) {
+      if (field !== "Plans") {
+        texts.push(
+          ...(Array.isArray(value) ? value : [value]).filter(
+            (text): text is string => typeof text === "string",
+          ),
+        );
       }
     }
 
@@ -219,8 +231,8 @@ export function literalsOutside(plan: unknown, allowed: Allowed): Outside[] {
 
   const written = new Map<string, number>();
 
-  for (const condition of conditions) {
-    for (const key of literalsIn(condition)) {
+  for (const text of texts) {
+    for (const key of literalsIn(text)) {
       written.set(key, (written.get(key) ?? 0) + 1);
     }
   }
