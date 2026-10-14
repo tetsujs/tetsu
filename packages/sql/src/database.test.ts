@@ -670,9 +670,26 @@ describe("db.connection()", () => {
 });
 
 describe("a number", () => {
+  /** A table of each kind of number, which the fixture's types do not hold. */
+  type Numbers = {
+    numbers: {
+      id: number;
+      i2: number | null;
+      i4: number | null;
+      i8: bigint | number | null;
+      f4: number | null;
+      f8: number | null;
+      n: number | string | null;
+    };
+  };
+
+  const numbers = () => db.withTables<Numbers>();
+
   beforeAll(async () => {
     await client`
-      create table numbers (i2 int2, i4 int4, i8 int8, f4 float4, f8 float8, n numeric)`;
+      create table numbers (
+        id int4 primary key, i2 int2, i4 int4, i8 int8, f4 float4, f8 float8, n numeric
+      )`;
   });
 
   /** The SQLSTATE a query fails with. */
@@ -686,24 +703,40 @@ describe("a number", () => {
     throw new Error("the query did not fail");
   }
 
-  test("that is not whole is refused by an integer column, not rounded to it", async () => {
-    for (const column of ["i2", "i4", "i8"]) {
-      for (const value of [
-        2.5,
-        3.5,
-        0.1 + 0.2,
-        Number.NaN,
-        Number.NEGATIVE_INFINITY,
-      ]) {
+  test("that is not whole is refused where a write puts it in an integer column, not rounded", async () => {
+    for (const column of ["i2", "i4", "i8"] as const) {
+      for (const value of [2.5, 3.5, 0.1 + 0.2, Number.NaN]) {
         expect(
           await sqlstate(
-            sql`insert into numbers (${sql.ref(column)}) values (${value})`.execute(
-              db,
-            ),
+            numbers()
+              .insertInto("numbers")
+              .values({ id: 1, [column]: value })
+              .execute(),
           ),
         ).toBe("22P02");
       }
     }
+
+    expect(
+      await sqlstate(
+        numbers()
+          .updateTable("numbers")
+          .set({ i4: 2.5 })
+          .where("id", "=", 1)
+          .execute(),
+      ),
+    ).toBe("22P02");
+    expect(
+      await sqlstate(
+        numbers()
+          .insertInto("numbers")
+          .values({ id: 1, i4: 1 })
+          .onConflict((conflict) =>
+            conflict.column("id").doUpdateSet({ i4: 2.5 }),
+          )
+          .execute(),
+      ),
+    ).toBe("22P02");
 
     const { rows } = await sql`select count(*) as count from numbers`.execute(
       db,
@@ -713,57 +746,62 @@ describe("a number", () => {
   });
 
   test("that is not whole goes into a float8, a float4 and a numeric as the number it is", async () => {
-    const { rows } = await sql`
-      insert into numbers (f4, f8, n) values (${2.5}, ${0.1 + 0.2}, ${0.1 + 0.2})
-      returning f4, f8, n`.execute(db);
+    const row = await numbers()
+      .insertInto("numbers")
+      .values({ id: 2, f4: 2.5, f8: 0.1 + 0.2, n: 0.1 + 0.2 })
+      .returning(["f4", "f8", "n"])
+      .executeTakeFirstOrThrow();
 
-    expect(rows).toEqual([
-      { f4: 2.5, f8: 0.30000000000000004, n: "0.30000000000000004" },
-    ]);
+    expect(row).toEqual({
+      f4: 2.5,
+      f8: 0.30000000000000004,
+      n: "0.30000000000000004",
+    });
   });
 
-  test("that is NaN or infinite goes into a float8 as it is", async () => {
-    const { rows } = await sql`
-      select ${Number.NaN}::float8 as nan, ${Number.POSITIVE_INFINITY}::float8 as up,
-        ${Number.NEGATIVE_INFINITY}::float8 as down`.execute(db);
+  test("that is not whole is bound as Bun binds it where it is compared or computed with", async () => {
+    await numbers().insertInto("numbers").values({ id: 3, i4: 3 }).execute();
 
-    expect(rows).toEqual([
-      {
-        nan: Number.NaN,
-        up: Number.POSITIVE_INFINITY,
-        down: Number.NEGATIVE_INFINITY,
-      },
-    ]);
+    const compared = await numbers()
+      .selectFrom("numbers")
+      .select("id")
+      .where("i4", ">", 2.5)
+      .where("id", "=", 3)
+      .execute();
+    const computed = await numbers()
+      .selectFrom("numbers")
+      .select((eb) => eb("i4", "*", 1.5).as("product"))
+      .where("id", "=", 3)
+      .executeTakeFirstOrThrow();
+
+    expect(compared).toEqual([{ id: 3 }]);
+    expect(computed).toEqual({ product: 4.5 });
   });
 
-  test("that is whole goes in as it is, past 2⁵³ as well", async () => {
-    const { rows } = await sql`
-      insert into numbers (i4, i8, f8, n) values (${7}, ${2 ** 53 + 2}, ${2 ** 53 + 2}, ${2 ** 70})
-      returning i4, i8, f8, n`.execute(db);
+  test("that is not whole and written into the SQL, as a literal, is left to Postgres", async () => {
+    const rows = await numbers()
+      .insertInto("numbers")
+      .values((eb) => ({ id: 6, i4: eb.lit(2.5) }))
+      .returning("i4")
+      .execute();
+    const raw = await numbers()
+      .updateTable("numbers")
+      .set({ i4: sql.lit(3.5) })
+      .where("id", "=", 6)
+      .returning("i4")
+      .execute();
 
-    expect(rows).toEqual([
-      {
-        i4: 7,
-        i8: 9007199254740994n,
-        f8: 9007199254740994,
-        n: "1180591620717411300000",
-      },
-    ]);
+    expect([rows, raw]).toEqual([[{ i4: 3 }], [{ i4: 4 }]]);
   });
 
-  test("that is not whole is refused where the builder or a query file compares, limits or casts to an integer", async () => {
-    expect(
-      await sqlstate(
-        db
-          .selectFrom("orders")
-          .select("id")
-          .where("number", "=", 10.5)
-          .execute(),
-      ),
-    ).toBe("22P02");
-    expect(
-      await sqlstate(db.selectFrom("orders").select("id").limit(1.5).execute()),
-    ).toBe("22P02");
+  test("that is not whole is bound as Bun binds it in raw SQL, which says nothing of where it goes", async () => {
+    const { rows } = await sql`
+      insert into numbers (id, i4) values (4, ${2.5}) returning i4`.execute(db);
+
+    expect(rows).toEqual([{ i4: 2 }]);
+  });
+
+  test("that is not whole is refused by an integer parameter of a query file, and read by a numeric one", async () => {
     expect(
       await sqlstate(
         queryRows(
@@ -773,13 +811,27 @@ describe("a number", () => {
         ),
       ),
     ).toBe("22P02");
+    expect(
+      await queryRows(
+        db,
+        { text: "select $1::numeric as n", names: ["n"], arrays: {} },
+        { n: 0.1 + 0.2 },
+      ),
+    ).toEqual([{ n: "0.30000000000000004" }]);
   });
 
-  test("that is not whole is read as text in raw SQL where nothing gives it a type", async () => {
-    const { rows } =
-      await sql`select ${2.5} as text, ${2.5}::float8 as cast`.execute(db);
+  test("that is whole is written as Bun binds it", async () => {
+    const row = await numbers()
+      .insertInto("numbers")
+      .values({ id: 5, i4: 7, i8: 2 ** 60, f8: 2 ** 53 + 2 })
+      .returning(["i4", "i8", "f8"])
+      .executeTakeFirstOrThrow();
 
-    expect(rows).toEqual([{ text: "2.5", cast: 2.5 }]);
+    expect(row).toEqual({
+      i4: 7,
+      i8: 1152921504606846976n,
+      f8: 9007199254740994,
+    });
   });
 });
 

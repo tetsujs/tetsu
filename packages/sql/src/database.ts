@@ -10,6 +10,7 @@ import { Kysely } from "kysely";
 import { ArraysPlugin } from "./arrays.ts";
 import { clientOf } from "./client.ts";
 import { BunDialect, onOneConnection } from "./driver.ts";
+import { FractionsPlugin } from "./fractions.ts";
 import type { Schema } from "./schema.ts";
 
 /**
@@ -47,16 +48,17 @@ export interface DatabaseOptions
  * `int8` is read as a `bigint`, or as a string when the types were
  * generated with `int8: "string"`, an `int4[]` or a `float4[]` as an array
  * with parameters and without, a `Date` is written to any timestamp and to
- * a `date`, a number that is not whole is refused by an integer column
- * rather than rounded, and a JavaScript array to a column of arrays, which
- * Bun cannot bind: an array of arrays as one of more dimensions, as Bun
- * reads one, and an array of json as the JSON of its elements. An array
- * goes in as the literal Postgres reads where a query says it goes to such
- * a column: a value of an insert, an upsert or a merge, a `set`, a value
- * compared with such a column of the same query, and the argument of
- * `any()` or `all()`. In raw SQL, or as the argument of another function,
- * it is bound as Bun binds it, which fails for an array type: write
- * `` sql`array[${sql.join(items)}]` `` there.
+ * a `date`, a number that is not whole, written to an integer column by an
+ * insert, an upsert, a merge or a `set`, is refused rather than rounded,
+ * and a JavaScript array to a column of arrays, which Bun cannot bind: an
+ * array of arrays as one of more dimensions, as Bun reads one, and an array
+ * of json as the JSON of its elements. An array goes in as the literal
+ * Postgres reads where a query says it goes to such a column: a value of an
+ * insert, an upsert or a merge, a `set`, a value compared with such a
+ * column of the same query, and the argument of `any()` or `all()`. In raw
+ * SQL, or as the argument of another function, it is bound as Bun binds it,
+ * which fails for an array type: write `` sql`array[${sql.join(items)}]` ``
+ * there.
  *
  * Two values Bun reads with parameters stay as it reads them: an `int4[]`
  * or a `float4[]` that holds a NULL cannot be read at all
@@ -130,7 +132,7 @@ export function database<DB>(
         clientOf(url, client),
         clientOf(url, { ...client, max: 1 }),
       ),
-      plugins: [new ArraysPlugin(schema.arrays)],
+      plugins: [new ArraysPlugin(schema.arrays), new FractionsPlugin()],
     }),
   );
 }

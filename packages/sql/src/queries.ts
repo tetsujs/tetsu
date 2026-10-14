@@ -63,7 +63,9 @@ export async function queryCount<DB>(
 /**
  * A query with its values: each parameter's, by its name; an array to a
  * parameter of arrays as the literal Postgres reads, which Bun cannot
- * bind.
+ * bind; and a number that is not whole as its text, which Postgres reads
+ * as the parameter's type, so that an integer one refuses it rather than
+ * round the `float8` Bun would bind.
  */
 function compiled<Row>(query: FileQuery, params: object): CompiledQuery<Row> {
   return CompiledQuery.raw(
@@ -82,9 +84,15 @@ function compiled<Row>(query: FileQuery, params: object): CompiledQuery<Row> {
         );
       }
 
-      return written !== undefined &&
+      if (
+        written !== undefined &&
         (Array.isArray(value) || ArrayBuffer.isView(value))
-        ? arrayLiteral(Array.from(value as ArrayLike<unknown>), written)
+      ) {
+        return arrayLiteral(Array.from(value as ArrayLike<unknown>), written);
+      }
+
+      return typeof value === "number" && !Number.isInteger(value)
+        ? String(value)
         : value;
     }),
   ) as CompiledQuery<Row>;
