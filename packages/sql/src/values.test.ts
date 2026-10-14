@@ -17,6 +17,21 @@ describe("a Date", () => {
     );
   });
 
+  test.each([
+    [Date.UTC(10_000, 0, 2, 3, 4, 5), "10000-01-02T03:04:05.000Z"],
+    [Date.UTC(275_760, 0, 1), "275760-01-01T00:00:00.000Z"],
+  ])("past 9999 is written with its year's digits: %p", (time, iso) => {
+    expect(isoOf(new Date(time))).toBe(iso);
+  });
+
+  test("before the year 1 is written as the year Before Christ it is", () => {
+    const zero = new Date("0000-03-15T12:00:00.000Z");
+    const caesar = new Date("-000043-03-15T12:00:00.000Z");
+
+    expect(isoOf(zero)).toBe("0001-03-15T12:00:00.000Z BC");
+    expect(isoOf(caesar)).toBe("0044-03-15T12:00:00.000Z BC");
+  });
+
   test("that is invalid is refused, as Bun would store the epoch", () => {
     expect(() => isoOf(new Date(Number.NaN))).toThrow(
       new RangeError(

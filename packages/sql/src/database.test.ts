@@ -835,6 +835,29 @@ describe("a number", () => {
   });
 });
 
+describe("a Date", () => {
+  test("of a year past 9999 or before 1 goes into a timestamp and a date as the time it is", async () => {
+    const future = new Date(Date.UTC(10_000, 0, 2, 3, 4, 5));
+    const ides = new Date("-000043-03-15T12:00:00.000Z");
+    const { rows } = await sql`
+      select set_config('TimeZone', 'UTC', true),
+        ${future}::timestamptz::text as instant, ${future}::timestamp::text as wall,
+        ${future}::date::text as day, ${ides}::timestamptz::text as before,
+        ${ides}::date::text as before_day`.execute(db);
+
+    expect(rows).toEqual([
+      {
+        set_config: "UTC",
+        instant: "10000-01-02 03:04:05+00",
+        wall: "10000-01-02 03:04:05",
+        day: "10000-01-02",
+        before: "0044-03-15 12:00:00+00 BC",
+        before_day: "0044-03-15 BC",
+      },
+    ]);
+  });
+});
+
 describe("db", () => {
   test("is Kysely's own otherwise: its class, its getters, and what its methods make", async () => {
     expect(db).toBeInstanceOf(Kysely);

@@ -13,6 +13,11 @@
  * first two, and as `Date#toString()` for a `date`, which Postgres refuses
  * (oven-sh/bun#29010).
  *
+ * A year past 9999 is written as its digits, which `toISOString()` writes
+ * as `+010000`, and a year before 1 as the year Before Christ it is, which
+ * Postgres counts from 1 BC, the year 0 of the ISO calendar: `-000043` is
+ * `0044 … BC`.
+ *
  * @throws {RangeError} when the `Date` is invalid: Bun would bind it as the
  * epoch.
  */
@@ -23,7 +28,18 @@ export function isoOf(date: Date): string {
     );
   }
 
-  return date.toISOString();
+  const iso = date.toISOString();
+  const year = date.getUTCFullYear();
+
+  if (year >= 1 && year <= 9999) {
+    return iso;
+  }
+
+  const rest = iso.slice(iso.indexOf("-", 1));
+
+  return year > 9999
+    ? `${year}${rest}`
+    : `${String(1 - year).padStart(4, "0")}${rest} BC`;
 }
 
 /**
