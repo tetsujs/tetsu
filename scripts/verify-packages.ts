@@ -14,6 +14,10 @@
  * imports — so a helper only this repository's tests use is weight nobody
  * can import, and is left out until someone lists it.
  *
+ * The packages checked are the ones a release publishes,
+ * `publishedPackages()`: a package marked `private`, one still being
+ * built, is neither published nor packed here.
+ *
  * Then the tarballs are installed together into a fresh project outside the
  * repository — the consumer — where neither `paths` nor the workspace can
  * stand in for what was packed:
@@ -26,7 +30,9 @@
  * - One core: `@tetsujs/core` resolves to the same file from every
  *   package, or `instanceof HttpError` and the `onMount` symbol would stop
  *   meaning anything across them.
- * - A smoke script imports every entry point and serves one request.
+ * - A smoke script imports every entry point, checks that each class one
+ *   exports is named as it is exported — a bundle can rename a class, and
+ *   a logger prints `constructor.name` — and serves one request.
  * - `tsc` checks the smoke script with `skipLibCheck` off, under `bundler`
  *   and `nodenext`, so every published `.d.ts` is compiled as a user's
  *   compiler sees it. `@types/bun` is installed, because the declarations
@@ -51,6 +57,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
+import { publishedPackages } from "./packages.ts";
 import { listedHelpers, strayHelpers } from "./testing-files.ts";
 
 type Manifest = {
@@ -85,11 +92,9 @@ let failed = false;
 try {
   const manifests: Manifest[] = [];
 
-  for (const directory of await readdir(join(root, "packages"))) {
-    const cwd = join(root, "packages", directory);
-
-    await $`bun pm pack --destination ${packs} --quiet`.cwd(cwd).quiet();
-    manifests.push(await Bun.file(join(cwd, "package.json")).json());
+  for (const { dir } of await publishedPackages()) {
+    await $`bun pm pack --destination ${packs} --quiet`.cwd(dir).quiet();
+    manifests.push(await Bun.file(join(dir, "package.json")).json());
   }
 
   for (const tarball of await readdir(packs)) {
@@ -252,10 +257,11 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
 }
 
 /**
- * Imports every specifier, checks each exports something, and serves once
- * with every hook package mounted the way an application mounts it — so
- * the published declarations are checked against the form users write,
- * a hook per slot, not only imported.
+ * Imports every specifier, checks each exports something and names its
+ * classes as it exports them, and serves once with every hook package
+ * mounted the way an application mounts it — so the published
+ * declarations are checked against the form users write, a hook per slot,
+ * not only imported.
  */
 function smokeScript(specifiers: string[]): string {
   const binding = (specifier: string) =>
@@ -278,6 +284,18 @@ ${entries.join("\n")}
 for (const [specifier, namespace] of entries) {
   if (Object.keys(namespace).length === 0) {
     throw new Error(\`\${specifier} exports nothing\`);
+  }
+
+  for (const [name, value] of Object.entries(namespace)) {
+    if (
+      typeof value === "function" &&
+      /^class\\b/.test(Function.prototype.toString.call(value)) &&
+      value.name !== name
+    ) {
+      throw new Error(
+        \`\${specifier} exports the class \${name} named \${value.name}, which a logger prints\`,
+      );
+    }
   }
 }
 

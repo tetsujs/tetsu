@@ -1,0 +1,719 @@
+/**
+ * `generate()` against a real Postgres: the files of the fixture
+ * migrations and queries are the ones checked in beside them, on Postgres
+ * 14 and 18 alike, and the scratch database they are built on is gone
+ * afterwards, when the migrations or the queries fail as well.
+ *
+ * The files checked in are type-checked with the repository; the types
+ * are held to Kysely by `generate.test-d.ts`, and the queries are run by
+ * `queries.test.ts`.
+ *
+ * @module
+ */
+
+import {
+  afterAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  spyOn,
+  test,
+} from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { connect, createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SQL } from "bun";
+import { DATABASE_MS, testDatabase } from "../test-utils/database.ts";
+import { MigrationError } from "./errors.ts";
+import { generate } from "./generate.ts";
+import { migrate } from "./migrate.ts";
+import { QueryFileError } from "./query-files.ts";
+
+const fixtures = join(import.meta.dir, "../test-utils/fixtures/schema");
+const golden = await Bun.file(join(fixtures, "db.generated.ts")).text();
+const goldenQueries = await Bun.file(
+  join(fixtures, "queries.generated.ts"),
+).text();
+
+/** Where the fixture's files go, as `generate` is given them. */
+const queries = {
+  dir: join(fixtures, "queries"),
+  out: join(fixtures, "queries.generated.ts"),
+  types: join(fixtures, "db.generated.ts"),
+};
+const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-generate-"));
+setDefaultTimeout(DATABASE_MS);
+
+const { url } = testDatabase();
+const sql = new SQL(url);
+
+afterAll(async () => {
+  await sql.close();
+  await rm(scratch, { recursive: true, force: true });
+});
+
+/**
+ * Runs `use` and returns the names of the scratch databases it made: each
+ * is named by a UUIDv7 of `Bun.randomUUIDv7()`, which is watched while it
+ * runs. Other runs on the same server make databases of their own, which a
+ * list of the server's would count.
+ */
+async function scratchMadeBy(use: () => Promise<unknown>): Promise<string[]> {
+  const made: string[] = [];
+  const original = Bun.randomUUIDv7.bind(Bun);
+  const watched = spyOn(Bun, "randomUUIDv7").mockImplementation(((
+    ...args: Parameters<typeof Bun.randomUUIDv7>
+  ) => {
+    const uuid = original(...args);
+
+    made.push(`tetsu_sql_${String(uuid).replaceAll("-", "")}`);
+
+    return uuid;
+  }) as typeof Bun.randomUUIDv7);
+
+  try {
+    await use();
+  } finally {
+    watched.mockRestore();
+  }
+
+  return made;
+}
+
+/** Which of these databases are on the server. */
+async function existing(names: readonly string[]): Promise<string[]> {
+  const rows: { name: string }[] = await sql`
+    select datname as name from pg_database where datname = any(${sql.array([...names], "text")})`;
+
+  return rows.map((row) => row.name);
+}
+
+/** A directory of its own holding these migrations. */
+async function directory(files: Record<string, string>): Promise<string> {
+  const dir = await mkdtemp(join(scratch, "dir-"));
+
+  for (const [name, text] of Object.entries(files)) {
+    await Bun.write(join(dir, name), text);
+  }
+
+  return dir;
+}
+
+describe("the types of the fixture migrations", () => {
+  test("are the file checked in beside them, each time, and leave no database", async () => {
+    const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      expect((await generate({ url, dir })).types).toBe(golden);
+      expect((await generate({ url, dir })).types).toBe(golden);
+    });
+
+    expect(made).toHaveLength(2);
+    expect(await existing(made)).toEqual([]);
+  });
+
+  test("are built on a database of their own, not the client's", async () => {
+    await generate({ url, dir: join(fixtures, "migrations") });
+
+    const [row] = await sql`
+      select count(*)::int as tables from pg_tables where schemaname = 'public'`;
+
+    expect(row.tables).toBe(0);
+  });
+});
+
+describe("int8 read as a string", () => {
+  const int8 = join(import.meta.dir, "../test-utils/fixtures/int8");
+
+  test("makes the files checked in beside its fixture: Int8 columns, string rows, and the schema saying so", async () => {
+    const files = await generate({
+      url,
+      dir: join(int8, "migrations"),
+      int8: "string",
+      queries: {
+        dir: join(int8, "queries"),
+        out: join(int8, "queries.generated.ts"),
+        types: join(int8, "db.generated.ts"),
+      },
+    });
+
+    expect(files.types).toBe(
+      await Bun.file(join(int8, "db.generated.ts")).text(),
+    );
+    expect(files.queries).toBe(
+      await Bun.file(join(int8, "queries.generated.ts")).text(),
+    );
+  });
+
+  test("is asked for as a string, or the default bigint, and nothing else", async () => {
+    await expect(
+      generate({
+        url,
+        dir: join(int8, "migrations"),
+        int8: "number" as "string",
+      }),
+    ).rejects.toThrow('int8 reads as "bigint" or "string", not "number"');
+  });
+});
+
+describe("a literal in a database with a collation that does not tell values apart", () => {
+  test("is not held to a list of strings, as the plan does not tell which collation compares", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create collation ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+        create domain state as text check (value in ('open', 'closed'));
+        create table tickets (id int8 primary key, state state collate ci not null);
+        create table labels (
+          id int8 primary key,
+          name text not null check (name in ('red', 'blue'))
+        );`,
+    });
+    const files = await directory({
+      "open-tickets.sql": "select id from tickets where state = 'OPEN'",
+      "red-labels.sql": "select id from labels where name = 'RED' collate ci",
+    });
+    const generated = await generate({
+      url,
+      dir,
+      queries: {
+        dir: files,
+        out: join(files, "queries.generated.ts"),
+        types: join(files, "db.generated.ts"),
+      },
+    });
+
+    expect(generated.queries).toContain("export function openTickets(");
+    expect(generated.queries).toContain("export function redLabels(");
+  });
+});
+
+describe("the functions of the fixture queries", () => {
+  test("are the file checked in beside them, with the same types, each time, and leave no database", async () => {
+    const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        expect(await generate({ url, dir, queries })).toEqual({
+          types: golden,
+          queries: goldenQueries,
+        });
+      }
+    });
+
+    expect(made).toHaveLength(2);
+    expect(await existing(made)).toEqual([]);
+  });
+
+  test("are none when no queries are asked for", async () => {
+    expect(
+      await generate({ url, dir: join(fixtures, "migrations") }),
+    ).toMatchObject({ queries: undefined });
+  });
+
+  test("that Postgres refuses fail the run, each told, and leave no database", async () => {
+    const dir = await directory({
+      "20260101000000_t.sql": "create table t (id int8 primary key);",
+    });
+    const files = await directory({
+      "fine.sql": "select id from t",
+      "wrong.sql": "select qqqqqq from t",
+      "worse.sql": "select id,\n  :x from t where id = $1",
+    });
+    const made = await scratchMadeBy(async () => {
+      const error = await generate({
+        url,
+        dir,
+        queries: {
+          dir: files,
+          out: join(files, "q.ts"),
+          types: join(files, "t.ts"),
+        },
+      }).catch((failure: unknown) => failure);
+
+      expect(error).toBeInstanceOf(QueryFileError);
+      expect((error as Error).message).toBe(
+        `${join(files, "worse.sql")}:2:24: takes parameters by name, as :id, not by number, as $1`,
+      );
+    });
+
+    expect(made).toEqual([]);
+
+    const described = await scratchMadeBy(async () => {
+      await Bun.write(join(files, "worse.sql"), "select :x::int8 as x");
+
+      const error = await generate({
+        url,
+        dir,
+        queries: {
+          dir: files,
+          out: join(files, "q.ts"),
+          types: join(files, "t.ts"),
+        },
+      }).catch((failure: unknown) => failure);
+
+      expect(error).toBeInstanceOf(QueryFileError);
+      expect((error as Error).message).toBe(
+        `${join(files, "wrong.sql")}:1:8: column "qqqqqq" does not exist`,
+      );
+    });
+
+    expect(described).toHaveLength(1);
+    expect(await existing(described)).toEqual([]);
+  });
+});
+
+describe("the journal", () => {
+  test("in a schema of its own is created with its schema, and left out of DB", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": "create table orders (id int4 primary key);",
+    });
+    const { types: source } = await generate({
+      url,
+      dir,
+      table: "ops.migrations",
+    });
+
+    expect(source).toContain('  journal: "ops.migrations",\n');
+    expect(source).not.toContain('"ops.migrations": {');
+    expect(source).toContain("  orders: {\n");
+  });
+
+  test("is the table it was before the migrations ran, not one they made earlier in the search_path", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        do $$
+        begin
+          execute format('create schema %I', current_user);
+          execute format(
+            'create table %I.migrations (batch int4 primary key)',
+            current_user
+          );
+        end
+        $$;
+        create table orders (id int4 primary key);`,
+    });
+    const { types: source } = await generate({ url, dir });
+    const [role] = await sql`select current_user as name`;
+
+    expect(source).toContain(
+      `  "${role.name}.migrations": {\n    batch: number;\n  };`,
+    );
+    expect(source).toContain(
+      'export type Constraint = "migrations_pkey" | "orders_pkey";',
+    );
+    expect(source).not.toContain("  migrations: {");
+  });
+
+  test("is the table it is given, recorded and left out of DB", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": "create table orders (id int4 primary key);",
+    });
+    const { types: source } = await generate({
+      url,
+      dir,
+      table: "ops_journal",
+    });
+
+    expect(source).toContain('  journal: "ops_journal",\n');
+    expect(source).toContain("  orders: {\n    id: number;\n  };\n");
+    expect(source).not.toContain("ops_journal: {");
+    expect(source).not.toContain('"ops_journal_pkey"');
+  });
+});
+
+describe("an alias", () => {
+  test("whose name is taken, by another or by the file, takes a number", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create type orders_status as enum ('a', 'b');
+        create type public.json as enum ('j');
+        create table orders (
+          status text check (status in ('x', 'y')),
+          kind public.json
+        );`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain('export type OrdersStatus = "a" | "b";');
+    expect(source).toContain('export type OrdersStatus2 = "x" | "y";');
+    expect(source).toContain('export type Json2 = "j";');
+    expect(source).toContain("    status: OrdersStatus2 | null;\n");
+    expect(source).toContain("    kind: Json2 | null;\n");
+  });
+
+  test("never takes a name the file uses, nor a character an identifier cannot hold", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create type date as enum ('today', 'tomorrow');
+        create type buffer as enum ('small', 'large');
+        create type record as enum ('a');
+        create type "area_m²" as enum ('small', 'large');
+        create table nothing ();
+        create table events (
+          at timestamptz not null,
+          day public.date not null,
+          on_day date not null,
+          payload bytea not null,
+          slot buffer not null,
+          size "area_m²" not null
+        );`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain('export type Date2 = "today" | "tomorrow";');
+    expect(source).toContain('export type Buffer2 = "small" | "large";');
+    expect(source).toContain('export type Record2 = "a";');
+    expect(source).toContain('export type AreaM = "small" | "large";');
+    expect(source).toContain(
+      "    at: Timestamp;\n    day: Date2;\n    on_day: CalendarDate;\n",
+    );
+    expect(source).toContain("  nothing: Record<never, never>;\n");
+  });
+
+  test("never takes the name of the type of int8 read as a string", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create type int_8 as enum ('x', 'y');
+        create table ledger (amount int8 not null, kind int_8 not null);`,
+    });
+    const { types: source } = await generate({ url, dir, int8: "string" });
+
+    expect(source).toContain('export type Int82 = "x" | "y";');
+    expect(source).toContain("    amount: Int8;\n    kind: Int82;\n");
+  });
+
+  test("of a relation that would share its key with another is refused", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create schema a;
+        create table a.b (x int4);
+        create table "a.b" (y text);`,
+    });
+
+    await expect(generate({ url, dir })).rejects.toThrow(
+      'two relations would both be "a.b" in DB',
+    );
+  });
+});
+
+describe("the columns of arrays", () => {
+  test("of tables, views and materialized views are listed, each with its element type's delimiter", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create domain codes as text[];
+        create domain payload as jsonb;
+        create domain payloads as jsonb[];
+        create table shapes (
+          id int4 primary key,
+          boxes box[],
+          points point[],
+          tags text[],
+          labels codes,
+          notes json[],
+          documents payload[],
+          versions payloads
+        );
+        create view shape_view as select id, boxes, tags from shapes;
+        create materialized view shape_counts as select tags from shapes;`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain(
+      [
+        "  arrays: {",
+        "    shape_counts: {",
+        '      tags: ",",',
+        "    },",
+        "    shape_view: {",
+        '      boxes: ";",',
+        '      tags: ",",',
+        "    },",
+        "    shapes: {",
+        '      boxes: ";",',
+        '      points: ",",',
+        '      tags: ",",',
+        '      labels: ",",',
+        '      notes: "json",',
+        '      documents: "json",',
+        '      versions: "json",',
+        "    },",
+        "  },",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("a collation that does not tell values apart by their characters", () => {
+  test("lets a column's list take values outside it, but not a domain's, so only the domain's narrows", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create collation ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+        create domain ci_kind as text collate ci check (value in ('retail', 'bulk'));
+        create table tones (
+          tone text collate ci not null check (tone in ('loud', 'soft')),
+          kind ci_kind
+        );`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain("    tone: string;\n    kind: CiKind | null;\n");
+    expect(source).toContain('export type CiKind = "retail" | "bulk";');
+
+    await migrate(sql, { dir, table: "collation_journal" });
+    await sql`insert into tones (tone) values ('LOUD')`;
+
+    const refused =
+      await sql`insert into tones (tone, kind) values ('soft', 'RETAIL')`.catch(
+        (error: { errno?: string }) => error.errno,
+      );
+
+    expect(refused).toBe("23514");
+  });
+});
+
+describe("a not-null constraint not valid yet, on Postgres 18", () => {
+  test("leaves the column nullable: the rows before it may hold NULL", async () => {
+    const [server] =
+      await sql`select current_setting('server_version_num')::int as version`;
+
+    if (server.version < 180000) {
+      return;
+    }
+
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create table legacy (id int4 primary key, email text);
+        insert into legacy values (1, null);`,
+      "20261011120000_tighten.sql": `
+        alter table legacy add constraint legacy_email_not_null not null email not valid;`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain("    email: string | null;\n");
+  });
+});
+
+describe("the constraints of a partitioned table", () => {
+  test("are named as Postgres names them: a key and a unique index as each partition has them, a foreign key and a check as the table has them", async () => {
+    const dir = await directory({
+      "20261010120000_events.sql": `
+        create table users (id int8 primary key);
+        create table events (
+          id int8,
+          at date,
+          user_id int8 references users,
+          kind text check (kind <> ''),
+          email text,
+          primary key (id, at),
+          unique (email, at)
+        ) partition by range (at);
+        create unique index events_kind_at_idx on events (kind, at);
+        create table events_2026 partition of events
+          for values from ('2026-01-01') to ('2027-01-01');`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain(
+      'export type Constraint =\n  | "events_2026_email_at_key"\n  | "events_2026_kind_at_idx"\n  | "events_2026_pkey"\n  | "events_kind_check"\n  | "events_user_id_fkey"\n  | "users_pkey";',
+    );
+  });
+
+  test("of exclusion, on Postgres 17 and later, is named as each partition has it", async () => {
+    const [server] =
+      await sql`select current_setting('server_version_num')::int as version`;
+
+    if (server.version < 170000) {
+      return;
+    }
+
+    const dir = await directory({
+      "20261010120000_slots.sql": `
+        create table slots (
+          id int8,
+          at date,
+          exclude using btree (id with =, at with =)
+        ) partition by range (at);
+        create table slots_2026 partition of slots
+          for values from ('2026-01-01') to ('2027-01-01');`,
+    });
+    const { types: source } = await generate({ url, dir });
+
+    expect(source).toContain(
+      'export type Constraint = "slots_2026_id_at_excl";',
+    );
+  });
+});
+
+describe("migrations that fail", () => {
+  test("fail the run, and the scratch database is dropped", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": "create table a (id int4);",
+      "20261011120000_broken.sql": "select 1 / 0;",
+    });
+    let error: unknown;
+    const made = await scratchMadeBy(async () => {
+      error = await generate({ url, dir }).catch((failure: unknown) => failure);
+    });
+
+    expect(error).toBeInstanceOf(MigrationError);
+    expect(error).toMatchObject({
+      reason: "failed",
+      migration: "20261011120000_broken.sql",
+      applied: ["20261010120000_first.sql"],
+    });
+    expect(made).toHaveLength(1);
+    expect(await existing(made)).toEqual([]);
+  });
+
+  test("say nothing of a baseline when the first finds what it creates there", async () => {
+    const dir = await directory({
+      "20261010120000_public.sql": "create schema public;",
+    });
+    const error = await generate({ url, dir }).catch(
+      (failure: unknown) => failure,
+    );
+
+    expect(error).toMatchObject({
+      reason: "failed",
+      message:
+        '20261010120000_public.sql failed: schema "public" already exists',
+    });
+  });
+
+  test("with a journal name that cannot be one are refused before any database is made", async () => {
+    const role = `tetsu_sql_role_${Bun.randomUUIDv7().replaceAll("-", "")}`;
+
+    await sql.unsafe(`create role ${role} login nocreatedb password 'scratch'`);
+
+    const limited = new URL(url);
+
+    limited.username = role;
+    limited.password = "scratch";
+
+    try {
+      await expect(
+        generate({
+          url: limited.href,
+          dir: await directory({}),
+          table: "Bad Name",
+        }),
+      ).rejects.toThrow('"Bad Name" cannot name the journal');
+    } finally {
+      await sql.unsafe(`drop role ${role}`);
+    }
+  });
+
+  test("in a directory that is not there make no scratch database at all", async () => {
+    let error: unknown;
+    const made = await scratchMadeBy(async () => {
+      error = await generate({ url, dir: join(scratch, "nowhere") }).catch(
+        (failure: unknown) => failure,
+      );
+    });
+
+    expect(error).toMatchObject({ reason: "directory" });
+    expect(made).toEqual([]);
+  });
+});
+
+describe("no migrations", () => {
+  test("make the file of an empty database, from no migration", async () => {
+    const { types: source } = await generate({
+      url,
+      dir: await directory({}),
+    });
+
+    expect(source).toContain("as there are no migrations yet");
+    expect(source).toContain("export type DB = Record<never, never>;");
+    expect(source).toContain("export type Constraint = never;");
+    expect(source).toContain("  migration: null,\n");
+    expect(source).not.toContain("kysely");
+  });
+});
+
+describe("the URL", () => {
+  test("of another kind of database is refused as a TypeError", async () => {
+    await expect(
+      generate({ url: "sqlite://types.db", dir: await directory({}) }),
+    ).rejects.toThrow(
+      "generate runs on Postgres: url must be a postgres:// or postgresql:// URL",
+    );
+  });
+
+  test("may reach the server on a unix socket, by path, for the types", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tetsu-sql-socket-"));
+    const socket = join(dir, "s.sock");
+    const server = new URL(url);
+    let connections = 0;
+    const proxy = createServer((client) => {
+      const upstream = connect(Number(server.port), server.hostname);
+
+      connections += 1;
+      client.pipe(upstream).pipe(client);
+      client.on("error", () => upstream.destroy());
+      upstream.on("error", () => client.destroy());
+    });
+
+    await new Promise<void>((resolve) => proxy.listen(socket, resolve));
+
+    const through = new URL(url);
+
+    through.host = "127.0.0.1:1";
+    through.searchParams.set("path", socket);
+
+    try {
+      const { types } = await generate({
+        url: through.href,
+        dir: join(fixtures, "migrations"),
+      });
+
+      expect(types).toBe(golden);
+      expect(connections).toBeGreaterThan(0);
+    } finally {
+      proxy.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("on a unix socket is refused with query files, described over TCP, before any database is made", async () => {
+    const dir = join(fixtures, "migrations");
+    const made = await scratchMadeBy(async () => {
+      await expect(
+        generate({
+          url: `${url}${url.includes("?") ? "&" : "?"}path=%2Ftmp%2F.s.PGSQL.5432`,
+          dir,
+          queries,
+        }),
+      ).rejects.toThrow(
+        "generate describes query files over TCP: url must reach the server by its host and port, not by a unix socket in path",
+      );
+    });
+
+    expect(made).toEqual([]);
+  });
+
+  test("holds for the scratch database as written, options and all, whatever DATABASE_URL says", async () => {
+    const dir = await directory({
+      "20261010120000_first.sql": `
+        create schema app;
+        create table app.orders (id int4 primary key);`,
+      "20261011120000_second.sql": "alter table orders add column note text;",
+    });
+    const options = new URL(url);
+
+    options.searchParams.set("options", "-c search_path=app,public");
+
+    const saved = Bun.env.DATABASE_URL;
+
+    Bun.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/nowhere";
+
+    try {
+      const { types: source } = await generate({ url: options.href, dir });
+
+      expect(source).toContain(
+        '  "app.orders": {\n    id: number;\n    note: string | null;\n  };',
+      );
+    } finally {
+      Bun.env.DATABASE_URL = saved;
+    }
+  });
+});

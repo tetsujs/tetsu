@@ -43,6 +43,23 @@ And one application, to show how the pieces sit in a project:
 bun examples/app/main.ts
 ```
 
+And one on Postgres, through `@tetsujs/sql`:
+
+| [`sql/`](sql) | |
+| --- | --- |
+| [`migrations/`](sql/migrations) | the schema, as SQL files applied in order |
+| [`queries/`](sql/queries) | SQL that reads better as SQL, one query a file |
+| [`db.generated.ts`](sql/db.generated.ts) | the Kysely types `tetsu-sql types:generate` wrote from the database the migrations build |
+| [`queries.generated.ts`](sql/queries.generated.ts) | the functions it wrote for the query files, typed by Postgres |
+| [`orders.ts`](sql/orders.ts) | the controller: a query file read, a write with Kysely's builder, a constraint told by its name, and a unit of work |
+| [`main.ts`](sql/main.ts) | opens the database, checks it against the types, serves |
+
+```bash
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/shop
+bun packages/sql/src/cli.ts migrations:run --dir examples/sql/migrations
+bun examples/sql/main.ts
+```
+
 Files are named for what they hold, not for a role: `notes/routes.ts`, not
 `notes.controller.ts`. The framework reads the routes of the controllers it
 is given and nothing else, so how files are laid out is entirely yours.

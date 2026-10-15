@@ -187,6 +187,9 @@ executables.
 - Behind nginx, which buffers a proxied response by default, a live
   `stream()` sends `x-accel-buffering: no`, as `sse()` does on its own —
   see [`@tetsujs/sse`](/docs/packages/sse/).
+- With `@tetsujs/sql`, the migrations run as a step before the application
+  starts, and `verifySchema()` checks the database as it starts — see
+  [Deploy and CI](/docs/database/deploy/).
 - A body limit that fits the API: `maxBodySize` is 1 MiB by default — see
   [Request bodies](/docs/concepts/request-bodies/#size-limits). A proxy in
   front has a limit of its own, and the lower one wins: nginx's

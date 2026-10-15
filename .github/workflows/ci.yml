@@ -66,6 +66,60 @@ jobs:
       - name: Packages
         run: bun run verify:packages
 
+  sql:
+    name: sql (bun ${{ matrix.bun }}, postgres ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+
+    # @tetsujs/sql is tested against a real server: the oldest Postgres the
+    # package supports and the newest. The job above leaves these tests
+    # out and needs no database. The package needs Bun 1.4.3, not the
+    # framework's 1.4.2: before it, Bun.SQL could hand a query the rows of
+    # another after a failure in the pipeline. Its guarantees rest on
+    # measured Bun.SQL behaviour, so `latest` runs alongside the pinned Bun
+    # and is allowed to fail, as above.
+    continue-on-error: ${{ matrix.experimental == true }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - bun: "1.4.3"
+            postgres: "14"
+          - bun: "1.4.3"
+            postgres: "18"
+          - bun: "latest"
+            postgres: "18"
+            experimental: true
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ matrix.bun }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test:sql
+
   typescript:
     name: types (typescript ${{ matrix.typescript }})
     runs-on: ubuntu-latest
@@ -123,8 +177,9 @@ jobs:
     name: type cost
     runs-on: ubuntu-latest
 
-    # The compiler's work for a generated 200-route application, held to a
-    # budget of instantiations. It is deterministic for a given compiler,
+    # The compiler's work for a generated 200-route application, and for a
+    # project of @tetsujs/sql of 200 tables and 200 statements, each held to
+    # a budget of instantiations. It is deterministic for a given compiler,
     # so a change that doubles what the types cost fails here instead of in
     # a user's editor. bench/README.md has the numbers.
     steps:
@@ -139,6 +194,9 @@ jobs:
 
       - name: Type cost
         run: bun run --cwd bench types --check
+
+      - name: Type cost of @tetsujs/sql
+        run: bun run --cwd bench sql-types --check
 
   site:
     name: site

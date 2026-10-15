@@ -45,3 +45,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # local databases the examples create
 *.sqlite
+
+# scratch folders the tests of @tetsujs/sql make and remove
+packages/sql/test-utils/render-*/

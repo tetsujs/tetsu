@@ -88,22 +88,16 @@ const current = (href: string) => {
     height: 2rem;
     border-inline-end: 1px solid var(--sl-color-gray-5);
   }
+  /*
+   * The search sits over the column of the docs' text on every page, so it
+   * stays put going from the docs to the home page: the header lays out
+   * the columns of a docs page, a sidebar, the text and a table of
+   * contents as wide as the sidebar, whatever the page lays out itself.
+   */
   @media (min-width: 50rem) {
-    :global(:root[data-has-sidebar]) {
-      --__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
-    }
-    :global(:root:not([data-has-toc])) {
-      --__toc-width: 0rem;
-    }
     .header {
-      --__sidebar-width: max(0rem, var(--sl-content-inline-start, 0rem) - var(--sl-nav-pad-x));
-      --__main-column-fr: calc(
-        (
-            100% + var(--__sidebar-pad, 0rem) - var(--__toc-width, var(--sl-sidebar-width)) -
-              (2 * var(--__toc-width, var(--sl-nav-pad-x))) - var(--sl-content-inline-start, 0rem) -
-              var(--sl-content-width)
-          ) / 2
-      );
+      --__sidebar-width: max(0rem, var(--sl-sidebar-width) - var(--sl-nav-pad-x));
+      --__main-column-fr: calc((100% - 2 * var(--sl-sidebar-width) - var(--tetsu-docs-width)) / 2);
       display: grid;
       grid-template-columns:
         minmax(calc(var(--__sidebar-width) + max(0rem, var(--__main-column-fr) - var(--sl-nav-gap))), auto)

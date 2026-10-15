@@ -26,6 +26,7 @@ function findRoot(): string {
 
 const root = findRoot();
 const packages = join(root, "../packages/");
+const examples = join(root, "../examples/");
 
 const machinery =
   /\b(?:BaseCtx|RawParams|RouteDef|RouteConfig|Hook|HookFactory|HooksInput|SchemaConfig|Zod\w*)\b|\$strip/;
@@ -99,6 +100,8 @@ function isUseful(node: Node): boolean {
 /**
  * What every example on the site is compiled with: the packages of this
  * commit, from their sources, under the strictness a user is told to use.
+ * `@examples/*` is the repository's `examples/`, whose `sql/` holds files
+ * `tetsu-sql` generated, for an example to import as a project would.
  */
 export const twoslashOptions: TwoslashOptions = {
   vfsRoot: root,
@@ -112,7 +115,10 @@ export const twoslashOptions: TwoslashOptions = {
     paths: {
       "@tetsujs/core/testing": [`${packages}core/test-utils/index.ts`],
       "@tetsujs/openapi/testing": [`${packages}openapi/src/testing.ts`],
+      "@tetsujs/sql/generate": [`${packages}sql/src/generate.ts`],
+      "@tetsujs/sql/testing": [`${packages}sql/src/testing.ts`],
       "@tetsujs/*": [`${packages}*/src/index.ts`],
+      "@examples/*": [`${examples}*`],
     },
   },
 };

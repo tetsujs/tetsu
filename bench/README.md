@@ -223,8 +223,9 @@ intersection of two array types, and the checker built every method of an
 array for each group. The same routes in controller classes cost
 198 615 instantiations at 200 routes and 740 115 at 800: every class is a
 type of its own for the checker, an object a factory returns is not. Types and instantiations are the same on every
-machine for a given compiler, which is why they are the gate; memory and
-time are not.
+machine for a given compiler and number of checkers, which the bench
+fixes at four, and that is why they are the gate; memory and time are
+not.
 
 The same application in the other frameworks, written the way their typed
 clients need it — one chain — with the same parts: `params`, `query`, a
@@ -249,6 +250,182 @@ chain exceeds the checker's stack in all three; controllers in an array
 have no such limit. The 2-route row is the one place the others are
 cheaper: the first routes build the inference machinery once, and every
 later one reuses it.
+
+## What the types of `@tetsujs/sql` cost
+
+`bun run --cwd bench sql-types` — the compiler's work for a project of the
+database package: a schema of 200 tables and N statements written against
+it, read from `tsc --extendedDiagnostics`. `--check`, which CI runs, fails
+when 200 statements cost more instantiations than the budget in
+`src/sql-types.ts`.
+
+The files are the generator's: `render()` and `renderQueries()` write them
+from a model of the schema, byte for byte what the generator writes for
+the tables `src/sql-types.ts` shows, which are alike: an identity key, a
+reference, text, a nullable column, an enum, a `numeric`, an array, a
+`jsonb` and a timestamp with a default. The statements take turns, each
+kind on tables of its own: a select with a join, an insert that returns,
+an update, a delete whose violation `isViolation()` tells, a unit of
+`atomic()` inside another, a function of a query file run in a unit, one
+that counts the rows it updates run on the database, and a unit on a
+controlled transaction. The package is read from `dist`.
+
+| statements | types | instantiations | memory | check |
+| --- | --- | --- | --- | --- |
+| 0 | 3 603 | 377 | 60 MB | 0.003 s |
+| 200 | 80 104 | 636 426 | 130 MB | 0.59 s |
+| 800 | 126 507 | 1 418 282 | 190 MB | 1.13 s |
+
+TypeScript 7.0.2 with four checkers, Kysely 0.29.6, 2026-10-15. A schema
+costs nothing until a statement reads it, and a statement costs more the
+more tables the schema has: Kysely's inference is most of the bill, and
+much of it is paid once, for the first statement of each kind.
+
+Before the bench, `atomic()`, `queryRows()` and `queryCount()` took a
+union of Kysely's classes, `Kysely<DB> | Transaction<DB> |
+ControlledTransaction<DB>`, and the checker matched each call's argument
+with all three. At 200 statements the old `atomic()` cost 1 827 635
+instantiations and 6.6 s of checking, the old `queryRows()` 2 005 770, and
+the old `queryCount()` 2 005 650. `atomic()` now reads the database from
+the type of its executor's `dynamic` module, which the three classes
+share, and `queryRows()` and `queryCount()` take anything with Kysely's
+`executeQuery`, the one method they call. The instantiations a run counts
+change with the number of checkers, so the bench passes `--checkers 4`.
+
+## Database queries
+
+`DATABASE_URL=postgres://… bun run --cwd bench sql` — what an operation
+costs through `@tetsujs/sql`, next to Bun.SQL alone and to Drizzle on the
+same client.
+
+The script creates a database of its own on the server `DATABASE_URL`
+names, fills it with 10 000 items and the accounts its transactions move
+units between, and drops it once done. Commits on it do not wait for the
+disk (`synchronous_commit = off`), so that a write measures the clients
+and the server rather than a flush. Every target is a process of its own
+(`src/sql/worker.ts`), on a pool of 10 connections, Bun's default, and
+makes the same four operations (`src/sql/targets.ts`) the way an
+application on its library writes them: one row by its primary key; 100
+rows in order from a key on; an insert that returns its key; and a
+transaction of two updates. Each operation's answer is checked against
+the rows the database holds before anything is timed.
+
+| target | what it runs |
+| --- | --- |
+| `bun` | Bun.SQL's tagged templates, and `sql.begin()` |
+| `tetsu` | `database()`: Kysely's builder, and `atomic()` |
+| `tetsu-files` | query files: the functions generated from them, on `queryRows` and `queryCount` |
+| `kysely` | Kysely on the package's driver alone, without what `database()` adds |
+| `drizzle` | Drizzle 0.45.3 on the same Bun.SQL client |
+| `drizzle-prepared` | the same, each query prepared once; its transaction is `drizzle`'s, as a query prepared on the database runs outside a transaction |
+
+Each target reads, inside its own process, the **processor µs per
+operation**, from `process.cpuUsage()` with 32 operations in flight — what
+the client side costs, and the reading to compare; the **operations a
+second** with those 32 in flight; and the **p50 latency** of one operation
+at a time. `ROUNDS=5` repeats the targets, each round in another order,
+and reports medians; `ONLY=` takes a comma-separated list of target names.
+Raw readings land in `out/sql.json`.
+
+### Snapshot (Bun 1.4.3, Postgres 18.6 in Docker on the same machine, Apple M5 Pro, 2026-10-14, 5 rounds)
+
+Processor µs per operation, lower is better:
+
+| | one row | 100 rows | insert | transaction |
+| --- | --- | --- | --- | --- |
+| Bun.SQL | 7.04 | 26.20 | 8.82 | 44.74 |
+| **`@tetsujs/sql`, query files** | **8.86** | **29.58** | **10.52** | **52.02** |
+| **`@tetsujs/sql`, builder** | **10.37** | **33.77** | **11.96** | **55.27** |
+| Kysely on the driver alone | 10.10 | 33.25 | 12.22 | 54.82 |
+| Drizzle 0.45.3 | 15.71 | 62.57 | 15.22 | 59.73 |
+| Drizzle, prepared | 8.16 | 47.84 | 9.21 | 59.47 |
+
+Operations a second, 32 in flight:
+
+| | one row | 100 rows | insert | transaction |
+| --- | --- | --- | --- | --- |
+| Bun.SQL | 121,154 | 46,190 | 85,972 | 12,568 |
+| `@tetsujs/sql`, query files | 112,375 | 41,660 | 84,669 | 12,509 |
+| `@tetsujs/sql`, builder | 105,526 | 36,236 | 83,982 | 12,493 |
+| Kysely on the driver alone | 106,721 | 36,572 | 80,200 | 12,222 |
+| Drizzle 0.45.3 | 78,154 | 22,531 | 76,318 | 12,636 |
+| Drizzle, prepared | 114,274 | 28,705 | 88,935 | 12,627 |
+
+One at a time, every target's p50 is 71–87 µs for one row, 119–136 µs for
+100 rows, 78–87 µs for an insert and 286–311 µs for a transaction: a
+round trip to the server is most of it. A target's readings move by about
+±5% between rounds, and by up to ±10% on a busy machine, so a fraction of
+a microsecond on one row is within the noise.
+
+Reading:
+
+- **Query files cost 1.8 µs over Bun.SQL on one row**, 1.7 on an insert
+  and 3.4 on 100 rows, for 93% of its throughput on one row: Kysely's
+  executor and the driver's handling of the result. They are 0.7 µs
+  behind prepared Drizzle on one row and 1.3 on an insert, and ahead of it
+  on 100 rows, which Drizzle maps column by column.
+- **The builder costs 3.3 µs over Bun.SQL on one row:** the 1.8 query
+  files pay too, and 1.5 for Kysely building and compiling the query, the
+  plugin of `database()` that writes arrays included. The plugin reads a
+  query before it rebuilds one, and leaves one that holds no array as it
+  is: rebuilding every query cost 1.6 µs a query, and reading one costs
+  about 0.3. The builder costs a third less than Drizzle's. The plugin that
+  writes a fraction to a column as text, added since, reads an insert, an
+  update or a merge for one and leaves a read alone: in a run of five
+  rounds beside Kysely on the driver alone, it cost 0.4 µs on an insert,
+  0.35 on a transaction of two updates, and nothing on a read.
+- **Transactions are level**, 12–13 k a second for every target: each holds
+  a connection for four round trips, and the server sets the pace.
+- **Pipelining is what keeps a query cheap under load.** A query runs on
+  Bun's pool, which sends the queries of many callers down one
+  connection; reserving a connection for each query, as the driver did at
+  first, held one-row reads here to about 42 k a second. A transaction,
+  `db.connection()` and a query that may be cancelled reserve one, taking
+  turns at all of the pool's connections but one, which is left to the
+  other queries.
+
+## A load probe of the database driver
+
+`DATABASE_URL=postgres://… bun run --cwd bench sql-load` — not a
+measurement, a check: many workers on one pool of `@tetsujs/sql`, for a
+while, each answer compared with what was asked. It looks for what a
+benchmark misses: an answer handed to another caller, a transaction left
+open, a reservation never given back, a promise rejected with nobody to
+catch it, a pool that does not close.
+
+Each of 64 workers runs a mix, drawn by weight, on a pool of 10: a query
+that echoes a marker of its own, and a burst of 20; a read by key; an
+insert that returns its key; a transfer between two accounts in a
+transaction; a unit of work that nests another with `atomic()`, which
+breaks a unique key; a transaction that fails, and one whose failure is
+caught before its commit; a session of `db.connection()` that sets a
+setting and reads it back; a query given up by its signal with `cancel
+query`; a write that breaks a unique key; and a fraction written to an
+integer column. The mix runs alone, then again while the server ends a
+backend of the pool every half second or so, where a lost connection is
+the only failure taken.
+
+After each run: the accounts still hold what they held; each worker's
+counter is what its units of work made it; its inserts are there; no
+session of the pool is left in a transaction or running; and the pool
+answers. At the end, `db.destroy()` resolves, no promise was rejected
+unhandled, and the heap, once collected, is weighed after each run.
+`WORKERS`, `POOL`, `MIX_SECONDS` (60) and `KILL_SECONDS` (30) change the
+run; it exits with 1 when a check fails.
+
+### Snapshot (Bun 1.4.3, Postgres 18.6 and 14.24 in Docker, Apple M5 Pro, 2026-10-14)
+
+Every check held on both servers, 60 s of the mix and 30 s with backends
+ended: about 1.17 million operations each, none answered wrong and none
+failed unexpectedly; 57 and 58 backends ended, every failure of those 30 s
+a lost connection; the heap, collected, 7 MB after each run. A plain query
+kept a p50 of 0.3 ms and a p99 of 1.7 ms while transactions, sessions and
+cancels took turns at the reserved connections, at a p50 of 11–12 ms.
+
+A run of ten minutes on Postgres 18.6, 480 s of the mix and 120 s with
+backends ended, held every check as well: about 6.4 million operations,
+239 backends ended, and the heap, collected, 7.2 MB after the mix and 7.4
+MB after the rest, as after the short run.
 
 ## Comparing results
 

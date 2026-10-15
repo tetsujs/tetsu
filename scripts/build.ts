@@ -34,17 +34,21 @@ const packages = join(root, "packages");
 
 /**
  * A package's entry points, relative to its directory: the sources of what
- * its `exports` name — `./dist/src/index.js` is built from `src/index.ts`.
- * The manifest says what a package publishes, and the build follows it
- * rather than keeping a list of its own.
+ * its `exports` and `bin` name — `./dist/src/index.js` is built from
+ * `src/index.ts`. The manifest says what a package publishes, and the build
+ * follows it rather than keeping a list of its own.
  */
 async function entries(directory: string): Promise<string[]> {
   const manifest = await Bun.file(join(directory, "package.json")).json();
+  const targets = [
+    ...Object.values(
+      manifest.exports as Record<string, { readonly default: string }>,
+    ).map((target) => target.default),
+    ...Object.values((manifest.bin ?? {}) as Record<string, string>),
+  ];
 
-  return Object.values(
-    manifest.exports as Record<string, { readonly default: string }>,
-  ).map((target) =>
-    target.default.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+  return targets.map((target) =>
+    target.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
   );
 }
 

@@ -33,6 +33,8 @@
     "paths": {
       "@tetsujs/core/testing": ["./packages/core/test-utils/index.ts"],
       "@tetsujs/openapi/testing": ["./packages/openapi/src/testing.ts"],
+      "@tetsujs/sql/generate": ["./packages/sql/src/generate.ts"],
+      "@tetsujs/sql/testing": ["./packages/sql/src/testing.ts"],
       "@tetsujs/*": ["./packages/*/src/index.ts"]
     }
   },

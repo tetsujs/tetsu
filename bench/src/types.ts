@@ -24,9 +24,9 @@
  * the way a user's compiler reads it, so the core's own sources are not
  * part of the bill.
  *
- * Types and instantiations are deterministic for a given compiler, so
- * `--check` holds the 200-route count to a budget and fails CI when a
- * change exceeds it. Memory and time are printed for reading, not for
+ * Types and instantiations are deterministic for a given compiler and
+ * number of checkers, so `--check` holds the 200-route count to a budget
+ * and fails CI when a change exceeds it. Memory and time are printed for reading, not for
  * gating: they move with the machine.
  *
  * Run: `bun run --cwd bench types` (or `types --check`)
@@ -42,6 +42,13 @@ import { $ } from "bun";
 const root = join(import.meta.dir, "..", "..");
 const core = join(root, "packages", "core", "dist", "src", "index.js");
 const tsc = join(root, "node_modules", ".bin", "tsc");
+
+/**
+ * The checkers the compiler runs in parallel: the instantiations it counts
+ * change with their number, one counting far more than four, so the count
+ * is held to a budget for this number rather than for the default.
+ */
+const checkers = 4;
 
 /** Route counts of the ladder; each controller holds two routes. */
 const ladder = [2, 200, 800] as const;
@@ -179,9 +186,10 @@ async function measure(routes: number, mounting: Mounting): Promise<Cost> {
       JSON.stringify({ compilerOptions, files: ["app.ts"] }),
     );
 
-    const result = await $`${tsc} -p ${directory} --extendedDiagnostics`
-      .nothrow()
-      .quiet();
+    const result =
+      await $`${tsc} -p ${directory} --extendedDiagnostics --checkers ${checkers}`
+        .nothrow()
+        .quiet();
     const output = result.stdout.toString();
 
     if (result.exitCode !== 0) {
