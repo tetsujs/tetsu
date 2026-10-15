@@ -170,6 +170,24 @@ describe("a parameter", () => {
     });
   });
 
+  test("is nothing in a string with escapes that goes on past a comment on its line", () => {
+    const source = "select E'a' -- note\n'\\' :x ', :z";
+
+    expect(parse(source).parameters).toEqual([{ name: "z", nullable: false }]);
+  });
+
+  test("is read at once after long runs of space and of comment lines between strings, which a pattern trying every split gave up on after half a second each", () => {
+    const tabs = `select E'a'\r${"\t".repeat(64)}|| 'b', :x`;
+    const comments = `select E'a'\r--${"\r\n--".repeat(64)}\r\n|| 'b', :y`;
+    const started = performance.now();
+
+    expect(parse(tabs).parameters).toEqual([{ name: "x", nullable: false }]);
+    expect(parse(comments).parameters).toEqual([
+      { name: "y", nullable: false },
+    ]);
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
   test("by number is refused, where it is, but not in a name", () => {
     expect(failure("select 1\nwhere id = $1")).toEqual(
       new QueryFileError(

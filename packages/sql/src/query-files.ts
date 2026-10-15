@@ -163,11 +163,14 @@ const RESERVED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * What may part two strings that Postgres reads as one: space with a line
- * break in it, and comments of their own lines after it.
+ * What may part two strings that Postgres reads as one, as its lexer has
+ * it: space, and a comment, on the first one's line, a line break, then
+ * space and comments of lines of their own. Each part matches one way
+ * only, so a long run of space or of comment lines is read in one pass,
+ * rather than tried every way it could be split.
  */
 const CONTINUATION =
-  /^[ \t\f]*(?:\r\n|\r|\n)(?:[ \t\n\r\f]+|--[^\n\r]*(?:\r\n|\r|\n))*$/;
+  /^[ \t\f\v]*(?:--[^\n\r]*)?[\n\r](?:[ \t\n\r\f\v]|--[^\n\r]*[\n\r])*$/;
 
 /** A character a word of SQL is made of: after one, `$` and `:` are its own. */
 const WORD = /[\p{L}\p{N}_$]/u;
