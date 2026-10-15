@@ -58,11 +58,15 @@ a[rel="me"]:hover {
  * On a wide screen the page is laid out as if the window were no wider
  * than --tetsu-layout, centred: the header's contents, the sidebar's links,
  * the text and its table of contents. The header's and the sidebar's
- * backgrounds still reach the edges.
+ * backgrounds still reach the edges. The docs' text is --tetsu-docs-width
+ * wide, and the header places its search over that column on every page,
+ * those with a wider content of their own included.
  */
 :root {
   --tetsu-layout: 90rem;
   --tetsu-gutter: max(0rem, calc((100vw - var(--tetsu-layout)) / 2));
+  --tetsu-docs-width: 45rem;
+  --sl-content-width: var(--tetsu-docs-width);
 }
 
 @media (min-width: 50rem) {
