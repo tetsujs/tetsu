@@ -48,6 +48,13 @@ delete process.env["PGDATABASE"];
  */
 export const DATABASE_MS = 20_000;
 
+/**
+ * How long closing a client may take once the drop has ended its
+ * connections: Bun's `close()` of a client the server cut now and then
+ * never settles (oven-sh/bun#42804), and there is nothing left to wait for.
+ */
+const CLOSE_MS = 1000;
+
 /** A database created for one test file. */
 export interface TestDatabase {
   /**
@@ -72,7 +79,8 @@ export interface TestDatabase {
  * The drop comes first and is forced: it ends the client's connections,
  * including one still waiting on a query a timed-out test left running,
  * which closing the client first would wait for until the hook itself
- * timed out.
+ * timed out. The client is closed after it, and given up on after
+ * {@link CLOSE_MS}.
  */
 export function testDatabase(): TestDatabase {
   const server = serverUrl();
@@ -91,11 +99,24 @@ export function testDatabase(): TestDatabase {
     try {
       await onServer(server, `drop database if exists ${name} with (force)`);
     } finally {
-      await sql.close();
+      await closed(sql);
     }
   }, DATABASE_MS);
 
   return { name, url: url.href, sql };
+}
+
+/** Closes a client, or stops waiting once {@link CLOSE_MS} have passed. */
+async function closed(client: SQL): Promise<void> {
+  let timer: Timer | undefined;
+
+  await Promise.race([
+    client.close(),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, CLOSE_MS);
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 /** Runs one statement on the server's own database, on a client of its own. */
