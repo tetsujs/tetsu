@@ -3,7 +3,7 @@
  * migrations have run on it.
  *
  * ```sh
- * export DATABASE_URL=postgres://postgres:postgres@localhost:5432/shop
+ * export DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
  * bun packages/sql/src/cli.ts migrations:run --dir examples/sql/migrations
  * bun examples/sql/main.ts
  * psql "$DATABASE_URL" -c "insert into customers (email, name) values ('ada@example.com', 'Ada')"

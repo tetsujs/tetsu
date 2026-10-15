@@ -55,7 +55,7 @@ And one on Postgres, through `@tetsujs/sql`:
 | [`main.ts`](sql/main.ts) | opens the database, checks it against the types, serves |
 
 ```bash
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/shop
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
 bun packages/sql/src/cli.ts migrations:run --dir examples/sql/migrations
 bun examples/sql/main.ts
 ```

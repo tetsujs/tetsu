@@ -14,6 +14,11 @@ starts: a release job, a Kubernetes `Job`, a step of the pipeline.
 bunx tetsu-sql migrations:run --json
 ```
 
+It runs where the project's dependencies are installed, as after `bun
+install`, so that `bunx` runs the command of the project's own
+`@tetsujs/sql`: a binary of `bun build --compile` holds the application,
+not the command.
+
 - **A failure stops the deploy** before any instance runs code the database
   is not ready for.
 - **The migrations can run as a role of their own,** given by the step's
