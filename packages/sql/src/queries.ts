@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { ControlledTransaction, Kysely, Transaction } from "kysely";
+import type { Kysely } from "kysely";
 import { CompiledQuery } from "kysely";
 import { arrayLiteral } from "./values.ts";
 
@@ -30,10 +30,15 @@ export interface FileQuery {
  * `params`, and resolves to its rows: what a function of the generated
  * file of queries does.
  *
+ * `db` is typed by its `executeQuery` alone, the one method called: a
+ * union of Kysely's classes over the database would have the compiler
+ * match the argument with each of them, seconds of type checking for the
+ * functions of a few hundred files.
+ *
  * @throws {TypeError} when `params` lacks a parameter of the query.
  */
-export async function queryRows<DB, Row>(
-  db: Kysely<DB> | Transaction<DB> | ControlledTransaction<DB>,
+export async function queryRows<Row>(
+  db: Pick<Kysely<unknown>, "executeQuery">,
   query: FileQuery,
   params: object = {},
 ): Promise<Row[]> {
@@ -46,12 +51,13 @@ export async function queryRows<DB, Row>(
  * Runs `query`, which returns no rows, on `db`, the database or a
  * transaction, with the values of `params`, and resolves to how many rows
  * it inserted, updated, deleted or merged: what a function of the
- * generated file of queries does.
+ * generated file of queries does. `db` is typed as {@link queryRows} types
+ * it.
  *
  * @throws {TypeError} when `params` lacks a parameter of the query.
  */
-export async function queryCount<DB>(
-  db: Kysely<DB> | Transaction<DB> | ControlledTransaction<DB>,
+export async function queryCount(
+  db: Pick<Kysely<unknown>, "executeQuery">,
   query: FileQuery,
   params: object = {},
 ): Promise<bigint> {

@@ -7,7 +7,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SQL } from "bun";
-import type { ControlledTransaction, Kysely, Transaction } from "kysely";
+import type { DynamicModule, Kysely, Transaction } from "kysely";
 import { sql } from "kysely";
 
 /** A unit open inside a transaction, with its savepoint. */
@@ -22,7 +22,7 @@ const running = new AsyncLocalStorage<Unit>();
 /**
  * The units open inside each transaction, innermost last, by the
  * connection it runs on: the one object every Kysely of the transaction
- * shares, those `withSchema()`, `withPlugin()` and `withTables()` make of
+ * shares, those `withSchema()`, `withPlugin()` and `$extendTables()` make of
  * it and a controlled transaction's savepoints included, each an object of
  * its own. The driver makes a connection object for each transaction.
  */
@@ -54,7 +54,7 @@ function connectionOf(trx: Transaction<unknown>): Promise<object> {
  * would undo what the other wrote. A unit opened beside another that is
  * still open is refused before it writes anything, whichever Kysely of the
  * transaction each was given: the transaction, or one `withSchema()`,
- * `withPlugin()` or `withTables()` made of it. Queries of the transaction
+ * `withPlugin()` or `$extendTables()` made of it. Queries of the transaction
  * that run beside a unit are not seen: await the unit.
  *
  * @example
@@ -67,11 +67,18 @@ function connectionOf(trx: Transaction<unknown>): Promise<object> {
  * }
  * ```
  *
+ * The database is read from the type of `executor`'s `dynamic` module,
+ * which a Kysely, a transaction and a controlled one share: a union of the
+ * three classes would have the compiler match the executor with each of
+ * them on every call, seconds of type checking on a schema of a few
+ * hundred tables.
+ *
  * @throws {Error} when another unit of the same transaction is open beside
  * it.
  */
 export async function atomic<DB, T>(
-  executor: Kysely<DB> | Transaction<DB> | ControlledTransaction<DB>,
+  // biome-ignore lint/suspicious/noExplicitAny: a Kysely of any database, which its `dynamic` names.
+  executor: Kysely<any> & { readonly dynamic: DynamicModule<DB> },
   work: (trx: Transaction<DB>) => Promise<T>,
 ): Promise<T> {
   if (!executor.isTransaction) {

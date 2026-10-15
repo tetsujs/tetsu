@@ -78,6 +78,7 @@ export const returned = [
   orderById(db, { id: 1n }),
   orderById(trx, { id: 1n }),
   shipOrder(db, { id: 1n }),
+  orderById(controlled, { id: 1n }),
   now(db),
 ] as const;
 
@@ -107,8 +108,11 @@ export const onTheirOwn = [
   queryRows(trx, query, { id: 1n }),
   queryCount(trx, query, { id: 1n }),
   queryCount(controlled, query),
-  queryRows<DB, { id: bigint }>(db, query),
+  queryRows<{ id: bigint }>(db, query),
 ] as const;
+
+// @ts-expect-error a query of a file runs on what can execute it
+export const notKysely = queryRows({}, query);
 
 export type ofTheirOwn = [
   Expect<Equal<(typeof onTheirOwn)[0], Promise<unknown[]>>>,
