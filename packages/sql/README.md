@@ -8,7 +8,8 @@ bun add @tetsujs/sql kysely
 
 ```ts
 import { database } from "@tetsujs/sql";
-import { schema } from "./db.generated.ts";
+import { config } from "./config";
+import { schema } from "./db.generated";
 
 export const db = database(schema, { url: config.DATABASE_URL });
 
