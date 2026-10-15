@@ -223,8 +223,9 @@ intersection of two array types, and the checker built every method of an
 array for each group. The same routes in controller classes cost
 198 615 instantiations at 200 routes and 740 115 at 800: every class is a
 type of its own for the checker, an object a factory returns is not. Types and instantiations are the same on every
-machine for a given compiler, which is why they are the gate; memory and
-time are not.
+machine for a given compiler and number of checkers, which the bench
+fixes at four, and that is why they are the gate; memory and time are
+not.
 
 The same application in the other frameworks, written the way their typed
 clients need it — one chain — with the same parts: `params`, `query`, a
