@@ -24,9 +24,6 @@
  * application starts; `baseline()` records the ones a database built
  * before them has.
  *
- * The package is being built, and is not published until every part of it
- * is in place.
- *
  * @module
  */
 
