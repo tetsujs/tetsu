@@ -251,6 +251,47 @@ have no such limit. The 2-route row is the one place the others are
 cheaper: the first routes build the inference machinery once, and every
 later one reuses it.
 
+## What the types of `@tetsujs/sql` cost
+
+`bun run --cwd bench sql-types` — the compiler's work for a project of the
+database package: a schema of 200 tables and N statements written against
+it, read from `tsc --extendedDiagnostics`. `--check`, which CI runs, fails
+when 200 statements cost more instantiations than the budget in
+`src/sql-types.ts`.
+
+The files are the generator's: `render()` and `renderQueries()` write them
+from a model of the schema, byte for byte what the generator writes for
+the tables `src/sql-types.ts` shows, which are alike: an identity key, a
+reference, text, a nullable column, an enum, a `numeric`, an array, a
+`jsonb` and a timestamp with a default. The statements take turns, each
+kind on tables of its own: a select with a join, an insert that returns,
+an update, a delete whose violation `isViolation()` tells, a unit of
+`atomic()` inside another, a function of a query file run in a unit, one
+that counts the rows it updates run on the database, and a unit on a
+controlled transaction. The package is read from `dist`.
+
+| statements | types | instantiations | memory | check |
+| --- | --- | --- | --- | --- |
+| 0 | 3 603 | 377 | 60 MB | 0.003 s |
+| 200 | 80 104 | 636 426 | 130 MB | 0.59 s |
+| 800 | 126 507 | 1 418 282 | 190 MB | 1.13 s |
+
+TypeScript 7.0.2 with four checkers, Kysely 0.29.6, 2026-10-15. A schema
+costs nothing until a statement reads it, and a statement costs more the
+more tables the schema has: Kysely's inference is most of the bill, and
+much of it is paid once, for the first statement of each kind.
+
+Before the bench, `atomic()`, `queryRows()` and `queryCount()` took a
+union of Kysely's classes, `Kysely<DB> | Transaction<DB> |
+ControlledTransaction<DB>`, and the checker matched each call's argument
+with all three. At 200 statements the old `atomic()` cost 1 827 635
+instantiations and 6.6 s of checking, the old `queryRows()` 2 005 770, and
+the old `queryCount()` 2 005 650. `atomic()` now reads the database from
+the type of its executor's `dynamic` module, which the three classes
+share, and `queryRows()` and `queryCount()` take anything with Kysely's
+`executeQuery`, the one method they call. The instantiations a run counts
+change with the number of checkers, so the bench passes `--checkers 4`.
+
 ## Database queries
 
 `DATABASE_URL=postgres://… bun run --cwd bench sql` — what an operation

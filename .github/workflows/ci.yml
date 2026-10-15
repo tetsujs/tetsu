@@ -177,8 +177,9 @@ jobs:
     name: type cost
     runs-on: ubuntu-latest
 
-    # The compiler's work for a generated 200-route application, held to a
-    # budget of instantiations. It is deterministic for a given compiler,
+    # The compiler's work for a generated 200-route application, and for a
+    # project of @tetsujs/sql of 200 tables and 200 statements, each held to
+    # a budget of instantiations. It is deterministic for a given compiler,
     # so a change that doubles what the types cost fails here instead of in
     # a user's editor. bench/README.md has the numbers.
     steps:
@@ -193,6 +194,9 @@ jobs:
 
       - name: Type cost
         run: bun run --cwd bench types --check
+
+      - name: Type cost of @tetsujs/sql
+        run: bun run --cwd bench sql-types --check
 
   site:
     name: site

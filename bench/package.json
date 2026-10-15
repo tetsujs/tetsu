@@ -8,6 +8,7 @@
     "refusal": "bun run src/refusal.ts",
     "sql": "bun run src/sql.ts",
     "sql-load": "bun run src/sql-load.ts",
+    "sql-types": "bun run src/sql-types.ts",
     "types": "bun run src/types.ts",
     "validators": "bun run src/validators.ts"
   },
