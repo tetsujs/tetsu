@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.lib.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["bun"]
+  },
+  "files": ["src/contract.ts", "src/cli.ts", "src/print.ts", "src/same-code.ts"]
+}

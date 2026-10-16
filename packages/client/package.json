@@ -26,14 +26,23 @@
   "scripts": {
     "prepack": "bun run --cwd ../.. build"
   },
+  "bin": {
+    "tetsu-client": "./dist/src/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
+    },
+    "./contract": {
+      "types": "./dist/src/contract.d.ts",
+      "bun": "./dist/src/contract.js"
     }
   },
   "devDependencies": {
-    "@tetsujs/core": "workspace:*"
+    "@tetsujs/core": "workspace:*",
+    "typescript6": "npm:typescript@6.0.3",
+    "zod": "^4.6.5"
   },
   "publishConfig": {
     "access": "public"

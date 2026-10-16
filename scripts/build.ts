@@ -14,7 +14,11 @@
  *
  * A package that does not name Bun in its `engines` runs elsewhere too —
  * `@tetsujs/client` in a browser, Node or Deno — and is built for the
- * browser, so nothing Bun-only can reach its bundle.
+ * browser, so nothing Bun-only can reach its bundle. What of it runs on
+ * Bun all the same — a command, an export under the `bun` condition — is
+ * built apart, for Bun, and without splitting: the generator finds the
+ * command beside itself through `import.meta.url`, which a shared chunk
+ * would move.
  *
  * Every other package is external: `@tetsujs/core` in `cors` stays an
  * import of the core, and TypeBox stays the application's. `@tetsujs/*`
@@ -37,30 +41,45 @@ const root = join(import.meta.dir, "..");
 const packages = join(root, "packages");
 
 /**
- * A package's entry points, relative to its directory: the sources of what
- * its `exports` and `bin` name — `./dist/src/index.js` is built from
- * `src/index.ts`. The manifest says what a package publishes, and the build
- * follows it rather than keeping a list of its own.
+ * A package's entry points, relative to its directory, each with what it
+ * runs on: the sources of what its `exports` and `bin` name —
+ * `./dist/src/index.js` is built from `src/index.ts`. The manifest says
+ * what a package publishes, and the build follows it rather than keeping
+ * a list of its own.
+ *
+ * An entry runs on Bun when the package asks for Bun in its `engines`,
+ * when it is a `bin`, or when its export names it under the `bun`
+ * condition alone — the generator of `@tetsujs/client`, in a package
+ * whose client runs anywhere.
  */
-async function entries(directory: string): Promise<string[]> {
+async function entries(directory: string): Promise<Entry[]> {
   const manifest = await Bun.file(join(directory, "package.json")).json();
-  const targets = [
-    ...Object.values(
-      manifest.exports as Record<string, { readonly default: string }>,
-    ).map((target) => target.default),
-    ...Object.values((manifest.bin ?? {}) as Record<string, string>),
-  ];
-
-  return targets.map((target) =>
-    target.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+  const own: Target = manifest.engines?.bun === undefined ? "browser" : "bun";
+  const exports = Object.values(
+    manifest.exports as Record<
+      string,
+      { readonly default?: string; readonly bun?: string }
+    >,
+  ).map((conditions) =>
+    conditions.default === undefined
+      ? { file: conditions.bun ?? "", target: "bun" as const }
+      : { file: conditions.default, target: own },
   );
+  const bins = Object.values(
+    (manifest.bin ?? {}) as Record<string, string>,
+  ).map((file) => ({ file, target: "bun" as const }));
+
+  return [...exports, ...bins].map(({ file, target }) => ({
+    path: file.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
+    target,
+  }));
 }
 
-/** What a package runs on: Bun when its manifest asks for Bun, otherwise the browser. */
-async function target(directory: string): Promise<"bun" | "browser"> {
-  const manifest = await Bun.file(join(directory, "package.json")).json();
+type Target = "bun" | "browser";
 
-  return manifest.engines?.bun === undefined ? "browser" : "bun";
+interface Entry {
+  readonly path: string;
+  readonly target: Target;
 }
 
 /**
@@ -111,27 +130,37 @@ for (const name of await readdir(packages)) {
 
   await clearJavaScript(dist);
 
-  const result = await Bun.build({
-    entrypoints: (await entries(directory)).map((entry) =>
-      join(directory, entry),
-    ),
-    root: directory,
-    outdir: dist,
-    target: await target(directory),
-    format: "esm",
-    splitting: true,
-    packages: "external",
-    external: ["@tetsujs/*"],
-    sourcemap: "linked",
-    naming: {
-      entry: "[dir]/[name].[ext]",
-      chunk: "[name]-[hash].[ext]",
-    },
-  });
+  const all = await entries(directory);
+  const targets = new Set(all.map((entry) => entry.target));
+  let built = true;
 
-  if (!result.success) {
+  for (const target of targets) {
+    const result = await Bun.build({
+      entrypoints: all
+        .filter((entry) => entry.target === target)
+        .map((entry) => join(directory, entry.path)),
+      root: directory,
+      outdir: dist,
+      target,
+      format: "esm",
+      splitting: targets.size === 1,
+      packages: "external",
+      external: ["@tetsujs/*"],
+      sourcemap: "linked",
+      naming: {
+        entry: "[dir]/[name].[ext]",
+        chunk: "[name]-[hash].[ext]",
+      },
+    });
+
+    if (!result.success) {
+      built = false;
+      console.error(`packages/${name}:`, ...result.logs);
+    }
+  }
+
+  if (!built) {
     failed = true;
-    console.error(`packages/${name}:`, ...result.logs);
 
     continue;
   }

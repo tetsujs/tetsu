@@ -48,3 +48,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # scratch folders the tests of @tetsujs/sql make and remove
 packages/sql/test-utils/render-*/
+packages/client/test-utils/scratch-*/
+
+# what the frontends in fixtures/ generate when they are checked
+.next
+.svelte-kit
+fixtures/next/next-env.d.ts

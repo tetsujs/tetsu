@@ -7,5 +7,12 @@
     "types": []
   },
   "include": ["src"],
-  "exclude": ["**/*.test.ts", "**/*.test-d.ts"]
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test-d.ts",
+    "src/cli.ts",
+    "src/contract.ts",
+    "src/print.ts",
+    "src/same-code.ts"
+  ]
 }

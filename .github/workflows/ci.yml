@@ -153,6 +153,61 @@ jobs:
       - name: Packages
         run: bun run verify:packages --typescript ${{ matrix.typescript }}
 
+  frontends:
+    name: frontends (typescript ${{ matrix.typescript }})
+    runs-on: ubuntu-latest
+
+    # The contract @tetsujs/client generates, where it is used: in a Next and
+    # a SvelteKit app without Bun's types, which install the client the way
+    # a monorepo links it. Their contracts are committed, and checked against
+    # what the built command writes today; then the apps are type-checked,
+    # not built, and the contract on its own with library checks on, which
+    # the apps leave off. Next on each compiler a user may bring; SvelteKit
+    # on 6 alone, which it requires, and svelte-check reads types through
+    # the compiler's API, which 7 does not have.
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: ["5.7", "5", "6", "7"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Contracts
+        run: |
+          check() {
+            bun packages/client/dist/src/cli.js contract \
+              packages/client/test-utils/contract-app.ts \
+              --tsconfig tsconfig.strictest.json --out "$1" --check
+          }
+          check fixtures/next/src/api.contract.d.ts
+          check fixtures/sveltekit/src/lib/api.contract.d.ts
+
+      - name: Next
+        working-directory: fixtures/next
+        run: |
+          npm ci --no-audit --no-fund
+          npx next typegen
+          npx -p typescript@${{ matrix.typescript }} tsc --noEmit
+          npx -p typescript@${{ matrix.typescript }} tsc -p tsconfig.contract.json
+
+      - name: SvelteKit
+        if: matrix.typescript == '6'
+        working-directory: fixtures/sveltekit
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+
   strictest:
     name: types (@tsconfig/strictest)
     runs-on: ubuntu-latest
