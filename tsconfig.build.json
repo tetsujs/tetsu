@@ -8,6 +8,9 @@
       "path": "./packages/client/tsconfig.build.json"
     },
     {
+      "path": "./packages/client/tsconfig.contract.json"
+    },
+    {
       "path": "./packages/cors/tsconfig.build.json"
     },
     {

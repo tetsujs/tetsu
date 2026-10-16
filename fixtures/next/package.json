@@ -1,0 +1,19 @@
+{
+  "name": "fixture-next",
+  "private": true,
+  "scripts": {
+    "check": "next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@tetsujs/client": "file:../../packages/client",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.3"
+  }
+}

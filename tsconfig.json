@@ -38,5 +38,5 @@
       "@tetsujs/*": ["./packages/*/src/index.ts"]
     }
   },
-  "exclude": ["**/node_modules", "**/dist", "site"]
+  "exclude": ["**/node_modules", "**/dist", "site", "fixtures"]
 }
