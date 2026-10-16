@@ -61,6 +61,21 @@ export const TYPESCRIPT = "typescript@6.0.3";
 /** Set in the environment of the process that does the work. */
 export const WORKER = "TETSU_CLIENT_WORKER";
 
+/**
+ * Names an interface cannot take: the reserved words, the names of the
+ * built-in types, and the client's two the contract imports.
+ */
+const TAKEN = new Set(
+  [
+    "break case catch class const continue debugger default delete do else",
+    "enum export extends false finally for function if import in instanceof",
+    "new null return super switch this throw true try typeof var void while",
+    "with implements interface let package private protected public static",
+    "yield any bigint boolean never number object string symbol undefined",
+    "unknown AnyHeaders Raw",
+  ].flatMap((line) => line.split(" ")),
+);
+
 /** A mistake in how the command was called, answered with the usage. */
 class UsageError extends Error {
   override readonly name = "UsageError";
@@ -115,12 +130,10 @@ function parse(argv: readonly string[]): Command | "help" {
 
   if (
     values.name !== undefined &&
-    (!/^[A-Za-z_$][\w$]*$/.test(values.name) ||
-      values.name === "AnyHeaders" ||
-      values.name === "Raw")
+    (!/^[A-Za-z_$][\w$]*$/.test(values.name) || TAKEN.has(values.name))
   ) {
     throw new UsageError(
-      `--name ${values.name} is not a name the contract can take: an identifier, other than AnyHeaders and Raw`,
+      `--name ${values.name} is not a name the contract can take: an identifier, other than a reserved word, AnyHeaders and Raw`,
     );
   }
 
@@ -194,10 +207,25 @@ async function write(out: string, text: string): Promise<boolean> {
     return false;
   }
 
-  await mkdir(dirname(out), { recursive: true });
-  await Bun.write(out, text);
+  try {
+    await mkdir(dirname(out), { recursive: true });
+    await Bun.write(out, text);
+  } catch (error) {
+    throw new ContractProblem(
+      `Cannot write ${out}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   return true;
+}
+
+/** Refuses an `--out` the program reads: the contract would overwrite the application. */
+function outside(program: TS.Program, out: string): void {
+  if (program.getSourceFile(out.replaceAll("\\", "/")) !== undefined) {
+    throw new ContractProblem(
+      `${out} is a module of the application: the contract would overwrite it`,
+    );
+  }
 }
 
 async function work(command: Command): Promise<number> {
@@ -219,6 +247,10 @@ async function work(command: Command): Promise<number> {
     options: prepared.options,
     host: hostWith(ts, prepared),
   });
+  if (command.out !== undefined) {
+    outside(program, command.out);
+  }
+
   const text = printContract(ts, program, prepared, command.source);
 
   if (command.out === undefined) {
@@ -271,6 +303,7 @@ function watch(ts: Ts, prepared: Setup, source: ContractSource, out: string) {
     let text: string;
 
     try {
+      outside(builder.getProgram(), out);
       text = printContract(ts, builder.getProgram(), prepared, source);
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
@@ -284,7 +317,8 @@ function watch(ts: Ts, prepared: Setup, source: ContractSource, out: string) {
           console.log(`Wrote ${out}`);
         }
       },
-      (error: unknown) => console.error(error),
+      (error: unknown) =>
+        console.error(error instanceof Error ? error.message : String(error)),
     );
   };
 

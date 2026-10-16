@@ -382,11 +382,16 @@ type JsonObject<T> = Flat<
   }
 >;
 
-/** Whether `JSON.stringify` writes a property: not a symbol's, nor a function or a symbol. */
+/**
+ * Whether `JSON.stringify` writes a property: not a symbol's, nor a
+ * function or a symbol. An `any` may be anything, so it is kept.
+ */
 type Kept<K, V> = K extends symbol
   ? false
-  : [V] extends [symbol | ((...args: never) => unknown)]
-    ? false
-    : true;
+  : 0 extends 1 & V
+    ? true
+    : [V] extends [symbol | ((...args: never) => unknown)]
+      ? false
+      : true;
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
