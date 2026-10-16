@@ -3,6 +3,15 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Changed
+
+- `App` carries its routes under the string key `"~routes"` instead of a
+  private symbol, so a client reads the route map off `typeof app` with a
+  structural match and no import from `@tetsujs/core`. The field is still
+  phantom, with no value at runtime, and `AppRoutes` reads it as before.
+
 ## 0.6.4 — 2026-10-15
 
 ### Added

@@ -283,8 +283,6 @@ export type PathHandler = (
  */
 export type AppOptions = Omit<PipelineOptions, "report">;
 
-declare const routesBrand: unique symbol;
-
 export interface App<Routes extends RouteMap = RouteMap> {
   /** Marks a built application, so it can be told from a controller. */
   readonly [appBrand]: true;
@@ -295,9 +293,14 @@ export interface App<Routes extends RouteMap = RouteMap> {
    * A phantom field, like the one a hook carries for its context: it holds
    * no value at runtime, and exists so that two applications serving
    * different routes are different types rather than structurally equal.
-   * Read it with {@link AppRoutes}, not by hand.
+   *
+   * The key is a string, like `~standard` on a Standard Schema, so that a
+   * client reads the map off `typeof app` with a structural match and no
+   * import from the core; in VS Code, the `~` sorts it after the fields
+   * meant to be used. Inside an application, read it with
+   * {@link AppRoutes}.
    */
-  readonly [routesBrand]?: Routes;
+  readonly "~routes"?: Routes;
 
   /**
    * The no-match handler, reached only when Bun's router matched no path.
