@@ -143,6 +143,3 @@ export type distinctAppCases = [
   Expect<Equal<typeof flat extends typeof single ? true : false, false>>,
   Expect<Equal<typeof single extends typeof flat ? true : false, false>>,
 ];
-
-/** The field holds no value, and spreading the app into Bun still types. */
-export const served = () => Bun.serve({ ...app, port: 0 });

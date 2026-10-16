@@ -296,8 +296,9 @@ export interface App<Routes extends RouteMap = RouteMap> {
    *
    * The key is a string, like `~standard` on a Standard Schema, so that a
    * client reads the map off `typeof app` with a structural match and no
-   * import from the core; the `~` sorts it after the fields meant to be
-   * used. Inside an application, read it with {@link AppRoutes}.
+   * import from the core; in VS Code, the `~` sorts it after the fields
+   * meant to be used. Inside an application, read it with
+   * {@link AppRoutes}.
    */
   readonly "~routes"?: Routes;
 
