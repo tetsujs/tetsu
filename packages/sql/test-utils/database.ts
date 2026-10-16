@@ -8,7 +8,10 @@
  * a file the database lives for the file, in a `describe` for that
  * `describe`. Call it before registering hooks of your own that use it,
  * since Bun runs hooks in the order they were registered, and not inside
- * a hook or a test.
+ * a hook or a test. An `afterAll` that closes clients of your own goes
+ * before it, so that they close while the database is there: the forced
+ * drop cuts their connections, and Bun's `close()` of a client the server
+ * cut now and then never settles (oven-sh/bun#42804).
  *
  * Creating in `beforeAll` rather than when called keeps the two in step:
  * when no test of the scope runs, as with a `-t` filter that matches none

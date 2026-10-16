@@ -28,6 +28,10 @@ import { Wire } from "./wire.ts";
 
 setDefaultTimeout(DATABASE_MS);
 
+afterAll(async () => {
+  await wire.end();
+});
+
 const { sql, url } = testDatabase();
 
 let wire: Wire;
@@ -90,10 +94,6 @@ beforeAll(async () => {
   `);
   lookup = (await readCatalog(sql, "public.migrations")).lookup;
   wire = await Wire.connect(clientOf(url));
-});
-
-afterAll(async () => {
-  await wire.end();
 });
 
 /** The query of `source`, described. */

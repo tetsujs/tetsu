@@ -15,6 +15,10 @@ import { SQL } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 import { failure, show } from "./values.ts";
 
+afterAll(async () => {
+  await sql.close();
+});
+
 const { url } = testDatabase();
 const sql = new SQL(url, { connection: { TimeZone: "UTC" } });
 
@@ -25,10 +29,6 @@ beforeAll(async () => {
       doc jsonb, i8 int8, ts timestamp, tstz timestamptz, d date, t time,
       ints int4[], floats float4[], texts text[], ids uuid[]
     )`;
-});
-
-afterAll(async () => {
-  await sql.close();
 });
 
 /**

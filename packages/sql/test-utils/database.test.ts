@@ -21,6 +21,13 @@ const helper = JSON.stringify(join(import.meta.dir, "database.ts"));
  */
 const CHILD_RUN_MS = 20_000;
 
+/**
+ * How long the child itself may run before it is killed: less than
+ * {@link CHILD_RUN_MS}, so that a child that does not end fails the test
+ * with what it printed, rather than with the test's timeout alone.
+ */
+const FIXTURE_MS = 15_000;
+
 /** Whether a database of that name is on the server. */
 async function exists(name: string): Promise<boolean> {
   const admin = new SQL(Bun.env.DATABASE_URL ?? "");
@@ -50,9 +57,16 @@ function runFixture(
       "--path-ignore-patterns=**/node_modules/**",
       ...flags,
     ],
-    { env: Bun.env, stdout: "pipe", stderr: "pipe" },
+    { env: Bun.env, stdout: "pipe", stderr: "pipe", timeout: FIXTURE_MS },
   );
   const output = `${run.stdout.toString()}${run.stderr.toString()}`;
+
+  if (run.exitCode === null) {
+    throw new Error(
+      `the fixture did not end within ${FIXTURE_MS} ms (${run.signalCode}):\n${output}`,
+    );
+  }
+
   const name = /database: (tetsu_sql_test_[0-9a-f]{32})/.exec(output)?.[1];
 
   if (name === undefined) {

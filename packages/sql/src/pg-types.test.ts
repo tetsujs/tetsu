@@ -18,6 +18,11 @@ import { testDatabase } from "../test-utils/database.ts";
 import type { PgType, Reads } from "./pg-types.ts";
 import { BUILT_IN, DEFINED, EXTENSION, INT8_AS_STRING } from "./pg-types.ts";
 
+afterAll(async () => {
+  await sql.close();
+  await strings.close();
+});
+
 const { url } = testDatabase();
 const sql = new SQL(url, { bigint: true, connection: { TimeZone: "UTC" } });
 const strings = new SQL(url, { bigint: false });
@@ -31,11 +36,6 @@ beforeAll(async () => {
     create type float_range as range (subtype = float8);
   `)
     .simple();
-});
-
-afterAll(async () => {
-  await sql.close();
-  await strings.close();
 });
 
 /** A value of each type of `pg_catalog` the table knows. */

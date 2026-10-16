@@ -18,6 +18,11 @@ import { SQL } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 import { read } from "./values.ts";
 
+afterAll(async () => {
+  await sql.close();
+  await big.close();
+});
+
 const { url } = testDatabase();
 const connection = { TimeZone: "UTC" };
 const sql = new SQL(url, { connection });
@@ -26,11 +31,6 @@ const big = new SQL(url, { bigint: true, connection });
 beforeAll(async () => {
   await sql`create type mood as enum ('happy', 'sad')`;
   await sql`create domain positive as int4 check (value > 0)`;
-});
-
-afterAll(async () => {
-  await sql.close();
-  await big.close();
 });
 
 interface Case {

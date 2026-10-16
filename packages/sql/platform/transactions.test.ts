@@ -14,15 +14,15 @@ import { SQL } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 import { failure } from "./values.ts";
 
+afterAll(async () => {
+  await sql.close();
+});
+
 const { url } = testDatabase();
 const sql = new SQL(url);
 
 beforeAll(async () => {
   await sql`create table notes (id int primary key, text text not null)`;
-});
-
-afterAll(async () => {
-  await sql.close();
 });
 
 /** The ids of the notes stored, in order. */
