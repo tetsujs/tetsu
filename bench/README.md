@@ -200,18 +200,31 @@ and a `POST` with a `body`; the core is read from `dist`, as a user's
 compiler reads it. The application is measured mounted two ways:
 `flat`, every controller straight into `createApp`, and `grouped`, each in
 a group of its own with a prefix and two group hooks, the second reading
-what the first contributed. Each has its budget.
+what the first contributed. The third scenario, `client`, is the flat
+application read by `@tetsujs/client` off `typeof app`, with a call of
+every route that narrows its result by status. Each has its budget.
 
-| mounting | routes | types | instantiations | memory | check |
-| --- | --- | --- | --- | --- | --- |
-| flat | 2 | 10 648 | 27 218 | 56 MB | 0.03 s |
-| flat | 200 | 30 857 | 235 422 | 83 MB | 0.12 s |
-| flat | 800 | 92 057 | 866 322 | 166 MB | 0.45 s |
-| grouped | 2 | 11 274 | 29 425 | 56 MB | 0.03 s |
-| grouped | 200 | 34 453 | 249 212 | 88 MB | 0.14 s |
-| grouped | 800 | 104 651 | 915 212 | 187 MB | 0.57 s |
+| scenario | routes | types | instantiations | memory | check | `bun check` |
+| --- | --- | --- | --- | --- | --- | --- |
+| flat | 2 | 10 567 | 27 355 | 56 MB | 0.03 s | 0.04 s |
+| flat | 200 | 30 776 | 236 549 | 83 MB | 0.12 s | 0.06 s |
+| flat | 800 | 91 976 | 870 449 | 166 MB | 0.49 s | 0.20 s |
+| grouped | 2 | 11 192 | 29 577 | 56 MB | 0.03 s | 0.02 s |
+| grouped | 200 | 34 371 | 250 354 | 89 MB | 0.17 s | 0.08 s |
+| grouped | 800 | 104 569 | 919 354 | 187 MB | 0.68 s | 0.20 s |
+| client | 2 | 11 907 | 31 813 | 57 MB | 0.03 s | 0.03 s |
+| client | 200 | 39 639 | 348 026 | 92 MB | 0.16 s | 0.07 s |
+| client | 800 | 123 634 | 1 306 226 | 200 MB | 0.76 s | 0.29 s |
 
-TypeScript 7.0.2, 2026-09-29. A response or error hook costs about 250
+TypeScript 7.0.2 and Bun 1.4.3, 2026-10-16. A call of the client costs
+about 560 instantiations, the same at 200 routes and at 800: the client
+reads its contract off the object it is called on, so a call does not walk
+every route — kept in the type of its methods instead, the contract cost
+1.76 million at 200 routes and did not compile at 1 600. On TypeScript
+5.7 a call still walks the contract, in the inference of its type
+arguments: 17 million instantiations and twice the time at 1 600 routes
+and 800 calls; 5.9 and later do not. `bun check` is printed for reading:
+it counts nothing, and passes types that `tsc` refuses as too deep. A response or error hook costs about 250
 instantiations — the observer and the mapper added 49 390 at 200 routes —
 and several times that on TypeScript 5.7; they are in the
 application because nothing measured them before. `rawBody` added about 33 instantiations a

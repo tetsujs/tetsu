@@ -8,13 +8,16 @@ bun add @tetsujs/client
 
 ```ts
 import { createClient } from "@tetsujs/client";
+import type { app } from "../server/src/app";
 
-const api = createClient({ baseUrl: "https://api.example.com" });
+const api = createClient<typeof app>({ baseUrl: "https://api.example.com" });
 
 const res = await api.get("/users/:id", { params: { id: 42 } });
 
 if (res.ok) {
-  res.data;
+  res.data.name;
+} else if (res.status === 404) {
+  res.error.error;
 }
 ```
 

@@ -22,6 +22,17 @@ const anything: StandardSchemaV1<unknown, Record<string, unknown>> = {
   },
 };
 
+/**
+ * What the echo route answers. Its routes declare no response, so the
+ * client knows their bodies as `unknown`; the tests say what they read.
+ */
+interface Echo {
+  readonly name: string;
+  readonly path: string;
+  readonly query: Record<string, unknown>;
+  readonly headers: Record<string, string>;
+}
+
 const until = (signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
     signal.addEventListener("abort", () => resolve(), { once: true });
@@ -203,7 +214,9 @@ const api = createClient({ baseUrl: request.url });
 describe("the address", () => {
   test("a parameter is one segment: a slash, a percent sign and Unicode come back as sent", async () => {
     for (const name of ["a/b", "50%", "ф x", "?#&"]) {
-      const data = unwrap(await api.get("/echo/:name", { params: { name } }));
+      const data = unwrap(
+        await api.get("/echo/:name", { params: { name } }),
+      ) as Echo;
 
       expect(data.name).toBe(name);
     }
@@ -225,7 +238,7 @@ describe("the address", () => {
         params: { name: "q" },
         query: { tag: ["a", "b"], one: "x", none: undefined, n: 7 },
       }),
-    );
+    ) as Echo;
 
     expect(res.query).toEqual({ tag: ["a", "b"], one: "x", n: "7" });
   });
@@ -239,7 +252,7 @@ describe("the address", () => {
         query: { at },
         headers: { "x-at": at },
       }),
-    );
+    ) as Echo;
 
     expect(res.name).toBe(at.toISOString());
     expect(res.query).toEqual({ at: at.toISOString() });
@@ -263,7 +276,7 @@ describe("the address", () => {
   test("the wildcard takes a path: each segment encoded, the slashes kept", async () => {
     const data = unwrap(
       await api.get("/files/*", { params: { "*": "docs/a b/50%.txt" } }),
-    );
+    ) as Echo;
 
     expect(data.path).toBe("/files/docs/a%20b/50%25.txt");
   });
@@ -313,13 +326,13 @@ describe("headers", () => {
         params: { name: "h" },
         headers: { "x-shared": "call", "x-skip": undefined },
       }),
-    );
+    ) as Echo;
 
     token = "t2";
 
     const second = unwrap(
       await signed.get("/echo/:name", { params: { name: "h" } }),
-    );
+    ) as Echo;
 
     expect(first.headers.authorization).toBe("Bearer t1");
     expect(first.headers["x-shared"]).toBe("call");
@@ -368,7 +381,7 @@ describe("headers", () => {
       await typed.post("/form", { form: { title: "Hello" } }),
     );
 
-    expect(data.title).toBe("Hello");
+    expect(data).toMatchObject({ title: "Hello" });
   });
 
   test("a call's content-type wins over the one the body sets", async () => {
