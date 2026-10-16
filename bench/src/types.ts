@@ -24,10 +24,17 @@
  * the way a user's compiler reads it, so the core's own sources are not
  * part of the bill.
  *
+ * The `client` scenario is the flat application read by
+ * `@tetsujs/client` straight off `typeof app`, with a call of every route
+ * that narrows its result by status — what a test suite or a Bun service
+ * calling another one pays on top of the application.
+ *
  * Types and instantiations are deterministic for a given compiler and
  * number of checkers, so `--check` holds the 200-route count to a budget
  * and fails CI when a change exceeds it. Memory and time are printed for reading, not for
- * gating: they move with the machine.
+ * gating: they move with the machine. So is the time of `bun check`, on a
+ * Bun that has it: it counts nothing, and its limits are not the
+ * compiler's — it passes types that `tsc` refuses as too deep.
  *
  * Run: `bun run --cwd bench types` (or `types --check`)
  *
@@ -41,6 +48,7 @@ import { $ } from "bun";
 
 const root = join(import.meta.dir, "..", "..");
 const core = join(root, "packages", "core", "dist", "src", "index.js");
+const client = join(root, "packages", "client", "dist", "src", "index.js");
 const tsc = join(root, "node_modules", ".bin", "tsc");
 
 /**
@@ -76,19 +84,37 @@ const ladder = [2, 200, 800] as const;
  * with nobody counting. With them: 235 422 flat, 249 212 grouped — about
  * 250 instantiations a response or error hook — and both budgets set the
  * same quarter above.
+ *
+ * `client` was first measured at 352 529 (2026-10-16): the flat
+ * application's 236 549, and about 580 instantiations a call. The budget
+ * is the same quarter above. A client that kept its contract in the type
+ * of its methods walked the whole contract at every call — 1.76 million
+ * at 200 routes, and too deep to compile at 1 600; one that worked out
+ * the options of a route at each call cost 558 884.
  */
-const budgets: Record<Mounting, number> = {
+const budgets: Record<Scenario, number> = {
   flat: 294_000,
   grouped: 312_000,
+  client: 441_000,
 };
 
+/**
+ * Instantiations the client may add to the flat application at 200
+ * routes: `client` less `flat`. The budget of `client` holds the sum, in
+ * which the application is two thirds — a client that cost twice as much
+ * would still fit under it. This one holds the client's own share, set the
+ * same quarter above its count, 115 980 (2026-10-16).
+ */
+const clientShare = 145_000;
+
 interface Cost {
-  readonly mounting: Mounting;
+  readonly scenario: Scenario;
   readonly routes: number;
   readonly types: number;
   readonly instantiations: number;
   readonly memoryMb: number;
   readonly checkSeconds: number;
+  readonly bunCheckSeconds: number | undefined;
 }
 
 /**
@@ -99,6 +125,9 @@ interface Cost {
  * the context of their level — and the flat application never touches it.
  */
 type Mounting = "flat" | "grouped";
+
+/** A way of mounting the application, or the flat one read by a client. */
+type Scenario = Mounting | "client";
 
 function application(routes: number, mounting: Mounting): string {
   const controllers = routes / 2;
@@ -154,6 +183,37 @@ function application(routes: number, mounting: Mounting): string {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * The flat application and a client over it: per controller, a `GET` that
+ * narrows to the `200` and the declared `404`, and a `POST` with its body.
+ */
+function withClient(routes: number): string {
+  const lines = [
+    application(routes, "flat"),
+    `import { createClient } from ${JSON.stringify(client)};`,
+    'const api = createClient<typeof app>({ baseUrl: "https://api.example.com" });',
+    "export async function calls() {",
+  ];
+
+  for (let index = 0; index < routes / 2; index += 1) {
+    lines.push(`  {
+    const res = await api.get("/r${index}/:id", { params: { id: ${index} }, query: { page: 1 } });
+
+    if (res.ok) res.data.name satisfies string;
+    else if (res.status === 404) res.error.code satisfies string;
+  }
+  {
+    const res = await api.post("/r${index}", { body: { name: "n", qty: 1 } });
+
+    if (res.ok) res.data.qty satisfies number;
+  }`);
+  }
+
+  lines.push("}");
+
+  return `${lines.join("\n")}\n`;
+}
+
 const compilerOptions = {
   strict: true,
   noEmit: true,
@@ -176,11 +236,19 @@ function field(output: string, name: string): number {
   return Number(match[1]);
 }
 
-async function measure(routes: number, mounting: Mounting): Promise<Cost> {
+/** Whether this Bun has `bun check`, which came in 1.4.3. */
+const bunChecks = Bun.semver.satisfies(Bun.version, ">=1.4.3");
+
+async function measure(routes: number, scenario: Scenario): Promise<Cost> {
   const directory = await mkdtemp(join(tmpdir(), "tetsu-types-"));
 
   try {
-    await Bun.write(join(directory, "app.ts"), application(routes, mounting));
+    await Bun.write(
+      join(directory, "app.ts"),
+      scenario === "client"
+        ? withClient(routes)
+        : application(routes, scenario),
+    );
     await Bun.write(
       join(directory, "tsconfig.json"),
       JSON.stringify({ compilerOptions, files: ["app.ts"] }),
@@ -197,25 +265,42 @@ async function measure(routes: number, mounting: Mounting): Promise<Cost> {
     }
 
     return {
-      mounting,
+      scenario,
       routes,
       types: field(output, "Types"),
       instantiations: field(output, "Instantiations"),
       memoryMb: Math.round(field(output, "Memory used") / 1024),
       checkSeconds: field(output, "Check time"),
+      bunCheckSeconds: bunChecks ? await bunCheck(directory) : undefined,
     };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 }
 
+/** Seconds `bun check` takes over the directory, which `tsc` passed. */
+async function bunCheck(directory: string): Promise<number> {
+  const started = performance.now();
+  const result = await $`bun check`.cwd(directory).nothrow().quiet();
+
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `bun check refused what tsc passed:\n${result.stdout}${result.stderr}`,
+    );
+  }
+
+  return Math.round(performance.now() - started) / 1000;
+}
+
 await $`bun run build`.cwd(root).quiet();
 
 const costs: Cost[] = [];
 
-for (const mounting of ["flat", "grouped"] as const) {
+const scenarios = ["flat", "grouped", "client"] as const;
+
+for (const scenario of scenarios) {
   for (const routes of ladder) {
-    costs.push(await measure(routes, mounting));
+    costs.push(await measure(routes, scenario));
   }
 }
 
@@ -224,15 +309,15 @@ console.table(costs);
 if (process.argv.includes("--check")) {
   let over = false;
 
-  for (const mounting of ["flat", "grouped"] as const) {
-    const budget = budgets[mounting];
+  for (const scenario of scenarios) {
+    const budget = budgets[scenario];
     const gated = costs.find(
-      (cost) => cost.routes === 200 && cost.mounting === mounting,
+      (cost) => cost.routes === 200 && cost.scenario === scenario,
     );
 
     if (gated === undefined || gated.instantiations > budget) {
       console.error(
-        `200 routes, ${mounting}, cost ${gated?.instantiations} instantiations, over the budget of ${budget}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+        `200 routes, ${scenario}, cost ${gated?.instantiations} instantiations, over the budget of ${budget}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
       );
       over = true;
 
@@ -240,7 +325,29 @@ if (process.argv.includes("--check")) {
     }
 
     console.log(
-      `200 routes, ${mounting}: ${gated.instantiations} of ${budget} instantiations`,
+      `200 routes, ${scenario}: ${gated.instantiations} of ${budget} instantiations`,
+    );
+  }
+
+  const flat = costs.find(
+    (cost) => cost.routes === 200 && cost.scenario === "flat",
+  );
+  const client = costs.find(
+    (cost) => cost.routes === 200 && cost.scenario === "client",
+  );
+  const share =
+    flat === undefined || client === undefined
+      ? undefined
+      : client.instantiations - flat.instantiations;
+
+  if (share === undefined || share > clientShare) {
+    console.error(
+      `200 routes, the client's share cost ${share} instantiations, over the budget of ${clientShare}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+    );
+    over = true;
+  } else {
+    console.log(
+      `200 routes, the client's share: ${share} of ${clientShare} instantiations`,
     );
   }
 
