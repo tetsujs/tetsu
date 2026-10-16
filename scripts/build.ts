@@ -12,6 +12,10 @@
  * route brand, its own classes — and nothing built with one copy would be
  * recognized by the other.
  *
+ * A package that does not name Bun in its `engines` runs elsewhere too —
+ * `@tetsujs/client` in a browser, Node or Deno — and is built for the
+ * browser, so nothing Bun-only can reach its bundle.
+ *
  * Every other package is external: `@tetsujs/core` in `cors` stays an
  * import of the core, and TypeBox stays the application's. `@tetsujs/*`
  * is named outright, because `packages: "external"` alone does not hold
@@ -50,6 +54,13 @@ async function entries(directory: string): Promise<string[]> {
   return targets.map((target) =>
     target.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
   );
+}
+
+/** What a package runs on: Bun when its manifest asks for Bun, otherwise the browser. */
+async function target(directory: string): Promise<"bun" | "browser"> {
+  const manifest = await Bun.file(join(directory, "package.json")).json();
+
+  return manifest.engines?.bun === undefined ? "browser" : "bun";
 }
 
 /**
@@ -106,7 +117,7 @@ for (const name of await readdir(packages)) {
     ),
     root: directory,
     outdir: dist,
-    target: "bun",
+    target: await target(directory),
     format: "esm",
     splitting: true,
     packages: "external",

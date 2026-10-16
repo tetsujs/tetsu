@@ -55,6 +55,13 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/client": {
+      "name": "@tetsujs/client",
+      "version": "0.6.4",
+      "devDependencies": {
+        "@tetsujs/core": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@tetsujs/core",
       "version": "0.6.4",
@@ -218,6 +225,8 @@
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
+
+    "@tetsujs/client": ["@tetsujs/client@workspace:packages/client"],
 
     "@tetsujs/core": ["@tetsujs/core@workspace:packages/core"],
 
