@@ -427,6 +427,17 @@ export async function optionsLeftOut() {
   await api.get("/health", { init: { method: "POST" } });
 }
 
+export function clientInit() {
+  createClient({ init: { credentials: "include", cache: "no-store" } });
+  createClient({ init: { signal: AbortSignal.timeout(1) } });
+
+  // @ts-expect-error the client's init leaves out what a call sets itself
+  createClient({ init: { method: "POST" } });
+
+  // @ts-expect-error headers go in the client's own option
+  createClient({ init: { headers: { "x-a": "1" } } });
+}
+
 export function urls() {
   const one: string = api.url("/users/:id", { params: { id: 1 } });
   const two: string = api.url("/users", { query: { page: 1 } });

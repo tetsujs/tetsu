@@ -274,6 +274,9 @@ then sends the cookie on requests from any site. CORS stops another page
 from reading the answer, not from sending the request: a form on another
 site can still post to the API with the user's cookie.
 
+The frontend asks for the cookie to be sent: `credentials: "include"` on
+`fetch`, or once for the [typed client](/docs/packages/client/#options).
+
 So with `sameSite: "none"`, check the `Origin` of every request that
 changes something. A hook after `cors()` refuses the ones not on the list:
 

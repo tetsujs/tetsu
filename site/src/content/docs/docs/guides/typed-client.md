@@ -224,8 +224,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
 `User` is a client component that calls `useQuery` with the same options,
 over `queryUtils(api())`: in the browser, the browser sends the cookies.
-For an API on another origin, pass
-`fetch: (url, init) => fetch(url, { ...init, credentials: "include" })` to
+For an API on another origin, pass `init: { credentials: "include" }` to
 the client. In a monorepo on Bun, set `"types": ["node"]` in the Next.js
 `tsconfig.json`, or it picks up Bun's types from the root.
 
