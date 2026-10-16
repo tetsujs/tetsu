@@ -125,3 +125,24 @@ export type rootedCases = [
     >
   >,
 ];
+
+/**
+ * A client reads the map off the type it is given, without importing
+ * anything from the core: the field is a string key, so a structural match
+ * finds it where a symbol could only be named by whoever declared it.
+ */
+type ReadRoutes<A> = A extends { readonly "~routes"?: infer R } ? R : never;
+
+export type structuralReadCases = [
+  Expect<Equal<ReadRoutes<typeof app>, Routes>>,
+  Expect<Equal<ReadRoutes<typeof flat>, AppRoutes<typeof flat>>>,
+];
+
+/** Applications serving different routes stay different types. */
+export type distinctAppCases = [
+  Expect<Equal<typeof flat extends typeof single ? true : false, false>>,
+  Expect<Equal<typeof single extends typeof flat ? true : false, false>>,
+];
+
+/** The field holds no value, and spreading the app into Bun still types. */
+export const served = () => Bun.serve({ ...app, port: 0 });
