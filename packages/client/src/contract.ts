@@ -35,7 +35,10 @@ export interface ContractOptions {
   /** The module that exports the application. */
   readonly entry: string;
 
-  /** The export that holds the application; `"default"` for a default export. Defaults to `"app"`. */
+  /**
+   * The export that holds the application, or a function that returns it;
+   * `"default"` for a default export. Defaults to `"app"`.
+   */
   readonly export?: string;
 
   /** The name of the contract's interface. Defaults to `"Api"`. */

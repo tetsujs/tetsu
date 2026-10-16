@@ -1,7 +1,8 @@
 /**
- * Type-level tests of the TanStack Query options: what React Query and
- * Svelte Query infer from them — data, a narrowing error, mutation
- * variables, infinite pages — and what a typed key gives the query client.
+ * Type-level tests of the TanStack Query options: what React Query,
+ * Svelte Query and the other adapters infer from them — data, a narrowing
+ * error, mutation variables, infinite pages — and what a typed key gives
+ * the query client.
  *
  * @module
  */
@@ -16,11 +17,22 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import {
+  useInfiniteQuery as useSolidInfiniteQuery,
+  useMutation as useSolidMutation,
+  useQuery as useSolidQuery,
+} from "@tanstack/solid-query";
+import {
   createInfiniteQuery,
   createMutation,
   createQuery,
 } from "@tanstack/svelte-query";
+import {
+  useInfiniteQuery as useVueInfiniteQuery,
+  useMutation as useVueMutation,
+  useQuery as useVueQuery,
+} from "@tanstack/vue-query";
 import { createApp, route } from "@tetsujs/core";
+import { computed, ref } from "vue";
 import { mockSchema } from "../../core/test-utils/mock-schema.ts";
 import type { Equal } from "../../core/test-utils/types.ts";
 import type { AnyHeaders } from "./index.ts";
@@ -103,7 +115,7 @@ export function React() {
     user.error.status satisfies number;
 
     if (user.error.status === 404) {
-      const code = user.error.error.error;
+      const code = user.error.body.error;
 
       check<Equal<typeof code, "USER_NOT_FOUND">>();
     }
@@ -126,7 +138,7 @@ export function React() {
   check<Equal<typeof create.data, User | undefined>>();
 
   if (create.error?.status === 409) {
-    const code = create.error.error.error;
+    const code = create.error.body.error;
 
     check<Equal<typeof code, "NAME_TAKEN">>();
   }
@@ -165,7 +177,7 @@ export function React() {
   });
 
   if (thrown.error?.status === 404) {
-    const code = thrown.error.error.error;
+    const code = thrown.error.body.error;
 
     check<Equal<typeof code, "USER_NOT_FOUND">>();
   }
@@ -182,7 +194,7 @@ export function React() {
   check<Equal<typeof suspended.data, User>>();
 
   if (suspended.error?.status === 404) {
-    const code = suspended.error.error.error;
+    const code = suspended.error.body.error;
 
     check<Equal<typeof code, "USER_NOT_FOUND">>();
   }
@@ -193,7 +205,7 @@ export function React() {
   });
 
   if (retried.error?.status === 404) {
-    const code = retried.error.error.error;
+    const code = retried.error.body.error;
 
     check<Equal<typeof code, "USER_NOT_FOUND">>();
   }
@@ -209,7 +221,7 @@ export function Svelte() {
   check<Equal<typeof user.data, User | undefined>>();
 
   if (user.error?.status === 404) {
-    const code = user.error.error.error;
+    const code = user.error.body.error;
 
     check<Equal<typeof code, "USER_NOT_FOUND">>();
   }
@@ -222,7 +234,7 @@ export function Svelte() {
   }));
 
   if (thrown.error?.status === 404) {
-    const code = thrown.error.error.error;
+    const code = thrown.error.body.error;
 
     check<Equal<typeof code, "USER_NOT_FOUND">>();
   }
@@ -230,12 +242,99 @@ export function Svelte() {
   create.mutate({ body: { name: "a" } });
 
   if (create.error?.status === 409) {
-    const code = create.error.error.error;
+    const code = create.error.body.error;
 
     check<Equal<typeof code, "NAME_TAKEN">>();
   }
 
   const pages = createInfiniteQuery(() =>
+    q.get("/users").infiniteOptions({
+      input: (page) => ({ query: { page } }),
+      initialPageParam: 1,
+      getNextPageParam: (last) => last.next,
+    }),
+  );
+
+  check<Equal<typeof pages.data, InfiniteData<Page> | undefined>>();
+}
+
+export function Vue() {
+  const id = ref(1);
+  const user = useVueQuery(
+    computed(() =>
+      q.get("/users/:id").queryOptions({ params: { id: id.value } }),
+    ),
+  );
+
+  check<Equal<typeof user.data.value, User | undefined>>();
+
+  const error = user.error.value;
+
+  if (error?.status === 404) {
+    const code = error.body.error;
+
+    check<Equal<typeof code, "USER_NOT_FOUND">>();
+  }
+
+  const plain = useVueQuery(
+    q.get("/users/:id").queryOptions({ params: { id: 1 } }),
+  );
+
+  check<Equal<typeof plain.data.value, User | undefined>>();
+
+  const create = useVueMutation(q.post("/users").mutationOptions());
+
+  create.mutate({ body: { name: "a" } });
+
+  // @ts-expect-error the body needs a name
+  create.mutate({ body: {} });
+
+  const failed = create.error.value;
+
+  if (failed?.status === 409) {
+    const code = failed.body.error;
+
+    check<Equal<typeof code, "NAME_TAKEN">>();
+  }
+
+  const pages = useVueInfiniteQuery(
+    q.get("/users").infiniteOptions({
+      input: (page) => ({ query: { page } }),
+      initialPageParam: 1,
+      getNextPageParam: (last) => last.next,
+    }),
+  );
+
+  check<Equal<typeof pages.data.value, InfiniteData<Page> | undefined>>();
+}
+
+export function Solid() {
+  const user = useSolidQuery(() =>
+    q.get("/users/:id").queryOptions({ params: { id: 1 } }),
+  );
+
+  check<Equal<typeof user.data, User | undefined>>();
+
+  if (user.error?.status === 404) {
+    const code = user.error.body.error;
+
+    check<Equal<typeof code, "USER_NOT_FOUND">>();
+  }
+
+  const create = useSolidMutation(() => q.post("/users").mutationOptions());
+
+  create.mutate({ body: { name: "a" } });
+
+  // @ts-expect-error the body needs a name
+  create.mutate({ body: {} });
+
+  if (create.error?.status === 409) {
+    const code = create.error.body.error;
+
+    check<Equal<typeof code, "NAME_TAKEN">>();
+  }
+
+  const pages = useSolidInfiniteQuery(() =>
     q.get("/users").infiniteOptions({
       input: (page) => ({ query: { page } }),
       initialPageParam: 1,
@@ -357,7 +456,7 @@ export function Direct() {
   >();
 
   if (item.error?.status === 404) {
-    const code = item.error.error.error;
+    const code = item.error.body.error;
 
     check<Equal<typeof code, "ITEM_NOT_FOUND">>();
   }

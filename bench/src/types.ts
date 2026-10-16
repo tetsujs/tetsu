@@ -250,7 +250,7 @@ function withQueries(routes: number): string {
     const error = errorOf(options);
 
     data.name satisfies string;
-    if (error.status === 404) error.error.code satisfies string;
+    if (error.status === 404) error.body.code satisfies string;
   }
   {
     const options = q.post("/r${index}").mutationOptions();

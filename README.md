@@ -75,6 +75,7 @@ ship, which editors and tools read from `node_modules`.
 
 | Package | |
 | --- | --- |
+| [`@tetsujs/client`](https://tetsujs.com/docs/packages/client/) | a typed fetch client, with a contract for frontends and TanStack Query options |
 | [`@tetsujs/core`](https://tetsujs.com/docs/packages/core/) | the framework |
 | [`@tetsujs/cors`](https://tetsujs.com/docs/packages/cors/) | CORS headers and preflight responses |
 | [`@tetsujs/lifecycle`](https://tetsujs.com/docs/packages/lifecycle/) | graceful shutdown |

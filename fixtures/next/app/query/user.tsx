@@ -45,7 +45,7 @@ export function User({ id }: { id: number }) {
     return (
       <p>
         {user.error.status === 404
-          ? (user.error.error.error satisfies "USER_NOT_FOUND")
+          ? (user.error.body.error satisfies "USER_NOT_FOUND")
           : user.error.status}
       </p>
     );
@@ -59,7 +59,7 @@ export function User({ id }: { id: number }) {
   user.data.title;
 
   const conflict =
-    rename.error?.status === 409 ? rename.error.error.title : undefined;
+    rename.error?.status === 409 ? rename.error.body.title : undefined;
 
   return (
     <div>

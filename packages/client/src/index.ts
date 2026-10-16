@@ -290,17 +290,18 @@ export function createClient<
 
 /**
  * Thrown by {@link unwrap} for a response that is not `2xx`. It carries
- * what the result did: the status, the parsed body as `error`, and the
- * response.
+ * what the result did: the status, the parsed body — the result's
+ * `error`, here `body`, so that `error.body.error` reads as the code of
+ * the body of the error — and the response.
  *
  * `F` is the failure it was made of. Caught, it is a `ClientError` of
  * any failure — the compiler does not know what a `try` block throws —
- * and `error` is whatever the body was; a typed one reaches only code
+ * and `body` is whatever the body was; a typed one reaches only code
  * that is given the type, as a query library is.
  */
 export class ClientError<F extends Failure = Failure> extends Error {
   readonly status: F["status"];
-  readonly error: F["error"];
+  readonly body: F["error"];
   readonly response: Response;
 
   constructor(failure: F) {
@@ -308,7 +309,7 @@ export class ClientError<F extends Failure = Failure> extends Error {
 
     this.name = "ClientError";
     this.status = failure.status;
-    this.error = failure.error;
+    this.body = failure.error;
     this.response = failure.response;
   }
 }

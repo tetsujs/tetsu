@@ -574,7 +574,7 @@ describe("unwrap", () => {
       name: "ClientError",
       message: "The server answered 404",
       status: 404,
-      error: { error: "THING_NOT_FOUND" },
+      body: { error: "THING_NOT_FOUND" },
       response: res.response,
     });
   });

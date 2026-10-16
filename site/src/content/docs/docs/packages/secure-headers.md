@@ -2,7 +2,7 @@
 title: "@tetsujs/secure-headers"
 description: Security headers on every response, as one beforeResponse hook.
 sidebar:
-  order: 8
+  order: 9
   label: "@tetsujs/secure-headers"
 ---
 

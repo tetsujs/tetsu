@@ -10,7 +10,7 @@ sidebar:
 document and a page that renders it. Paths, parameters, bodies and responses
 come from the schemas and response maps the routes already have, so nothing
 is written twice. To turn the document into a typed client, see
-[Typed client from OpenAPI](/docs/guides/typed-client/).
+[Typed client](/docs/guides/typed-client/#from-the-openapi-document).
 
 ```bash
 bun add @tetsujs/openapi
@@ -473,6 +473,16 @@ await Bun.write("openapi.json", JSON.stringify(document, null, 2));
 
 Each warning has a `route`, such as `GET /path` (empty for the document as a
 whole), and a `message`.
+
+A committed document makes every API change a visible diff. With the code
+above in `scripts/openapi.ts`, CI writes the document again and fails when
+it differs, so a pull request that changes the API
+also shows the change to the document:
+
+```bash
+bun scripts/openapi.ts
+git diff --exit-code openapi.json
+```
 
 `docsPage({ ui, documentUrl, title?, assets? })` returns the page's HTML, to
 serve it from a route of your own. `documentUrl` is where the page fetches

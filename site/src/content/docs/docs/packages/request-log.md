@@ -2,7 +2,7 @@
 title: "@tetsujs/request-log"
 description: Request logs as hooks — a record when a request is done, and a record when it arrives.
 sidebar:
-  order: 7
+  order: 8
   label: "@tetsujs/request-log"
 ---
 

@@ -2,7 +2,7 @@
 title: "@tetsujs/request-id"
 description: A request id on every request and response, shared by the log lines and failure reports of one request.
 sidebar:
-  order: 6
+  order: 7
   label: "@tetsujs/request-id"
 ---
 

@@ -13,7 +13,7 @@
  *
  * A query's data is the body of a success; its error a {@link ClientError}
  * of any failure the route may answer with, so `error.status === 404`
- * narrows `error.error` to the body the route declares for it. Its key is
+ * narrows `error.body` to the body the route declares for it. Its key is
  * the method, the path and what the call sends; {@link Endpoint.key}
  * leaves out what it is not given, to invalidate every query that shares
  * the rest.
@@ -323,7 +323,7 @@ interface Options {
  * const user = useQuery(q.get("/users/:id").queryOptions({ params: { id } }));
  *
  * if (user.error?.status === 404) {
- *   user.error.error; // the body the route declares for 404
+ *   user.error.body; // the body the route declares for 404
  * }
  * ```
  */

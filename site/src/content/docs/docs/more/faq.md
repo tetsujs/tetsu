@@ -65,10 +65,12 @@ with `serve()` from `@tetsujs/core/testing`. See
 
 ## Is there a typed client, like Eden or Hono RPC?
 
-The typed boundary is the OpenAPI document. `@tetsujs/openapi` builds it
-from your routes, and any OpenAPI generator turns it into a client, in
-TypeScript or another language. See
-[Typed client from OpenAPI](/docs/guides/typed-client/).
+Yes: [`@tetsujs/client`](/docs/packages/client/). It is typed by the
+application's routes, through a contract that `tetsu-client contract`
+generates from them, so a Next.js or SvelteKit frontend imports plain types
+and never the server's code. It comes with TanStack Query options. For
+other languages, `@tetsujs/openapi` builds an OpenAPI document that any
+generator turns into a client. See [Typed client](/docs/guides/typed-client/).
 
 ## Can I use Express or Hono middleware?
 

@@ -5,6 +5,23 @@ API.
 
 ## Unreleased
 
+### Added
+
+- `@tetsujs/client`, a new package: a typed `fetch` client for a Tetsu
+  application, with no dependencies, for browsers, Node, Deno and Bun.
+  `createClient<Api>()` suggests the paths of each method, takes what the
+  route declares and nothing else, and resolves to a result narrowed by
+  `ok` and `status`, each body typed as JSON delivers it; `unwrap()`
+  throws a `ClientError` instead. A frontend without Bun's types gets
+  them from a contract: `tetsu-client contract src/app.ts --out …` writes
+  a `.d.ts` of plain types from the application, or from a function that
+  builds it, with `--check` for CI and `--watch` for a monorepo, and
+  `generateContract()` does the same from a script. A client can also be
+  typed by `typeof app` directly, for tests and projects on Bun.
+  `@tetsujs/client/tanstack` turns a client into TanStack Query options
+  for React, Vue, Svelte, Solid and the other adapters, with typed keys
+  and errors narrowed by status.
+
 ### Changed
 
 - `App` carries its routes under the string key `"~routes"` instead of a

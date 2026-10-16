@@ -2,7 +2,7 @@
 title: "@tetsujs/typebox"
 description: TypeBox schemas as DTOs — compiled validation, full type inference, file uploads, and the same schema in the OpenAPI document.
 sidebar:
-  order: 3
+  order: 4
   label: "@tetsujs/typebox"
 ---
 

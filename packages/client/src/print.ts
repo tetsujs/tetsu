@@ -63,7 +63,8 @@ const MAPPED = 1 << 18;
 /**
  * The compiler options and the root file the contract is worked out in: a
  * module of its own, beside the entry, that imports the application and
- * names its contract.
+ * names its contract. An export that is a function is read as what it
+ * returns, awaited: the application built from its dependencies.
  */
 export interface Setup {
   readonly root: string;
@@ -85,7 +86,8 @@ export function setup(ts: Ts, source: ContractSource, client: string): Setup {
     `import type { ContractOf } from ${JSON.stringify(specifier(join(client, "routes.ts")))};`,
     `import type { AnyHeaders, Raw } from ${JSON.stringify(specifier(join(client, "types.ts")))};`,
     `import type * as Server from ${JSON.stringify(specifier(source.entry))};`,
-    `export type Contract = ContractOf<typeof Server[${JSON.stringify(source.exportName)}]>;`,
+    "type Built<T> = T extends (...args: never) => infer A ? Awaited<A> : T;",
+    `export type Contract = ContractOf<Built<typeof Server[${JSON.stringify(source.exportName)}]>>;`,
     "export type Headers = AnyHeaders;",
     "export type Unread = Raw<string>;",
     'export type Stream = NonNullable<RequestInit["body"]>;',
@@ -284,7 +286,7 @@ export function printContract(
 
   if (routes.length === 0 || strangers.length > 0) {
     throw new ContractProblem(
-      `${source.exportName} of ${source.entry} is not a Tetsu application: its type carries no routes`,
+      `${source.exportName} of ${source.entry} is not a Tetsu application, nor a function that returns one: its type carries no routes`,
     );
   }
 
