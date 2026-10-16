@@ -27,7 +27,9 @@
  * The `client` scenario is the flat application read by
  * `@tetsujs/client` straight off `typeof app`, with a call of every route
  * that narrows its result by status — what a test suite or a Bun service
- * calling another one pays on top of the application.
+ * calling another one pays on top of the application. The `query`
+ * scenario reads it through `@tetsujs/client/tanstack` instead: a query
+ * and a mutation of every route.
  *
  * Types and instantiations are deterministic for a given compiler and
  * number of checkers, so `--check` holds the 200-route count to a budget
@@ -49,6 +51,7 @@ import { $ } from "bun";
 const root = join(import.meta.dir, "..", "..");
 const core = join(root, "packages", "core", "dist", "src", "index.js");
 const client = join(root, "packages", "client", "dist", "src", "index.js");
+const tanstack = join(root, "packages", "client", "dist", "src", "tanstack.js");
 const tsc = join(root, "node_modules", ".bin", "tsc");
 
 /**
@@ -91,21 +94,28 @@ const ladder = [2, 200, 800] as const;
  * of its methods walked the whole contract at every call — 1.76 million
  * at 200 routes, and too deep to compile at 1 600; one that worked out
  * the options of a route at each call cost 558 884.
+ *
+ * `query` was first measured at 375 529 (2026-10-16): about 695
+ * instantiations a call. Options that kept the contract in the type of
+ * their methods, as the client's once did, cost 574 232, and 4.6 million
+ * at 800 routes.
  */
 const budgets: Record<Scenario, number> = {
   flat: 294_000,
   grouped: 312_000,
   client: 441_000,
+  query: 470_000,
 };
 
 /**
- * Instantiations the client may add to the flat application at 200
- * routes: `client` less `flat`. The budget of `client` holds the sum, in
+ * Instantiations a client may add to the flat application at 200 routes:
+ * the scenario less `flat`. The budget of the scenario holds the sum, in
  * which the application is two thirds — a client that cost twice as much
- * would still fit under it. This one holds the client's own share, set the
- * same quarter above its count, 115 980 (2026-10-16).
+ * would still fit under it. These hold the client's own share, set the
+ * same quarter above its count: 115 980 calling, 138 980 through the
+ * options of TanStack Query (2026-10-16).
  */
-const clientShare = 145_000;
+const shares = { client: 145_000, query: 174_000 } as const;
 
 interface Cost {
   readonly scenario: Scenario;
@@ -126,8 +136,11 @@ interface Cost {
  */
 type Mounting = "flat" | "grouped";
 
-/** A way of mounting the application, or the flat one read by a client. */
-type Scenario = Mounting | "client";
+/**
+ * A way of mounting the application, or the flat one read by a client —
+ * calling it, or through the options of TanStack Query.
+ */
+type Scenario = Mounting | "client" | "query";
 
 function application(routes: number, mounting: Mounting): string {
   const controllers = routes / 2;
@@ -214,6 +227,44 @@ function withClient(routes: number): string {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * The flat application, a client over it, and TanStack Query options for
+ * each route: per controller, a query whose data and narrowed error are
+ * read as a query library infers them, and a mutation.
+ */
+function withQueries(routes: number): string {
+  const lines = [
+    application(routes, "flat"),
+    `import { createClient } from ${JSON.stringify(client)};`,
+    `import { queryUtils } from ${JSON.stringify(tanstack)};`,
+    'const q = queryUtils(createClient<typeof app>({ baseUrl: "https://api.example.com" }));',
+    "declare function errorOf<E>(options: { throwOnError?: (error: E) => boolean }): E;",
+    "const signal = new AbortController().signal;",
+    "export async function queries() {",
+  ];
+
+  for (let index = 0; index < routes / 2; index += 1) {
+    lines.push(`  {
+    const options = q.get("/r${index}/:id").queryOptions({ params: { id: ${index} }, query: { page: 1 } });
+    const data = await options.queryFn({ signal });
+    const error = errorOf(options);
+
+    data.name satisfies string;
+    if (error.status === 404) error.error.code satisfies string;
+  }
+  {
+    const options = q.post("/r${index}").mutationOptions();
+    const data = await options.mutationFn({ body: { name: "n", qty: 1 } });
+
+    data.qty satisfies number;
+  }`);
+  }
+
+  lines.push("}");
+
+  return `${lines.join("\n")}\n`;
+}
+
 const compilerOptions = {
   strict: true,
   noEmit: true,
@@ -247,7 +298,9 @@ async function measure(routes: number, scenario: Scenario): Promise<Cost> {
       join(directory, "app.ts"),
       scenario === "client"
         ? withClient(routes)
-        : application(routes, scenario),
+        : scenario === "query"
+          ? withQueries(routes)
+          : application(routes, scenario),
     );
     await Bun.write(
       join(directory, "tsconfig.json"),
@@ -296,7 +349,7 @@ await $`bun run build`.cwd(root).quiet();
 
 const costs: Cost[] = [];
 
-const scenarios = ["flat", "grouped", "client"] as const;
+const scenarios = ["flat", "grouped", "client", "query"] as const;
 
 for (const scenario of scenarios) {
   for (const routes of ladder) {
@@ -332,22 +385,27 @@ if (process.argv.includes("--check")) {
   const flat = costs.find(
     (cost) => cost.routes === 200 && cost.scenario === "flat",
   );
-  const client = costs.find(
-    (cost) => cost.routes === 200 && cost.scenario === "client",
-  );
-  const share =
-    flat === undefined || client === undefined
-      ? undefined
-      : client.instantiations - flat.instantiations;
 
-  if (share === undefined || share > clientShare) {
-    console.error(
-      `200 routes, the client's share cost ${share} instantiations, over the budget of ${clientShare}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+  for (const [scenario, budget] of Object.entries(shares)) {
+    const read = costs.find(
+      (cost) => cost.routes === 200 && cost.scenario === scenario,
     );
-    over = true;
-  } else {
+    const share =
+      flat === undefined || read === undefined
+        ? undefined
+        : read.instantiations - flat.instantiations;
+
+    if (share === undefined || share > budget) {
+      console.error(
+        `200 routes, the ${scenario} share cost ${share} instantiations, over the budget of ${budget}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+      );
+      over = true;
+
+      continue;
+    }
+
     console.log(
-      `200 routes, the client's share: ${share} of ${clientShare} instantiations`,
+      `200 routes, the ${scenario} share: ${share} of ${budget} instantiations`,
     );
   }
 

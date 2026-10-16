@@ -159,12 +159,14 @@ jobs:
 
     # The contract @tetsujs/client generates, where it is used: in a Next and
     # a SvelteKit app without Bun's types, which install the client the way
-    # a monorepo links it. Their contracts are committed, and checked against
-    # what the built command writes today; then the apps are type-checked,
-    # not built, and the contract on its own with library checks on, which
-    # the apps leave off. Next on each compiler a user may bring; SvelteKit
-    # on 6 alone, which it requires, and svelte-check reads types through
-    # the compiler's API, which 7 does not have.
+    # a monorepo links it and prefetch its TanStack Query options on the
+    # server, in a server component and in a load. Their contracts are
+    # committed, and checked against what the built command writes today;
+    # then the apps are type-checked, not built, and the contract on its own
+    # with library checks on, which the apps leave off. Next on each compiler
+    # a user may bring; SvelteKit on 6 alone, which it requires, and
+    # svelte-check reads types through the compiler's API, which 7 does not
+    # have.
     strategy:
       fail-fast: false
       matrix:
@@ -234,8 +236,9 @@ jobs:
     runs-on: ubuntu-latest
 
     # The compiler's work for a generated 200-route application, alone and
-    # read by @tetsujs/client, and for a project of @tetsujs/sql of 200
-    # tables and 200 statements, each held to a budget of instantiations.
+    # read by @tetsujs/client and its TanStack Query options, and for a
+    # project of @tetsujs/sql of 200 tables and 200 statements, each held to
+    # a budget of instantiations.
     # It is deterministic for a given compiler, so a change that doubles
     # what the types cost fails here instead of in a user's editor.
     # bench/README.md has the numbers.
