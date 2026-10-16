@@ -46,6 +46,12 @@ class WireController {
     handler: (ctx) => ctx.params,
   });
 
+  files = route({
+    method: "GET",
+    path: "/files/*",
+    handler: (ctx) => ({ path: new URL(ctx.req.url).pathname }),
+  });
+
   json = route({
     method: "POST",
     path: "/json",
@@ -246,6 +252,34 @@ describe("the address", () => {
     );
   });
 
+  test("a value that would move the request to another path throws before anything is sent", async () => {
+    for (const id of ["", ".", ".."]) {
+      await expect(
+        api.delete("/things/:id", { params: { id } }),
+      ).rejects.toThrow(`"${id}" cannot be the parameter "id" of /things/:id`);
+    }
+  });
+
+  test("the wildcard takes a path: each segment encoded, the slashes kept", async () => {
+    const data = unwrap(
+      await api.get("/files/*", { params: { "*": "docs/a b/50%.txt" } }),
+    );
+
+    expect(data.path).toBe("/files/docs/a%20b/50%25.txt");
+  });
+
+  test("a wildcard segment that would climb out of the route throws", async () => {
+    for (const rest of ["../secret", "a/./b", "a/.."]) {
+      await expect(
+        api.get("/files/*", { params: { "*": rest } }),
+      ).rejects.toThrow("cannot be the parameter");
+    }
+
+    await expect(api.get("/files/*")).rejects.toThrow(
+      'No value for the parameter "*" of /files/*',
+    );
+  });
+
   test("url() is the address a call would request", () => {
     const local = createClient({ baseUrl: "https://api.example.com/v1/" });
 
@@ -288,6 +322,50 @@ describe("headers", () => {
     expect(first.headers["x-shared"]).toBe("call");
     expect(first.headers).not.toHaveProperty("x-skip");
     expect(second.headers.authorization).toBe("Bearer t2");
+  });
+
+  test("the client's content-type does not override the type a body carries", async () => {
+    const seen: (string | undefined)[] = [];
+
+    const typed = createClient({
+      headers: { "content-type": "application/json" },
+      fetch: async (_, init) => {
+        seen.push(init.headers["content-type"]);
+
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    await typed.post("/form", { form: { title: "Hello" } });
+    await typed.post("/form", { body: new FormData() });
+    await typed.post("/form", { body: new URLSearchParams({ a: "1" }) });
+    await typed.post("/stream", {
+      body: new Blob(["x"], { type: "image/png" }),
+    });
+    await typed.post("/stream", { body: new Blob(["x"]) });
+    await typed.post("/text", { body: "words" });
+
+    expect(seen).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "application/json",
+      "application/json",
+    ]);
+  });
+
+  test("a form goes as a form even when the client sends JSON by default", async () => {
+    const typed = createClient({
+      baseUrl: request.url,
+      headers: { "content-type": "application/json" },
+    });
+
+    const data = unwrap(
+      await typed.post("/form", { form: { title: "Hello" } }),
+    );
+
+    expect(data.title).toBe("Hello");
   });
 
   test("a call's content-type wins over the one the body sets", async () => {

@@ -181,7 +181,7 @@ export function createClient(options: ClientOptions = {}): Client {
           ? await options.headers()
           : options.headers;
 
-      const { body, contentType } = encode(call);
+      const { body, contentType, typed } = encode(call);
       const headers = new Headers();
 
       if (contentType !== undefined) {
@@ -189,7 +189,9 @@ export function createClient(options: ClientOptions = {}): Client {
       }
 
       for (const [name, value] of new Headers(shared)) {
-        headers.set(name, value);
+        if (!(typed && name === "content-type")) {
+          headers.set(name, value);
+        }
       }
 
       for (const [name, value] of Object.entries(call.headers ?? {})) {
@@ -274,23 +276,37 @@ function text(value: unknown): string {
  *
  * A parameter's name runs to the next `/`, as the core reads it, and its
  * value is encoded as one segment — a `/` in it does not split the path.
+ * The wildcard of a path ending in `/*` takes its value from `params["*"]`
+ * and is a path: each segment is encoded, the slashes between them kept.
+ *
  * A parameter without a value throws rather than send `undefined` to a
- * route that would answer `404` for it.
+ * route that would answer `404` for it. So does a segment of `.` or `..`,
+ * or an empty one: `fetch` resolves those however they are encoded, and
+ * `/users/../sessions` reaches `/sessions` — another route.
  */
 function address(
   base: string,
   path: string,
   call: Pick<CallOptions, "params" | "query">,
 ): string {
-  const filled = path.replace(/:([^/]+)/g, (_, name: string) => {
-    const value = call.params?.[name];
+  const filled = path.replace(
+    /:([^/]+)|(?<=\/)\*$/g,
+    (match, name: string | undefined) => {
+      const key = name ?? match;
+      const value = call.params?.[key];
 
-    if (value === undefined) {
-      throw new TypeError(`No value for the parameter "${name}" of ${path}`);
-    }
+      if (value === undefined) {
+        throw new TypeError(`No value for the parameter "${key}" of ${path}`);
+      }
 
-    return encodeURIComponent(text(value));
-  });
+      const segments =
+        name === undefined ? text(value).split("/") : [text(value)];
+
+      return segments
+        .map((segment) => encodeSegment(segment, key, path))
+        .join("/");
+    },
+  );
 
   const search = new URLSearchParams();
 
@@ -307,10 +323,30 @@ function address(
   return `${base}${filled}${query}`;
 }
 
-/** The body of a call as `fetch` sends it, and its type when that is the client's to set. */
+/** A segment of a path, encoded — unless it would move the request elsewhere. */
+function encodeSegment(segment: string, key: string, path: string): string {
+  if (segment === "" || segment === "." || segment === "..") {
+    throw new TypeError(
+      `"${segment}" cannot be the parameter "${key}" of ${path}: the request would go to another path`,
+    );
+  }
+
+  return encodeURIComponent(segment);
+}
+
+/**
+ * The body of a call as `fetch` sends it, and its type when that is the
+ * client's to set.
+ *
+ * `typed` is a body whose type `fetch` takes from the body itself — a form
+ * with its boundary, `URLSearchParams`, a `Blob` that has a type — which a
+ * `content-type` among the client's headers would only break. A call's own
+ * header still wins: that one was meant for this body.
+ */
 function encode(call: CallOptions): {
   readonly body?: RequestInit["body"];
   readonly contentType?: string;
+  readonly typed?: boolean;
 } {
   if (call.form !== undefined) {
     const form = new FormData();
@@ -329,7 +365,7 @@ function encode(call: CallOptions): {
       }
     }
 
-    return { body: form };
+    return { body: form, typed: true };
   }
 
   const { body } = call;
@@ -339,12 +375,18 @@ function encode(call: CallOptions): {
   }
 
   if (
+    body instanceof FormData ||
+    body instanceof URLSearchParams ||
+    (body instanceof Blob && body.type !== "")
+  ) {
+    return { body, typed: true };
+  }
+
+  if (
     typeof body === "string" ||
     body instanceof Blob ||
     body instanceof ArrayBuffer ||
     ArrayBuffer.isView(body) ||
-    body instanceof FormData ||
-    body instanceof URLSearchParams ||
     body instanceof ReadableStream
   ) {
     return { body: body as RequestInit["body"] };
