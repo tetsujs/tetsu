@@ -22,6 +22,7 @@ export interface Api {
           [key: string]: string;
         };
         location: [number, number] | null;
+        range: [number, (number | null)?];
       };
       readonly 404: {
         status: 404;
@@ -53,6 +54,7 @@ export interface Api {
           [key: string]: string;
         };
         location: [number, number] | null;
+        range: [number, (number | null)?];
       }[];
     };
   };
@@ -76,6 +78,7 @@ export interface Api {
           [key: string]: string;
         };
         location: [number, number] | null;
+        range: [number, (number | null)?];
       };
       readonly 409: {
         detail?: string;
@@ -104,6 +107,28 @@ export interface Api {
         detail?: string;
         title: string;
       };
+    };
+  };
+  readonly "PUT /users/:id/owners": {
+    readonly request: {
+      readonly params: {
+        readonly id: string | number;
+      };
+      readonly headers?: AnyHeaders;
+      readonly body: {
+        owners: Map<
+          string,
+          {
+            name: string;
+            since: Date;
+          }
+        >;
+        tags: Set<string>;
+        span: [Date, (Date | undefined)?];
+      };
+    };
+    readonly responses: {
+      readonly "2XX": unknown;
     };
   };
   readonly "GET /categories": {

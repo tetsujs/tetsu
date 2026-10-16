@@ -57,6 +57,9 @@ const CLIENT = "@tetsujs/client";
 /** `CheckFlags.Readonly` of the compiler: a property a mapped type made `readonly`. */
 const READONLY = 8;
 
+/** `CheckFlags.Mapped`: a property a mapped type made, whose flags say what it is. */
+const MAPPED = 1 << 18;
+
 /**
  * The compiler options and the root file the contract is worked out in: a
  * module of its own, beside the entry, that imports the application and
@@ -225,6 +228,14 @@ export function printContract(
     throw new ContractProblem(`Could not read ${source.entry}`);
   }
 
+  fail(
+    ts,
+    program
+      .getSourceFiles()
+      .filter((source) => !source.isDeclarationFile)
+      .flatMap((source) => program.getSyntacticDiagnostics(source)),
+  );
+
   const checker = program.getTypeChecker();
   const server = file.statements.find(
     (statement): statement is TS.ImportDeclaration =>
@@ -248,16 +259,12 @@ export function printContract(
     );
   }
 
-  const errors = [
-    ...program.getSyntacticDiagnostics(file),
-    ...program.getSemanticDiagnostics(file),
-  ];
+  const entry = program.getSourceFile(source.entry.replaceAll("\\", "/"));
 
-  if (errors.length > 0) {
-    throw new ContractProblem(
-      errors.map((error) => diagnostic(ts, error)).join("\n"),
-    );
-  }
+  fail(ts, [
+    ...(entry === undefined ? [] : program.getSemanticDiagnostics(entry)),
+    ...program.getSemanticDiagnostics(file),
+  ]);
 
   const named = (name: string): TS.Type => {
     const alias = file.statements.find(
@@ -312,6 +319,21 @@ export function printContract(
 }
 
 const ROUTE = /^(GET|POST|PUT|PATCH|DELETE) \//;
+
+/**
+ * Throws the errors the compiler found, if it found any. What is checked
+ * is the syntax of every module of the application — a route half written
+ * would otherwise drop out of the contract — and the types of the module
+ * that exports it, not of every module: TypeScript 6 is not the compiler
+ * the application is checked with, and may find what that one does not.
+ */
+function fail(ts: Ts, errors: readonly TS.Diagnostic[]): void {
+  if (errors.length > 0) {
+    throw new ContractProblem(
+      errors.map((error) => diagnostic(ts, error)).join("\n"),
+    );
+  }
+}
 
 /** Lines in braces, each indented a step further. */
 function block(lines: readonly string[]): string {
@@ -485,24 +507,40 @@ class Printer {
     return lines;
   }
 
+  /**
+   * Whether a property is `readonly`. One a mapped type made — `Jsonify`'s,
+   * which takes `readonly` off — says so in its own flags, whatever the
+   * declaration it was mapped from says; a declared one by its modifier,
+   * or by being a getter without a setter.
+   */
   private readonly(property: TS.Symbol): boolean {
     const ts = this.ts as Ts & { getCheckFlags(symbol: TS.Symbol): number };
 
-    if ((ts.getCheckFlags(property) & READONLY) !== 0) {
-      return true;
+    const flags = ts.getCheckFlags(property);
+
+    if (flags & MAPPED) {
+      return (flags & READONLY) !== 0;
     }
 
-    return (property.declarations ?? []).some(
-      (declaration) =>
-        (ts.getCombinedModifierFlags(declaration) &
-          ts.ModifierFlags.Readonly) !==
-        0,
+    const declarations = property.declarations ?? [];
+
+    return (
+      declarations.some(
+        (declaration) =>
+          (ts.getCombinedModifierFlags(declaration) &
+            ts.ModifierFlags.Readonly) !==
+          0,
+      ) ||
+      (declarations.some(ts.isGetAccessorDeclaration) &&
+        !declarations.some(ts.isSetAccessorDeclaration))
     );
   }
 
   /**
-   * An optional property's type, without the `undefined` its `?` already
-   * says. With `exactOptionalPropertyTypes` the compiler tells that one —
+   * An optional property's type, or with `exactOptionalPropertyTypes` a
+   * tuple element's, without the `undefined` its `?` already says. A tuple
+   * element keeps it otherwise: there the compiler counts it as part of
+   * the element's type, and `(T | undefined)?` is what `T?` reads as. With `exactOptionalPropertyTypes` the compiler tells that one —
    * a type of its own — from an `undefined` the property declares, which
    * stays.
    */
@@ -752,13 +790,20 @@ class Printer {
       .getTypeArguments(type)
       .map((element, index) => {
         const flags = target.elementFlags[index] ?? ts.ElementFlags.Required;
-        const printed = this.print(element, path);
 
         if (flags & ts.ElementFlags.Variable) {
-          return `...${grouped(printed)}[]`;
+          return `...${grouped(this.print(element, path))}[]`;
         }
 
-        return flags & ts.ElementFlags.Optional ? `${printed}?` : printed;
+        if (!(flags & ts.ElementFlags.Optional)) {
+          return this.print(element, path);
+        }
+
+        const printed = this.known.exact
+          ? this.defined(element, path)
+          : this.print(element, path);
+
+        return `${grouped(printed)}?`;
       });
 
     return `${target.readonly ? "readonly " : ""}[${elements.join(", ")}]`;
@@ -805,11 +850,50 @@ class Printer {
       return undefined;
     }
 
-    return checker.typeToString(
-      type,
-      undefined,
-      ts.TypeFormatFlags.NoTruncation,
+    const parameters = this.parametersOf(type);
+
+    if (parameters.length === 0) {
+      return symbol.name;
+    }
+
+    const printed = parameters.map((parameter) => {
+      const text = this.print(parameter, path);
+
+      return text.startsWith("\n") ? grouped(text) : text;
+    });
+
+    if (!printed.some((text) => text.includes("\n"))) {
+      return `${symbol.name}<${printed.join(", ")}>`;
+    }
+
+    const lines = printed.map((text) =>
+      text
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n"),
     );
+
+    return `${symbol.name}<\n${lines.join(",\n")}\n>`;
+  }
+
+  /**
+   * The type arguments of a generic global — `Map<string, Owner>` — each
+   * printed as any other type, so that `Owner` is written out rather than
+   * named where the contract does not declare it.
+   */
+  private parametersOf(type: TS.ObjectType): readonly TS.Type[] {
+    if (type.aliasSymbol !== undefined) {
+      return type.aliasTypeArguments ?? [];
+    }
+
+    if (!(type.objectFlags & this.ts.ObjectFlags.Reference)) {
+      return [];
+    }
+
+    const reference = type as TS.TypeReference;
+    const count = reference.target.typeParameters?.length ?? 0;
+
+    return this.checker.getTypeArguments(reference).slice(0, count);
   }
 
   /** Whether `type` is the global `declared`, or an instance of it when it is generic. */
@@ -836,14 +920,19 @@ class Printer {
 
   /**
    * The name of a recursive type: that of the alias or interface it came
-   * from — through `Jsonify<Category>` to `Category` — or `RecursiveN`.
+   * from — through `Jsonify<Category>` to `Category` — or `RecursiveN`;
+   * numbered when it is taken, or a global the frontend has, which the
+   * interface would shadow — a tree of `File`s is `File2`.
    */
   private nameOf(type: TS.Type): string {
     const base = this.origin(type) ?? "Recursive";
     let index = 1;
     let name = base === "Recursive" ? `${base}${index}` : base;
 
-    while (this.taken.has(name)) {
+    while (
+      this.taken.has(name) ||
+      resolveName(this.lib, this.ts, name) !== undefined
+    ) {
       index += 1;
       name = `${base}${index}`;
     }

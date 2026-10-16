@@ -1,0 +1,14 @@
+{
+  // The contract alone, with library checks on, which a frontend leaves
+  // off: there a name the contract does not declare would be an `any`.
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "lib": ["dom", "esnext"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler"
+  },
+  "files": ["src/api.contract.d.ts"]
+}

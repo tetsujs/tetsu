@@ -13,7 +13,7 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { TYPESCRIPT } from "./cli.ts";
+import ts from "typescript6";
 import { generateContract } from "./contract.ts";
 
 setDefaultTimeout(30_000);
@@ -56,6 +56,31 @@ async function run(args: readonly string[]): Promise<Run> {
   return { exitCode, stdout, stderr };
 }
 
+/**
+ * What the compiler finds wrong with a contract, read as a frontend reads
+ * it — the DOM's globals, no Bun — and with library checks on, which
+ * frontends leave off: with `skipLibCheck` a name the contract does not
+ * declare is an `any` nobody sees.
+ */
+function problems(contract: string): string[] {
+  const program = ts.createProgram([contract], {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: false,
+    lib: ["lib.esnext.d.ts", "lib.dom.d.ts"],
+    types: [],
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    paths: { "@tetsujs/client": [join(import.meta.dir, "index.ts")] },
+  });
+
+  return ts
+    .getPreEmitDiagnostics(program)
+    .map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n"));
+}
+
 describe("generateContract", () => {
   test("writes the committed contract, the same each time", async () => {
     const first = await generateContract({ entry: app, tsconfig: strictest });
@@ -65,18 +90,34 @@ describe("generateContract", () => {
     expect(second).toBe(first);
   });
 
-  test("works the contract out with the pinned compiler", async () => {
-    const probe = join(scratch, "version.ts");
-
-    await Bun.write(
-      probe,
-      `import { app } from "../contract-app.ts";\nexport { app };\n`,
+  test("loads the pinned compiler, whatever the repository compiles with", async () => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "--install=force",
+        "-e",
+        `import { typescript } from ${JSON.stringify(cli)};\nconsole.log((await typescript()).version);`,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
     );
 
-    const text = await generateContract({ entry: probe, tsconfig: strictest });
+    expect((await new Response(child.stdout).text()).trim()).toBe("6.0.3");
+    expect(await child.exited).toBe(0);
+  });
 
-    expect(text).toContain('"GET /users/:id"');
-    expect(TYPESCRIPT).toBe("typescript@6.0.3");
+  test("writes a contract that compiles on its own, library checks on", () => {
+    expect(problems(committed)).toEqual([]);
+  });
+
+  test("does not shadow a global with a recursive type of the same name", async () => {
+    const text = await generateContract({ entry: shapes, export: "shadowing" });
+    const out = join(scratch, "shadowing.d.ts");
+
+    await Bun.write(out, text);
+
+    expect(text).toContain("upload: File;");
+    expect(text).toContain("export interface File2 {");
+    expect(problems(out)).toEqual([]);
   });
 
   test("strips brands, and reads another export under another name", async () => {
@@ -113,6 +154,35 @@ describe("generateContract", () => {
     ).rejects.toThrow("nothing.ts does not exist");
   });
 
+  test("tells what is wrong with the application, rather than write part of it", async () => {
+    const entry = join(scratch, "broken.ts");
+    const routes = join(scratch, "routes.ts");
+
+    await Bun.write(
+      routes,
+      'import { route } from "@tetsujs/core";\n\nexport const health = route({ method: "GET", path: "/health", handler: () => "ok" }\n',
+    );
+    await Bun.write(
+      entry,
+      'import { createApp } from "@tetsujs/core";\nimport { health } from "./routes.ts";\n\nexport const app = createApp({ routes: [health] });\n',
+    );
+
+    await expect(generateContract({ entry })).rejects.toThrow(
+      `${routes}:4:1: ')' expected.`,
+    );
+
+    await Bun.write(
+      routes,
+      'import { route } from "@tetsujs/core";\n\nexport const health = route({ method: "GET", path: "/health", handler: () => "ok" });\n',
+    );
+    await Bun.write(
+      entry,
+      'import { createApp } from "@tetsujs/core";\nimport { health } from "./routes.ts";\n\nexport const app = createApp({ routes: [health], nope: 1 });\n',
+    );
+
+    await expect(generateContract({ entry })).rejects.toThrow(`${entry}:4:`);
+  });
+
   test("names each place it cannot write, rather than writing any", async () => {
     const generated = generateContract({ entry: shapes, export: "unwritable" });
 
@@ -120,6 +190,7 @@ describe("generateContract", () => {
       [
         "Cannot write the contract of contract-shapes.ts:",
         "  Api → POST /callbacks → request → body → onDone: a function",
+        "  Api → POST /handlers → request → body → handlers: a function",
         "  Api → POST /symbols → request → body → tag: a symbol",
         "  Api → POST /rewrites → request → body → rewriter: HTMLRewriter, a global the frontend does not have",
         "  Api → POST /missing → request → body → value: a type that did not resolve",
@@ -162,7 +233,12 @@ describe("tetsu-client contract", () => {
     const out = join(scratch, "check.d.ts");
     const args = ["contract", app, "--tsconfig", strictest, "--out", out];
 
-    expect((await run([...args, "--check"])).exitCode).toBe(1);
+    const missing = await run([...args, "--check"]);
+
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toBe(
+      `${out} does not exist: run tetsu-client contract without --check\n`,
+    );
 
     await Bun.write(
       out,
@@ -197,6 +273,8 @@ describe("tetsu-client contract", () => {
       ["contract", app, "--watch"],
       ["contract", app, "--out", "x.d.ts", "--check", "--watch"],
       ["contract", app, "--nope"],
+      ["contract", app, "--name", "my-api"],
+      ["contract", app, "--name", "Raw"],
     ]) {
       const result = await run(args);
 
@@ -229,13 +307,17 @@ describe("tetsu-client contract", () => {
       await until(async () => (await read(out)).includes('"GET /first"'));
       await Bun.write(entry, source("/second"));
       await until(async () => (await read(out)).includes('"GET /second"'));
+      await Bun.write(entry, source("/third").replace("});", "}"));
+      await Bun.sleep(1500);
+
+      expect(await read(out)).toContain('"GET /second"');
     } finally {
       child.kill("SIGKILL");
       await child.exited;
     }
 
     await Bun.sleep(300);
-    await Bun.write(entry, source("/third"));
+    await Bun.write(entry, source("/fourth"));
     await Bun.sleep(1500);
 
     expect(await read(out)).toContain('"GET /second"');

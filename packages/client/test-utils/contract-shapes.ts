@@ -35,10 +35,39 @@ export default createApp({
   routes: [route({ method: "GET", path: "/health", handler: () => "ok" })],
 });
 
+interface File {
+  name: string;
+  children: File[];
+}
+
+const Folder: z.ZodType<File, File> = z.object({
+  name: z.string(),
+  children: z.lazy(() => z.array(Folder)),
+});
+
+export const shadowing = createApp({
+  routes: [
+    route({
+      method: "POST",
+      path: "/folders",
+      bodyType: "form",
+      schema: {
+        body: z.object({ upload: z.instanceof(globalThis.File) }),
+        response: Folder,
+      },
+      handler: () => ({ name: "root", children: [] }),
+    }),
+  ],
+});
+
 export const notAnApp = { routes: [] };
 
 interface Callback {
   onDone: () => void;
+}
+
+interface Handlers {
+  handlers: Set<() => void>;
 }
 
 interface Tagged {
@@ -59,6 +88,12 @@ export const unwritable = createApp({
       method: "POST",
       path: "/callbacks",
       schema: { body: mockSchema<Callback, Callback>() },
+      handler: () => "ok",
+    }),
+    route({
+      method: "POST",
+      path: "/handlers",
+      schema: { body: mockSchema<Handlers, Handlers>() },
       handler: () => "ok",
     }),
     route({

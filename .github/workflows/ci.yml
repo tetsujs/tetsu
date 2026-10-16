@@ -161,9 +161,10 @@ jobs:
     # a SvelteKit app without Bun's types, which install the client the way
     # a monorepo links it. Their contracts are committed, and checked against
     # what the built command writes today; then the apps are type-checked,
-    # not built. Next on each compiler a user may bring; SvelteKit on 6
-    # alone, which it requires, and svelte-check reads types through the
-    # compiler's API, which 7 does not have.
+    # not built, and the contract on its own with library checks on, which
+    # the apps leave off. Next on each compiler a user may bring; SvelteKit
+    # on 6 alone, which it requires, and svelte-check reads types through
+    # the compiler's API, which 7 does not have.
     strategy:
       fail-fast: false
       matrix:
@@ -198,6 +199,7 @@ jobs:
           npm ci --no-audit --no-fund
           npx next typegen
           npx -p typescript@${{ matrix.typescript }} tsc --noEmit
+          npx -p typescript@${{ matrix.typescript }} tsc -p tsconfig.contract.json
 
       - name: SvelteKit
         if: matrix.typescript == '6'

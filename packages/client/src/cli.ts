@@ -112,6 +112,17 @@ function parse(argv: readonly string[]): Command | "help" {
     );
   }
 
+  if (
+    values.name !== undefined &&
+    (!/^[A-Za-z_$][\w$]*$/.test(values.name) ||
+      values.name === "AnyHeaders" ||
+      values.name === "Raw")
+  ) {
+    throw new UsageError(
+      `--name ${values.name} is not a name the contract can take: an identifier, other than AnyHeaders and Raw`,
+    );
+  }
+
   if (values.check === true && values.watch === true) {
     throw new UsageError("--check and --watch do not go together");
   }
@@ -152,7 +163,7 @@ function read(argv: readonly string[]) {
  * one, inside the client's package — so the import is made by a module
  * written to a directory of its own in the system's temporary directory.
  */
-async function typescript(): Promise<Ts> {
+export async function typescript(): Promise<Ts> {
   const directory = await mkdtemp(join(tmpdir(), "tetsu-client-"));
   const loader = join(directory, "typescript.mjs");
 
@@ -226,7 +237,7 @@ async function work(command: Command): Promise<number> {
     }
 
     console.error(
-      `${command.out} is out of date: run tetsu-client contract without --check`,
+      `${command.out} ${current === undefined ? "does not exist" : "is out of date"}: run tetsu-client contract without --check`,
     );
 
     return 1;

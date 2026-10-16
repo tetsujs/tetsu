@@ -10,9 +10,19 @@ import { createApp, route } from "@tetsujs/core";
 import { z } from "zod";
 
 interface Category {
-  name: string;
+  readonly name: string;
   children: Category[];
 }
+
+interface Owner {
+  name: string;
+  since: Date;
+}
+
+const Owner: z.ZodType<Owner, Owner> = z.object({
+  name: z.string(),
+  since: z.date(),
+});
 
 const Category: z.ZodType<Category> = z.object({
   name: z.string(),
@@ -28,6 +38,7 @@ const User = z.object({
   tags: z.array(z.string()),
   links: z.record(z.string(), z.url()),
   location: z.tuple([z.number(), z.number()]).nullable(),
+  range: z.tuple([z.number(), z.number().optional()]),
 });
 
 const NotFound = z.object({
@@ -60,6 +71,7 @@ export const app = createApp({
         tags: [],
         links: {},
         location: null,
+        range: [1] as [number],
       }),
     }),
     route({
@@ -97,6 +109,7 @@ export const app = createApp({
           tags: [],
           links: {},
           location: null,
+          range: [1] as [number],
         };
       },
     }),
@@ -108,6 +121,18 @@ export const app = createApp({
         response: { 204: null, default: Problem },
       },
       handler: () => undefined,
+    }),
+    route({
+      method: "PUT",
+      path: "/users/:id/owners",
+      schema: {
+        body: z.object({
+          owners: z.map(z.string(), Owner),
+          tags: z.set(z.string()),
+          span: z.tuple([z.date(), z.date().optional()]),
+        }),
+      },
+      handler: () => "ok",
     }),
     route({
       method: "GET",
