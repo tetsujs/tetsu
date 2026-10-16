@@ -145,8 +145,30 @@ const user = unwrap(await api.get("/users/:id", { params: { id } }));
 | `baseUrl` | `""` | put before every path |
 | `headers` | none | sent with every request; a function is called for each one |
 | `fetch` | the global `fetch` | what sends the request: SvelteKit's `event.fetch`, a test client, a wrapper |
+| `init` | none | the rest of `RequestInit` for every request: `credentials`, `cache`, `signal` |
 
 A client is a plain object, cheap enough to create one per request.
+
+A frontend on another site than the API sends its cookies with
+`credentials: "include"`, set once for the client:
+
+```ts twoslash
+// @filename: app.ts
+import { createApp } from "@tetsujs/core";
+export const app = createApp({ routes: [] });
+// @filename: client.ts
+import type { app } from "./app";
+// ---cut---
+import { createClient } from "@tetsujs/client";
+
+const api = createClient<typeof app>({
+  baseUrl: "https://api.example.com",
+  init: { credentials: "include" },
+});
+```
+
+A call's own `init` wins over the client's key by key. A signal is the
+exception: the client's and the call's both abort the request.
 
 A second type argument names the headers the client sends itself, so a
 route that requires one does not require it of each call:

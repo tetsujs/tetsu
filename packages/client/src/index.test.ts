@@ -622,3 +622,87 @@ describe("a fetch of its own", () => {
     expect(res).toEqual({ session: "s1" });
   });
 });
+
+describe("the client's init", () => {
+  test("goes with every request, under a call's own", async () => {
+    const seen: FetchInit[] = [];
+
+    const spied = createClient({
+      init: { credentials: "include", cache: "no-store" },
+      fetch: async (_, init) => {
+        seen.push(init);
+
+        return Response.json({ ok: true });
+      },
+    });
+
+    await spied.get("/plain");
+    await spied.get("/plain", { init: { cache: "reload" } });
+
+    expect(seen).toEqual([
+      { credentials: "include", cache: "no-store", method: "GET", headers: {} },
+      { credentials: "include", cache: "reload", method: "GET", headers: {} },
+    ]);
+  });
+
+  test("does not override what the runtime sets", async () => {
+    const seen: FetchInit[] = [];
+
+    const spied = createClient({
+      init: {
+        method: "PUT",
+        headers: { "x-init": "1" },
+        body: "no",
+      } as RequestInit,
+      fetch: async (_, init) => {
+        seen.push(init);
+
+        return Response.json({ ok: true });
+      },
+    });
+
+    await spied.post("/json", { body: { a: 1 } });
+
+    expect(seen).toEqual([
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"a":1}',
+      },
+    ]);
+  });
+
+  test("its signal aborts a call that has a signal of its own", async () => {
+    const controller = new AbortController();
+
+    const aborting = createClient({
+      baseUrl: request.url,
+      init: { signal: controller.signal },
+    });
+
+    const pending = aborting.get("/slow", {
+      init: { signal: new AbortController().signal },
+    });
+
+    setTimeout(() => controller.abort(), 20);
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  test("a call's signal still aborts it", async () => {
+    const controller = new AbortController();
+
+    const aborting = createClient({
+      baseUrl: request.url,
+      init: { signal: new AbortController().signal },
+    });
+
+    const pending = aborting.get("/slow", {
+      init: { signal: controller.signal },
+    });
+
+    setTimeout(() => controller.abort(), 20);
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+});

@@ -124,6 +124,21 @@ export interface ClientOptions {
 
   /** The `fetch` to send with. The global `fetch` by default. */
   readonly fetch?: Fetch;
+
+  /**
+   * The rest of `fetch`'s options for every request — `credentials`,
+   * `cache`, `signal`. A call's own `init` wins key by key, except the
+   * signal: either one aborts the request.
+   *
+   * @example
+   * ```ts
+   * const api = createClient<typeof app>({
+   *   baseUrl: "https://api.example.com",
+   *   init: { credentials: "include" },
+   * });
+   * ```
+   */
+  readonly init?: Omit<RequestInit, "method" | "headers" | "body">;
 }
 
 /** What a call sends, as the runtime reads it whatever the route. */
@@ -261,8 +276,11 @@ export function createClient<
       }
 
       const send = options.fetch ?? fetch;
+      const signal = joined(options.init?.signal, call.init?.signal);
       const response = await send(address(base, path, call), {
+        ...options.init,
         ...call.init,
+        ...(signal ? { signal } : {}),
         method,
         headers: Object.fromEntries(headers),
         ...(body === undefined ? {} : { body }),
@@ -400,6 +418,21 @@ function encodeSegment(segment: string, key: string, path: string): string {
   }
 
   return encodeURIComponent(segment);
+}
+
+/**
+ * The signal a request goes with: the client's and the call's, either of
+ * which aborts it, or the one that is set.
+ */
+function joined(
+  shared: AbortSignal | null | undefined,
+  own: AbortSignal | null | undefined,
+): AbortSignal | undefined {
+  if (shared && own) {
+    return AbortSignal.any([shared, own]);
+  }
+
+  return own ?? shared ?? undefined;
 }
 
 /**

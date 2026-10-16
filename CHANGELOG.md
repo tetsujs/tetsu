@@ -18,6 +18,8 @@ API.
   builds it, with `--check` for CI and `--watch` for a monorepo, and
   `generateContract()` does the same from a script. A client can also be
   typed by `typeof app` directly, for tests and projects on Bun.
+  `createClient({ init })` sets the rest of `RequestInit` once, such as
+  `credentials: "include"` for an API on another site.
   `@tetsujs/client/tanstack` turns a client into TanStack Query options
   for React, Vue, Svelte, Solid and the other adapters, with typed keys
   and errors narrowed by status.
