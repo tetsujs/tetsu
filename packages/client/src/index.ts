@@ -47,6 +47,7 @@ import type {
   RoutesAt,
   SharedOf,
   Success,
+  Told,
   UrlArgs,
 } from "./types.ts";
 
@@ -75,7 +76,9 @@ export type {
   SharedOf,
   Success,
   SuccessStatus,
+  Told,
   UrlArgs,
+  ValidationIssue,
 } from "./types.ts";
 
 /**
@@ -222,7 +225,7 @@ export interface Client<C = Untyped, O extends ClientTypes = ClientTypes> {
  */
 export function createClient<
   T extends Source<T> = Untyped,
-  O extends ClientTypes = ClientTypes,
+  O extends ClientTypes & Told<O> = ClientTypes,
 >(options: ClientOptions = {}): Client<ContractOf<T>, O> {
   let base = String(options.baseUrl ?? "");
 

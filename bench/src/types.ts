@@ -85,8 +85,8 @@ const ladder = [2, 200, 800] as const;
  * 250 instantiations a response or error hook — and both budgets set the
  * same quarter above.
  *
- * `client` was first measured at 348 026 (2026-10-16): the flat
- * application's 236 549, and about 560 instantiations a call. The budget
+ * `client` was first measured at 352 529 (2026-10-16): the flat
+ * application's 236 549, and about 580 instantiations a call. The budget
  * is the same quarter above. A client that kept its contract in the type
  * of its methods walked the whole contract at every call — 1.76 million
  * at 200 routes, and too deep to compile at 1 600; one that worked out
@@ -95,8 +95,17 @@ const ladder = [2, 200, 800] as const;
 const budgets: Record<Scenario, number> = {
   flat: 294_000,
   grouped: 312_000,
-  client: 435_000,
+  client: 441_000,
 };
+
+/**
+ * Instantiations the client may add to the flat application at 200
+ * routes: `client` less `flat`. The budget of `client` holds the sum, in
+ * which the application is two thirds — a client that cost twice as much
+ * would still fit under it. This one holds the client's own share, set the
+ * same quarter above its count, 115 980 (2026-10-16).
+ */
+const clientShare = 145_000;
 
 interface Cost {
   readonly scenario: Scenario;
@@ -317,6 +326,28 @@ if (process.argv.includes("--check")) {
 
     console.log(
       `200 routes, ${scenario}: ${gated.instantiations} of ${budget} instantiations`,
+    );
+  }
+
+  const flat = costs.find(
+    (cost) => cost.routes === 200 && cost.scenario === "flat",
+  );
+  const client = costs.find(
+    (cost) => cost.routes === 200 && cost.scenario === "client",
+  );
+  const share =
+    flat === undefined || client === undefined
+      ? undefined
+      : client.instantiations - flat.instantiations;
+
+  if (share === undefined || share > clientShare) {
+    console.error(
+      `200 routes, the client's share cost ${share} instantiations, over the budget of ${clientShare}. If the growth is deliberate, raise the budget in bench/src/types.ts and say why.`,
+    );
+    over = true;
+  } else {
+    console.log(
+      `200 routes, the client's share: ${share} of ${clientShare} instantiations`,
     );
   }
 

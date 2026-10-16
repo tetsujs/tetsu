@@ -21,6 +21,15 @@ export interface ErrorBody {
   readonly status: number;
   readonly message: string;
   readonly error: string;
+
+  /** What failed validation, on a `422` the core answers for a request. */
+  readonly issues?: readonly ValidationIssue[];
+}
+
+/** One failure of validation: what is wrong, and where in the request. */
+export interface ValidationIssue {
+  readonly message: string;
+  readonly path: readonly (string | number)[];
 }
 
 /** The `2xx` statuses of the IANA registry. */
@@ -127,10 +136,19 @@ export interface ClientTypes {
   /**
    * The names of the headers the client sends with every request — the
    * `headers` it was created with. A route that requires one of them does
-   * not require it of each call.
+   * not require it of each call. The case does not matter: a route names
+   * its headers in lower case, as the core reads them.
    */
   readonly headers?: string;
 }
+
+/**
+ * What a client can be told: {@link ClientTypes}, and nothing else — so an
+ * envelope, which has fields of its own, is not taken for it.
+ */
+export type Told<O> = {
+  readonly [K in keyof O]: K extends keyof ClientTypes ? ClientTypes[K] : never;
+};
 
 /** The envelope of a client told `O`. */
 export type ErrorOf<O> = O extends { readonly error: infer E } ? E : ErrorBody;
@@ -238,24 +256,21 @@ type Ranged<X> = X extends { readonly "2XX": infer D }
   ? Success<Exclude<SuccessStatus, keyof X>, Body<D>>
   : never;
 
-type Undeclared<X, E> = X extends
-  | { readonly "4XX": unknown }
-  | { readonly "5XX": unknown }
-  ?
-      | Failure<
-          Exclude<ClientErrorStatus, keyof X>,
-          X extends { readonly "4XX": infer B } ? Body<B> : E
-        >
-      | Failure<
-          Exclude<ServerErrorStatus, keyof X>,
-          X extends { readonly "5XX": infer B } ? Body<B> : E
-        >
-  : Failure<Exclude<ErrorStatus, keyof X>, E>;
+type Undeclared<X, E> =
+  | Failure<
+      Exclude<ClientErrorStatus, keyof X>,
+      X extends { readonly "4XX": infer B } ? Body<B> : E
+    >
+  | Failure<
+      Exclude<ServerErrorStatus, keyof X>,
+      X extends { readonly "5XX": infer B } ? Body<B> : E | undefined
+    >;
 
 /**
  * What a call of route `R` resolves to: one member per status the route
  * declares, and one for every failure it does not, whose body is the
- * envelope `E`.
+ * envelope `E` — or nothing, for a `5xx`: a proxy in front of the
+ * application answers `502` and `504` with a page that is not JSON.
  *
  * Every member has its status as a literal, so `res.ok` tells success from
  * failure, and `res.status === 404` narrows to the `404` the route
@@ -280,9 +295,9 @@ type Sent<R extends RouteContract, H extends string> = [H] extends [never]
     : R["request"];
 
 type Shared<X, H extends string> = {
-  readonly [K in keyof X as K extends H ? never : K]: X[K];
+  readonly [K in keyof X as K extends Lowercase<H> ? never : K]: X[K];
 } & {
-  readonly [K in keyof X as K extends H ? K : never]?: X[K];
+  readonly [K in keyof X as K extends Lowercase<H> ? K : never]?: X[K];
 };
 
 /**
@@ -308,7 +323,9 @@ export type CallArgs<R extends RouteContract, H extends string = never> =
     : [options: CallOptions<R, H>];
 
 type UrlOptions<R> = R extends RouteContract
-  ? Pick<R["request"], Extract<keyof R["request"], "params" | "query">>
+  ? Pick<R["request"], Extract<keyof R["request"], "params" | "query">> & {
+      readonly [K in Exclude<"params" | "query", keyof R["request"]>]?: never;
+    }
   : never;
 
 /**

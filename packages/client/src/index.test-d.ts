@@ -24,6 +24,7 @@ import type {
   ServerErrorStatus,
   Success,
   SuccessStatus,
+  ValidationIssue,
 } from "./index.ts";
 import { createClient, unwrap } from "./index.ts";
 
@@ -71,6 +72,13 @@ const Conflict = mockSchema<{
 }>();
 const Problem = mockSchema<{ title: string }>();
 const Csv = mockSchema<string>();
+
+declare const accountId: unique symbol;
+
+type Branded<T> = T & { readonly [accountId]: true };
+
+const Account = mockSchema<{ id: Branded<number> }>();
+const Window = mockSchema<{ from: Branded<Date> }>();
 
 const app = createApp({
   routes: [
@@ -200,6 +208,33 @@ const app = createApp({
       schema: { response: { 200: Id, default: Problem } },
       handler: () => ({ id: 1 }),
     }),
+    route({
+      method: "GET",
+      path: "/teams/:team/members/:id",
+      schema: { params: Id },
+      handler: () => "ok",
+    }),
+    route({
+      method: "GET",
+      path: "/problems",
+      schema: {
+        response: {
+          200: { contentType: "application/vnd.api+json", body: Id },
+          404: { contentType: "application/problem+json", body: Problem },
+        },
+      },
+      handler: () =>
+        new Response("{}", {
+          headers: { "content-type": "application/vnd.api+json" },
+        }),
+    }),
+    route({ method: "POST", path: "/search", handler: () => "ok" }),
+    route({
+      method: "GET",
+      path: "/accounts/:id",
+      schema: { params: Account, query: Window },
+      handler: () => "ok",
+    }),
   ],
 });
 
@@ -235,7 +270,7 @@ export async function params() {
   // @ts-expect-error a path with a parameter needs params
   await api.get("/users/:id");
 
-  // @ts-expect-error the schema's input: id is a number
+  // @ts-expect-error a coercing schema takes unknown, so the client takes its output: a number
   await api.get("/users/:id", { params: { id: "1" } });
 
   await api.get("/orgs/:org/members/:member-id", {
@@ -262,6 +297,25 @@ export async function params() {
 
   // @ts-expect-error a path without parameters takes none
   await api.get("/health", { params: { id: 1 } });
+}
+
+export async function partialParams() {
+  await api.get("/teams/:team/members/:id", { params: { team: "t", id: 7 } });
+
+  // @ts-expect-error the schema names id alone, and the path still needs team
+  await api.get("/teams/:team/members/:id", { params: { id: 7 } });
+
+  await api.get("/teams/:team/members/:id", {
+    // @ts-expect-error the schema's id is a number
+    params: { team: "t", id: "7" },
+  });
+}
+
+export async function coercedBrands() {
+  await api.get("/accounts/:id", {
+    params: { id: 42 },
+    query: { from: new Date() },
+  });
 }
 
 export async function query() {
@@ -320,6 +374,10 @@ export async function headers() {
     headers: { authorization: "Bearer other" },
   });
 
+  const cased = createClient<typeof app, { headers: "Authorization" }>();
+
+  await cased.get("/feed", { query: { since: new Date() } });
+
   const other = createClient<typeof app, { headers: "x-trace" }>();
 
   // @ts-expect-error the client sends x-trace, not authorization
@@ -377,6 +435,15 @@ export function urls() {
   // @ts-expect-error the address of a path with a parameter needs it
   api.url("/users/:id");
 
+  // @ts-expect-error the query has the schema's type, though another route at the path takes none
+  api.url("/search", { query: { q: 1 } });
+
+  // @ts-expect-error a path whose routes take no query takes none
+  api.url("/health", { query: { anything: 1 } });
+
+  // @ts-expect-error nor parameters
+  api.url("/health", { params: { x: 1 } });
+
   void [one, two, three];
 }
 
@@ -410,7 +477,20 @@ export async function declared() {
     return;
   }
 
-  check<Equal<typeof res.error, ErrorBody>>();
+  if (res.status === 422) {
+    check<Equal<typeof res.error, ErrorBody>>();
+    check<
+      Equal<typeof res.error.issues, readonly ValidationIssue[] | undefined>
+    >();
+
+    return;
+  }
+
+  if (res.status === 502) {
+    check<Equal<typeof res.error, ErrorBody | undefined>>();
+
+    return;
+  }
 
   // @ts-expect-error a status outside the registry does not compare
   void (res.status === 599);
@@ -429,7 +509,7 @@ export async function everyStatus() {
       break;
     }
     case 500: {
-      check<Equal<typeof res.error, ErrorBody>>();
+      check<Equal<typeof res.error, ErrorBody | undefined>>();
       break;
     }
     default: {
@@ -476,8 +556,20 @@ export async function undeclaredResponse() {
   if (res.ok) {
     check<Equal<typeof res.data, unknown>>();
     check<Equal<typeof res.status, SuccessStatus>>();
-  } else {
+  } else if (res.status === 404) {
     check<Equal<typeof res.error, ErrorBody>>();
+  } else if (res.status === 503) {
+    check<Equal<typeof res.error, ErrorBody | undefined>>();
+  }
+}
+
+export async function plusJson() {
+  const res = await api.get("/problems");
+
+  if (res.ok) {
+    check<Equal<typeof res.data, { id: number }>>();
+  } else if (res.status === 404) {
+    check<Equal<typeof res.error, { title: string }>>();
   }
 }
 
@@ -513,6 +605,10 @@ export async function envelope() {
   const res = await own.get("/users/:id", { params: { id: 1 } });
 
   if (!res.ok && res.status === 500) {
+    check<Equal<typeof res.error, AppError | undefined>>();
+  }
+
+  if (!res.ok && res.status === 401) {
     check<Equal<typeof res.error, AppError>>();
   }
 
@@ -522,6 +618,9 @@ export async function envelope() {
 
   // @ts-expect-error the second argument says what it tells: { error } or { headers }
   createClient<typeof app, AppError>();
+
+  // @ts-expect-error an envelope with an error field is still not what the client is told
+  createClient<typeof app, ErrorBody>();
 }
 
 export async function unwrapped() {

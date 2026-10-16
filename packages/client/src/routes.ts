@@ -37,16 +37,38 @@ type OutputOf<S> = Types<S> extends { readonly output: infer O } ? O : unknown;
 type Wire<S> = WireOf<InputOf<S>, OutputOf<S>>;
 
 type WireOf<I, O> = unknown extends I
-  ? O
+  ? { [K in keyof O]: Unbranded<O[K]> }
   : I extends object
     ? {
         [K in keyof I]: unknown extends I[K]
           ? K extends keyof O
-            ? O[K]
+            ? Unbranded<O[K]>
             : I[K]
           : I[K];
       }
     : I;
+
+/**
+ * An output as a call can send it: without the brand a schema puts on a
+ * value it coerces — `z.coerce.number().brand<"UserId">()` takes a plain
+ * number. A brand is the server's to make, as a generated contract leaves
+ * it out.
+ */
+type Unbranded<T> = T extends object
+  ? T extends string
+    ? string
+    : T extends number
+      ? number
+      : T extends boolean
+        ? boolean
+        : T extends bigint
+          ? bigint
+          : T extends Date
+            ? Date
+            : T extends readonly (infer U)[]
+              ? Unbranded<U>[]
+              : T
+  : T;
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -69,7 +91,7 @@ type Part<K extends string, V> =
     : { readonly [Q in K]: V };
 
 type Params<P extends string, S> = S extends { readonly params: infer X }
-  ? Part<"params", Wire<X>>
+  ? Part<"params", Flat<Omit<PathParams<P>, keyof Wire<X>> & Wire<X>>>
   : P extends `${string}:${string}` | `${string}/*`
     ? Part<"params", Flat<PathParams<P>>>
     : unknown;
@@ -118,7 +140,7 @@ type Status<E> = E extends null
   : E extends { readonly "~standard": unknown }
     ? Jsonify<OutputOf<E>>
     : E extends { readonly contentType: infer C extends string }
-      ? Lowercase<C> extends "application/json"
+      ? Lowercase<C> extends "application/json" | `${string}+json`
         ? Entry<E>
         : Raw<C>
       : Entry<E>;

@@ -202,7 +202,8 @@ compiler reads it. The application is measured mounted two ways:
 a group of its own with a prefix and two group hooks, the second reading
 what the first contributed. The third scenario, `client`, is the flat
 application read by `@tetsujs/client` off `typeof app`, with a call of
-every route that narrows its result by status. Each has its budget.
+every route that narrows its result by status. Each has its budget, and
+the client's own share — `client` less `flat` — has one too.
 
 | scenario | routes | types | instantiations | memory | check | `bun check` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -212,12 +213,12 @@ every route that narrows its result by status. Each has its budget.
 | grouped | 2 | 11 192 | 29 577 | 56 MB | 0.03 s | 0.02 s |
 | grouped | 200 | 34 371 | 250 354 | 89 MB | 0.17 s | 0.08 s |
 | grouped | 800 | 104 569 | 919 354 | 187 MB | 0.68 s | 0.20 s |
-| client | 2 | 11 907 | 31 813 | 57 MB | 0.03 s | 0.03 s |
-| client | 200 | 39 639 | 348 026 | 92 MB | 0.16 s | 0.07 s |
-| client | 800 | 123 634 | 1 306 226 | 200 MB | 0.76 s | 0.29 s |
+| client | 2 | 12 048 | 32 158 | 57 MB | 0.03 s | 0.03 s |
+| client | 200 | 40 275 | 352 529 | 93 MB | 0.16 s | 0.07 s |
+| client | 800 | 125 770 | 1 323 329 | 202 MB | 0.76 s | 0.26 s |
 
 TypeScript 7.0.2 and Bun 1.4.3, 2026-10-16. A call of the client costs
-about 560 instantiations, the same at 200 routes and at 800: the client
+about 580 instantiations, the same at 200 routes and at 800: the client
 reads its contract off the object it is called on, so a call does not walk
 every route — kept in the type of its methods instead, the contract cost
 1.76 million at 200 routes and did not compile at 1 600. On TypeScript
