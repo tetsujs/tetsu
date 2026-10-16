@@ -1,0 +1,48 @@
+{
+  "name": "@tetsujs/client",
+  "version": "0.6.4",
+  "private": true,
+  "description": "A typed fetch client for Tetsu applications",
+  "keywords": [
+    "bun",
+    "tetsu",
+    "client",
+    "fetch",
+    "typed"
+  ],
+  "author": "tetsuodev",
+  "license": "MIT",
+  "homepage": "https://tetsujs.com/docs/packages/client/",
+  "bugs": {
+    "url": "https://github.com/tetsujs/tetsu/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetsujs/tetsu.git",
+    "directory": "packages/client"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "prepack": "bun run --cwd ../.. build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "devDependencies": {
+    "@tetsujs/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.test-d.ts"
+  ]
+}
