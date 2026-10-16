@@ -137,12 +137,27 @@ describe("generateContract", () => {
     expect(health).toContain('readonly "GET /health"');
   });
 
-  test("rejects an export that is not an application", async () => {
-    const generated = generateContract({ entry: shapes, export: "notAnApp" });
+  test("reads the application a function builds, awaited or not", async () => {
+    const built = await generateContract({ entry: shapes, export: "buildApp" });
 
-    await expect(generated).rejects.toThrow(
-      `notAnApp of ${shapes} is not a Tetsu application`,
-    );
+    expect(built).toContain('readonly "GET /greeting"');
+
+    const later = await generateContract({
+      entry: shapes,
+      export: "buildLater",
+    });
+
+    expect(later).toContain('readonly "GET /later"');
+  });
+
+  test("rejects an export that is not an application, nor builds one", async () => {
+    for (const name of ["notAnApp", "notABuilder"]) {
+      const generated = generateContract({ entry: shapes, export: name });
+
+      await expect(generated).rejects.toThrow(
+        `${name} of ${shapes} is not a Tetsu application`,
+      );
+    }
   });
 
   test("rejects a missing export or entry", async () => {

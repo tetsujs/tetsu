@@ -1,6 +1,7 @@
 /**
  * Applications whose contracts test the printer's edges: brands it strips,
- * an application under another export and name, and types it cannot write.
+ * an application under another export and name, one a function builds, and
+ * types it cannot write.
  * Compiled by the generator, never run.
  *
  * @module
@@ -60,7 +61,27 @@ export const shadowing = createApp({
   ],
 });
 
+/** The layout the guide suggests: the application built in a function, from its dependencies. */
+export function buildApp(greeting: string) {
+  return createApp({
+    routes: [
+      route({ method: "GET", path: "/greeting", handler: () => greeting }),
+    ],
+  });
+}
+
+/** The same, built once something is awaited. */
+export async function buildLater(greeting: Promise<string>) {
+  const text = await greeting;
+
+  return createApp({
+    routes: [route({ method: "GET", path: "/later", handler: () => text })],
+  });
+}
+
 export const notAnApp = { routes: [] };
+
+export const notABuilder = () => ({ routes: [] });
 
 interface Callback {
   onDone: () => void;

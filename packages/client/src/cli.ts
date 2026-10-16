@@ -47,7 +47,8 @@ creates its client with, without the server's code.
 
 Options:
   --out <path>        Where the contract goes (default: printed)
-  --export <name>     The export that holds the application (default: app)
+  --export <name>     The export that holds the application, or a function
+                      that returns it (default: app)
   --name <name>       The name of the contract's interface (default: Api)
   --tsconfig <path>   The tsconfig.json to compile with (default: the nearest)
   --check             Check that the contract at --out is up to date, and write nothing
