@@ -45,13 +45,13 @@ const queries = {
 const scratch = await mkdtemp(join(tmpdir(), "tetsu-sql-generate-"));
 setDefaultTimeout(DATABASE_MS);
 
-const { url } = testDatabase();
-const sql = new SQL(url);
-
 afterAll(async () => {
   await sql.close();
   await rm(scratch, { recursive: true, force: true });
 });
+
+const { url } = testDatabase();
+const sql = new SQL(url);
 
 /**
  * Runs `use` and returns the names of the scratch databases it made: each

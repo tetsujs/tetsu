@@ -12,12 +12,12 @@ import { afterAll, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { testDatabase } from "../test-utils/database.ts";
 
-const { sql, url } = testDatabase();
-const opened: SQL[] = [];
-
 afterAll(async () => {
   await Promise.all(opened.map((client) => client.close()));
 });
+
+const { sql, url } = testDatabase();
+const opened: SQL[] = [];
 
 test("PGDATABASE wins over the database a URL names, still oven-sh/bun#45276", async () => {
   process.env.PGDATABASE = "postgres";

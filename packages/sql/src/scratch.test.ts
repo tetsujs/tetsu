@@ -19,12 +19,12 @@ import { createScratch, scratchName, urlOf } from "./scratch.ts";
 
 setDefaultTimeout(DATABASE_MS);
 
-const { url } = testDatabase();
-const sql = new SQL(url);
-
 afterAll(async () => {
   await sql.close();
 });
+
+const { url } = testDatabase();
+const sql = new SQL(url);
 
 /** Whether a database of that name is on the server. */
 async function exists(name: string): Promise<boolean> {
