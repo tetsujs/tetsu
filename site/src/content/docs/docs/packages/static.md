@@ -2,7 +2,7 @@
 title: "@tetsujs/static"
 description: Files from a directory — a built site, a single-page app or assets — with caching headers, precompressed copies and the application's hooks.
 sidebar:
-  order: 10
+  order: 11
   label: "@tetsujs/static"
 ---
 

@@ -2,7 +2,7 @@
 title: "@tetsujs/rate-limit"
 description: Fixed-window rate limiting as a hook, with a replaceable counter store.
 sidebar:
-  order: 5
+  order: 6
   label: "@tetsujs/rate-limit"
 ---
 

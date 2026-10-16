@@ -2,7 +2,7 @@
 title: "@tetsujs/sql"
 description: Postgres on Bun's own client — SQL migrations, Kysely types generated from the database they build, and SQL files typed by Postgres itself.
 sidebar:
-  order: 12
+  order: 13
   label: "@tetsujs/sql"
 ---
 

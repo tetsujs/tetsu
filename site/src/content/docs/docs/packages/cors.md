@@ -2,7 +2,7 @@
 title: "@tetsujs/cors"
 description: CORS headers and preflight responses as one beforeParse hook.
 sidebar:
-  order: 4
+  order: 5
   label: "@tetsujs/cors"
 ---
 

@@ -1,77 +1,350 @@
 ---
-title: Typed client from OpenAPI
-description: Generate a typed client for a Tetsu API from its OpenAPI document, with openapi-typescript and openapi-fetch or hey-api, and keep the document in sync in CI.
+title: Typed client
+description: Call a Tetsu API from a frontend with typed paths, bodies and errors — with @tetsujs/client and a generated contract, in Next.js and SvelteKit with TanStack Query, or from the OpenAPI document.
 sidebar:
   order: 11
 ---
 
-This guide gives the API's consumers — a frontend, another service — a
-client with typed paths, parameters, bodies and errors. It is generated
-from the [OpenAPI document](/docs/packages/openapi/) that Tetsu builds from
-your routes.
+This guide gives a frontend or another service a client with typed paths,
+bodies and errors.
 
-Tetsu has no RPC client that imports the server's types, as Elysia's Eden
-or Hono's client do. The document is the boundary instead: a client in
-another repository or another language reads it without the server's
-code, and a change to the API shows up as a diff of one file. The cost is
-one generation step.
+## Choosing
 
-## Serving the document
+- **[`@tetsujs/client`](/docs/packages/client/)**, for your own frontends
+  in TypeScript. Its types are the ones your handlers see, taken from the
+  compiler.
+- **[The OpenAPI document](#from-the-openapi-document)**, for other
+  languages, other teams and public APIs.
 
-Mount [`docs()`](/docs/packages/openapi/#usage) next to your controllers,
-and the application serves its document at `/openapi.json`:
+## The contract
+
+A frontend does not import the server's code. It imports a contract: a
+`.d.ts` file of plain types that `tetsu-client contract` generates from the
+application. Add a script to the server:
+
+```json title="package.json"
+"contract": "tetsu-client contract src/app.ts --out ../web/src/api.contract.d.ts"
+```
+
+The frontend creates its client with it:
 
 ```ts twoslash
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import { createApp } from "@tetsujs/core";
+declare const app: ReturnType<typeof createApp>;
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+// ---cut---
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
+
+export const api = createClient<Api>({ baseUrl: "https://api.example.com" });
+```
+
+Commit the contract, so every API change shows up as a diff, and check it
+in CI:
+
+```bash
+bunx tetsu-client contract src/app.ts --out ../web/src/api.contract.d.ts --check
+```
+
+In a monorepo, run the same command with `--watch` while you work, and the
+frontend sees a new route as soon as it is saved. Importing `typeof app`
+into the frontend also works, but it makes the frontend compile the
+server's code with Bun's types; keep that for tests and Bun projects.
+
+## TanStack Query
+
+`@tetsujs/client/tanstack` turns the client into
+[TanStack Query](https://tanstack.com/query) options:
+
+```ts twoslash
+// @filename: app.ts
+import { createApp, httpError, route } from "@tetsujs/core";
 import { z } from "zod";
 const User = z.object({ id: z.number(), name: z.string() });
 const UserNotFound = z.object({ status: z.literal(404), message: z.string(), error: z.literal("USER_NOT_FOUND") });
-// ---cut---
-import { controller, createApp, httpError, route } from "@tetsujs/core";
-import { docs } from "@tetsujs/openapi";
-
-const usersController = controller("Users", () => ({
-  get: route({
-    method: "GET",
-    path: "/users/:id",
-    schema: {
-      params: z.object({ id: z.coerce.number() }),
-      response: { 200: User, 404: UserNotFound },
-    },
-    handler: (ctx) => {
-      if (ctx.params.id !== 1) throw httpError(404, "USER_NOT_FOUND");
-
-      return { id: 1, name: "Ada" };
-    },
-  }),
-}));
-
 export const app = createApp({
-  routes: [usersController(), docs({ info: { title: "Users API", version: "1.0.0" }, ui: false })],
+  routes: [
+    route({
+      method: "GET",
+      path: "/users/:id",
+      schema: { params: z.object({ id: z.coerce.number() }), response: { 200: User, 404: UserNotFound } },
+      handler: (ctx) => {
+        if (ctx.params.id !== 1) throw httpError(404, "USER_NOT_FOUND");
+        return { id: 1, name: "Ada" };
+      },
+    }),
+  ],
+});
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import type { app } from "./app";
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
+export const api = createClient<Api>();
+// @filename: hooks.ts
+declare const id: number;
+// ---cut---
+import { useQuery } from "@tanstack/react-query";
+import { queryUtils } from "@tetsujs/client/tanstack";
+import { api } from "./api";
+
+const q = queryUtils(api);
+
+const user = useQuery(q.get("/users/:id").queryOptions({ params: { id } }));
+
+if (user.error?.status === 404) {
+  console.log(user.error.body.error);
+  //                          ^?
+}
+```
+
+The same options work with Svelte, Vue and Solid; those adapters take a
+function that returns them, such as
+`createQuery(() => q.get(…).queryOptions(…))`. A mutation is
+`useMutation(q.post("/users").mutationOptions())`, and
+`invalidateQueries({ queryKey: q.get("/users").key() })` refreshes every
+query of a route.
+
+Two things are worth setting once. Send authorization from the client, not
+from each call: a call's headers are part of its query key, and would end
+up in the cache. And retry only server errors, since TanStack Query retries
+everything three times by default:
+
+```ts twoslash
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import { createApp } from "@tetsujs/core";
+declare const app: ReturnType<typeof createApp>;
+export interface Api extends ContractOf<typeof app> {}
+// @filename: setup.ts
+import type { Api } from "./api.contract";
+declare function currentToken(): string;
+// ---cut---
+import { QueryClient } from "@tanstack/react-query";
+import { type ClientError, createClient } from "@tetsujs/client";
+
+export const api = createClient<Api, { headers: "authorization" }>({
+  headers: () => ({ authorization: `Bearer ${currentToken()}` }),
+});
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: (count, error) => (error as ClientError).status >= 500 && count < 3 },
+  },
 });
 ```
 
-`ui: false` serves only the document; leave it out to also get a
-documentation page at `/docs`.
+## Next.js
 
-## Generating the types
+On the server, a component renders for a request whose cookies the client
+has to pass on itself. A client is cheap to create, so make one per
+request:
 
-[`openapi-typescript`](https://openapi-ts.dev) turns the document into
-TypeScript types, from a file or from a URL:
+```ts twoslash title="src/api.ts"
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import { createApp } from "@tetsujs/core";
+declare const app: ReturnType<typeof createApp>;
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+// ---cut---
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
 
-```bash
-bunx openapi-typescript http://localhost:3000/openapi.json -o src/api.d.ts
+export function api(cookie?: string) {
+  return createClient<Api>({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    headers: cookie === undefined ? undefined : { cookie },
+  });
+}
 ```
 
-The output is types only, with a `paths` interface keyed by the
-document's paths. It costs nothing at runtime.
+A server component prefetches the query and hands the cache to the browser:
 
-## Calling the API
+```tsx twoslash title="app/users/[id]/page.tsx"
+// @jsx: react-jsx
+// @filename: next.d.ts
+declare module "next/headers" {
+  export function cookies(): Promise<{ toString(): string }>;
+}
+// @filename: app.ts
+import { createApp, route } from "@tetsujs/core";
+import { z } from "zod";
+const User = z.object({ id: z.number(), name: z.string() });
+export const app = createApp({
+  routes: [
+    route({
+      method: "GET",
+      path: "/users/:id",
+      schema: { params: z.object({ id: z.coerce.number() }), response: User },
+      handler: () => ({ id: 1, name: "Ada" }),
+    }),
+  ],
+});
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import type { app } from "./app";
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
+export function api(cookie?: string) {
+  return createClient<Api>({ headers: cookie === undefined ? undefined : { cookie } });
+}
+// @filename: user.d.ts
+export declare function User(props: { id: number }): null;
+// @filename: page.tsx
+// ---cut---
+import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
+import { queryUtils } from "@tetsujs/client/tanstack";
+import { cookies } from "next/headers";
+import { api } from "./api";
+import { User } from "./user";
 
-[`openapi-fetch`](https://openapi-ts.dev/openapi-fetch/) is a thin
-`fetch` wrapper typed by that `paths` interface:
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const id = Number((await params).id);
+  const q = queryUtils(api((await cookies()).toString()));
+  const queryClient = new QueryClient();
+
+  // A failure is left to the browser, which fetches again and shows it.
+  await queryClient.query(q.get("/users/:id").queryOptions({ params: { id } })).catch(() => undefined);
+
+  return (
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <User id={id} />
+    </HydrationBoundary>
+  );
+}
+```
+
+`User` is a client component that calls `useQuery` with the same options,
+over `queryUtils(api())`: in the browser, the browser sends the cookies.
+For an API on another origin, pass
+`fetch: (url, init) => fetch(url, { ...init, credentials: "include" })` to
+the client. In a monorepo on Bun, set `"types": ["node"]` in the Next.js
+`tsconfig.json`, or it picks up Bun's types from the root.
+
+## SvelteKit
+
+A `load` function gets SvelteKit's `fetch`, which carries the request's
+cookies on the server. Pass it to the client:
+
+```ts twoslash title="src/lib/api.ts"
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import { createApp } from "@tetsujs/core";
+declare const app: ReturnType<typeof createApp>;
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+// ---cut---
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
+
+export function api(fetch = globalThis.fetch) {
+  return createClient<Api>({ baseUrl: "https://api.example.com", fetch });
+}
+```
+
+With TanStack Query, the root layout creates the query client, with queries
+off on the server, where `load` functions prefetch instead:
+
+```ts twoslash title="src/routes/+layout.ts"
+// @filename: env.d.ts
+declare module "$app/env" {
+  export const browser: boolean;
+}
+// @filename: $types.d.ts
+export type LayoutLoad = () => unknown;
+// @filename: layout.ts
+// ---cut---
+import { QueryClient } from "@tanstack/svelte-query";
+import { browser } from "$app/env";
+import type { LayoutLoad } from "./$types";
+
+export const load: LayoutLoad = () => ({
+  queryClient: new QueryClient({ defaultOptions: { queries: { enabled: browser } } }),
+});
+```
+
+```ts twoslash title="src/routes/users/[id]/+page.ts"
+// @filename: $types.d.ts
+import type { QueryClient } from "@tanstack/svelte-query";
+export type PageLoad = (event: {
+  fetch: typeof fetch;
+  params: { id: string };
+  parent(): Promise<{ queryClient: QueryClient }>;
+}) => unknown;
+// @filename: app.ts
+import { createApp, route } from "@tetsujs/core";
+import { z } from "zod";
+const User = z.object({ id: z.number(), name: z.string() });
+export const app = createApp({
+  routes: [
+    route({
+      method: "GET",
+      path: "/users/:id",
+      schema: { params: z.object({ id: z.coerce.number() }), response: User },
+      handler: () => ({ id: 1, name: "Ada" }),
+    }),
+  ],
+});
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import type { app } from "./app";
+export interface Api extends ContractOf<typeof app> {}
+// @filename: lib.d.ts
+declare module "#lib/api.ts" {
+  import type { Client } from "@tetsujs/client";
+  import type { Api } from "./api.contract";
+  export function api(fetch?: typeof globalThis.fetch): Client<Api>;
+}
+// @filename: page.ts
+// ---cut---
+import { queryUtils } from "@tetsujs/client/tanstack";
+import { api } from "#lib/api.ts";
+import type { PageLoad } from "./$types";
+
+export const load: PageLoad = async ({ fetch, params, parent }) => {
+  const { queryClient } = await parent();
+  const id = Number(params.id);
+  const q = queryUtils(api(fetch));
+
+  await queryClient.query(q.get("/users/:id").queryOptions({ params: { id } })).catch(() => undefined);
+
+  return { id };
+};
+```
+
+The page calls `createQuery(() => q.get("/users/:id").queryOptions({ params: { id: data.id } }))`
+over `queryUtils(api())` and finds the user in the cache. Wrap the layout
+in `QueryClientProvider` with `data.queryClient`, as the
+[Svelte Query docs](https://tanstack.com/query/latest/docs/framework/svelte/ssr)
+show.
+
+Nuxt, SolidStart and other frameworks follow the same idea: a client per
+request that passes its cookies on, and prefetching as TanStack Query's
+guide for that framework describes.
+
+## From the OpenAPI document
+
+[`@tetsujs/openapi`](/docs/packages/openapi/) serves the document at
+`/openapi.json`. [`openapi-typescript`](https://openapi-ts.dev) turns it
+into types:
+
+```bash
+bunx openapi-typescript http://localhost:3000/openapi.json -o src/openapi.d.ts
+```
+
+and [`openapi-fetch`](https://openapi-ts.dev/openapi-fetch/) calls the API
+with them:
 
 ```ts twoslash
-// @filename: api.d.ts
+// @filename: openapi.d.ts
 export interface paths {
   "/users/{id}": {
     parameters: { query?: never; header?: never; path?: never; cookie?: never };
@@ -113,112 +386,23 @@ export interface operations {
 // @filename: client.ts
 // ---cut---
 import createClient from "openapi-fetch";
-import type { paths } from "./api";
+import type { paths } from "./openapi";
 
 const api = createClient<paths>({ baseUrl: "https://api.example.com" });
 
-const { data, error } = await api.GET("/users/{id}", {
-  params: { path: { id: 42 } },
-});
+const { data, error } = await api.GET("/users/{id}", { params: { path: { id: 42 } } });
 
 if (error) {
-  const code = error.error;
-  //    ^?
-  console.log(code);
+  console.log(error.error);
+  //                ^?
 } else {
   console.log(data.name);
 }
 ```
 
-The path is checked against the document, `id` must be a number, and
-`data` is the `200` body. A wrong path or a missing parameter is a compile
-error.
-
-## Errors are in the document
-
-`error` is the body of any other status, typed as the union of what the
-document lists for the operation. That includes the failures the
-framework answers by itself, such as `422` for a validation failure and
-`500`. Branch on the `error` code, not on the message, which is written for
-people and may change. See [Errors](/docs/concepts/errors/).
-
-An error that is thrown but not declared is not in the document. A route
-lists its own in its response map, as `404` above. A hook that refuses
-describes its refusal with
-[`documented()` or `secured()`](/docs/packages/openapi/#documenting-hooks).
-A custom error format is described with
-[`errors`](/docs/packages/openapi/#an-error-format-of-your-own).
-
-## Operation ids
-
-A generator that writes a function per operation names it after the
-`operationId`. Tetsu builds it from the controller's name and the route's
-field: `get` in `controller("Users", …)` is `usersGet`. Renaming the
-controller renames the functions, so on a public API state the id on each
-route with `docs: { operationId }`. Two routes with the same id are an
-error when the document is built. See
-[Operation ids](/docs/packages/openapi/#operation-ids).
-
-## An SDK instead
-
-[`@hey-api/openapi-ts`](https://heyapi.dev) generates the types and a
-function per operation:
-
-```bash
-bunx @hey-api/openapi-ts -i http://localhost:3000/openapi.json -o src/client
-```
-
-`openapi-fetch` keeps calls in the shape of HTTP; an SDK hides them
-behind functions. Which to use is a matter of taste.
-
-## Where the client lives
-
-The client belongs to its consumers: the frontend's repository, or a
-package of its own in a monorepo. The server only hands over the document,
-either served, as above, or written to a file and committed. A committed
-file makes every API change a visible diff and allows the CI check below.
-
-`openapi()` builds the document without serving it. The script imports the
-application, not `main.ts`, so nothing starts listening:
-
-```ts twoslash title="scripts/openapi.ts"
-// @filename: src/app.ts
-import { createApp } from "@tetsujs/core";
-export const app = createApp({ routes: [] });
-// @filename: scripts/openapi.ts
-// ---cut---
-import { openapi } from "@tetsujs/openapi";
-import { app } from "../src/app";
-
-const { document, warnings } = openapi(app, { info: { title: "Users API", version: "1.0.0" } });
-
-for (const warning of warnings) console.error(`${warning.route}: ${warning.message}`);
-
-if (warnings.length > 0) process.exit(1);
-
-await Bun.write("openapi.json", `${JSON.stringify(document, null, 2)}\n`);
-```
-
-A warning means part of a route could not be described, most often a
-schema from a validator that emits no JSON Schema. The script fails rather
-than write an incomplete document. Keeping the application apart from
-`main.ts` is the layout
-[Structuring an application](/docs/guides/structuring/) describes.
-
-## Checking the document in CI
-
-With the document committed, CI regenerates it and fails when it differs
-from the committed file:
-
-```bash
-bun scripts/openapi.ts
-git diff --exit-code openapi.json
-```
-
-A pull request that changes the API without updating the document fails,
-and one that updates it shows the contract change next to the code. A tool
-such as `oasdiff` can list which changes break existing clients.
-
-To check the other direction, that real responses match the document, use
-[`assertDescribed`](/docs/packages/openapi/#testing-against-the-document)
-in tests.
+`error` is the body of any other status the document lists, including the
+`422` and `500` the framework answers. Branch on its `error` code. A
+refusal from a hook is in the document only when the hook is
+[documented](/docs/packages/openapi/#documenting-hooks). To commit the
+document and check it in CI, as with the contract, see
+[Using the document directly](/docs/packages/openapi/#using-the-document-directly).

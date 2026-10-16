@@ -2,7 +2,7 @@
 title: "@tetsujs/sse"
 description: Server-sent events from an async generator, and the same machinery for any other streamed format.
 sidebar:
-  order: 9
+  order: 10
   label: "@tetsujs/sse"
 ---
 

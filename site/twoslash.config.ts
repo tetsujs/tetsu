@@ -113,6 +113,8 @@ export const twoslashOptions: TwoslashOptions = {
     moduleResolution: 100,
     types: ["bun"],
     paths: {
+      "@tetsujs/client/contract": [`${packages}client/src/contract.ts`],
+      "@tetsujs/client/tanstack": [`${packages}client/src/tanstack.ts`],
       "@tetsujs/core/testing": [`${packages}core/test-utils/index.ts`],
       "@tetsujs/openapi/testing": [`${packages}openapi/src/testing.ts`],
       "@tetsujs/sql/generate": [`${packages}sql/src/generate.ts`],

@@ -8,9 +8,9 @@ bun add @tetsujs/client
 
 ```ts
 import { createClient } from "@tetsujs/client";
-import type { app } from "../server/src/app";
+import type { Api } from "./api.contract"; // tetsu-client contract src/app.ts --out …
 
-const api = createClient<typeof app>({ baseUrl: "https://api.example.com" });
+const api = createClient<Api>({ baseUrl: "https://api.example.com" });
 
 const res = await api.get("/users/:id", { params: { id: 42 } });
 

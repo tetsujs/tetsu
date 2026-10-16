@@ -20,7 +20,7 @@ their latest releases.
 | Request types | inferred from path, schemas and hooks | inferred through the chain | inferred from validators | declared on DTO classes |
 | Dependencies | function arguments | decorate / derive / plugins | context variables | a DI container |
 | Validation | Standard Schema | TypeBox built in, Standard Schema | validator middleware | pipes, usually class-validator |
-| Typed client | via the OpenAPI document | Eden | `hc` (RPC) | via the OpenAPI document |
+| Typed client | `@tetsujs/client` or the OpenAPI document | Eden | `hc` (RPC) | via the OpenAPI document |
 
 ## Elysia
 
@@ -32,8 +32,10 @@ Tetsu application is a tree of plain objects: a route lists its own hooks by
 slot, and a hook reaches as far as the place it is mounted.
 
 The chain gives Elysia Eden, a client typed straight from the server's type.
-Tetsu's typed boundary is the OpenAPI document, which any generator and any
-language can use.
+Tetsu's [client](/docs/packages/client/) reads the same route types, but a
+frontend gets them from a generated contract of plain types rather than
+from the server's code, so it needs neither Bun's types nor the server's
+sources. For consumers in other languages, there is the OpenAPI document.
 
 In [the benchmark](/docs/more/performance/), Elysia 1.4 is level with Tetsu
 on the `GET` routes and up to 0.3 µs a request faster on the `404` and the
@@ -77,7 +79,7 @@ inferred.
 - **Bun only.** No Node, no Deno, no edge runtimes.
 - **Explicit over DRY.** Each route lists its hooks. A set several routes
   share is a constant you spread into their slots.
-- **A young ecosystem.** Eleven official packages; beyond them, you write the
+- **A young ecosystem.** Thirteen official packages; beyond them, you write the
   hook yourself.
 - **`0.x`.** The API may change between minor versions until `1.0`, and
   every such change comes with how to move. See
