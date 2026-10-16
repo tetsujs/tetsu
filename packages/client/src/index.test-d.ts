@@ -640,7 +640,7 @@ export async function unwrapped() {
   const thrown = {} as ClientError<typeof failure>;
 
   check<Equal<typeof thrown.status, 404>>();
-  check<Equal<typeof thrown.error, { error: "USER_NOT_FOUND" }>>();
+  check<Equal<typeof thrown.body, { error: "USER_NOT_FOUND" }>>();
 }
 
 // --- Where the types come from ----------------------------------------------

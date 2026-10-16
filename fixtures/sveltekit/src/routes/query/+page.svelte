@@ -47,10 +47,10 @@ const pages = createInfiniteQuery(() =>
 );
 
 const missing: "USER_NOT_FOUND" | undefined = $derived(
-  user.error?.status === 404 ? user.error.error.error : undefined,
+  user.error?.status === 404 ? user.error.body.error : undefined,
 );
 const conflict: string | undefined = $derived(
-  create.error?.status === 409 ? create.error.error.title : undefined,
+  create.error?.status === 409 ? create.error.body.title : undefined,
 );
 const created: string | undefined = $derived(user.data?.createdAt);
 const names: string[] = $derived(

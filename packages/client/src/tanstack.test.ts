@@ -234,7 +234,7 @@ describe("queries", () => {
     expect(error).toBeInstanceOf(ClientError);
     expect(error).toMatchObject({
       status: 404,
-      error: { status: 404, error: "USER_NOT_FOUND" },
+      body: { status: 404, error: "USER_NOT_FOUND" },
     });
   });
 
@@ -354,7 +354,7 @@ describe("mutations", () => {
     expect(error).toBeInstanceOf(ClientError);
     expect(error).toMatchObject({
       status: 409,
-      error: { error: "NAME_TAKEN" },
+      body: { error: "NAME_TAKEN" },
     });
   });
 
