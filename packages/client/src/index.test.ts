@@ -290,6 +290,9 @@ describe("the address", () => {
       }),
     ).toBe("https://api.example.com/v1/echo/a%20b?tag=x&tag=y");
     expect(local.url("/plain")).toBe("https://api.example.com/v1/plain");
+    expect(
+      createClient({ baseUrl: "https://api.example.com/v1//" }).url("/plain"),
+    ).toBe("https://api.example.com/v1/plain");
   });
 });
 

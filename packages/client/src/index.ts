@@ -171,7 +171,11 @@ export interface Client {
  * ```
  */
 export function createClient(options: ClientOptions = {}): Client {
-  const base = String(options.baseUrl ?? "").replace(/\/+$/, "");
+  let base = String(options.baseUrl ?? "");
+
+  while (base.endsWith("/")) {
+    base = base.slice(0, -1);
+  }
 
   const call =
     (method: string): Call =>
