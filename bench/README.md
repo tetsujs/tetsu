@@ -202,8 +202,11 @@ compiler reads it. The application is measured mounted two ways:
 a group of its own with a prefix and two group hooks, the second reading
 what the first contributed. The third scenario, `client`, is the flat
 application read by `@tetsujs/client` off `typeof app`, with a call of
-every route that narrows its result by status. Each has its budget, and
-the client's own share — `client` less `flat` — has one too.
+every route that narrows its result by status; the fourth, `query`, reads
+it through `@tetsujs/client/tanstack` — a query and a mutation of every
+route, the data and the narrowed error as a query library infers them.
+Each has its budget, and the client's own share — the scenario less
+`flat` — has one too.
 
 | scenario | routes | types | instantiations | memory | check | `bun check` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -216,6 +219,9 @@ the client's own share — `client` less `flat` — has one too.
 | client | 2 | 12 048 | 32 158 | 57 MB | 0.03 s | 0.03 s |
 | client | 200 | 40 275 | 352 529 | 93 MB | 0.16 s | 0.07 s |
 | client | 800 | 125 770 | 1 323 329 | 202 MB | 0.76 s | 0.26 s |
+| query | 2 | 11 972 | 32 190 | 60 MB | 0.03 s | 0.03 s |
+| query | 200 | 41 881 | 375 529 | 95 MB | 0.16 s | 0.07 s |
+| query | 800 | 132 476 | 1 415 929 | 204 MB | 0.76 s | 0.22 s |
 
 TypeScript 7.0.2 and Bun 1.4.3, 2026-10-16. A call of the client costs
 about 580 instantiations, the same at 200 routes and at 800: the client
@@ -224,7 +230,9 @@ every route — kept in the type of its methods instead, the contract cost
 1.76 million at 200 routes and did not compile at 1 600. On TypeScript
 5.7 a call still walks the contract, in the inference of its type
 arguments: 17 million instantiations and twice the time at 1 600 routes
-and 800 calls; 5.9 and later do not. `bun check` is printed for reading:
+and 800 calls; 5.9 and later do not. The TanStack Query options cost about 695
+a call and read the contract the same way; kept in the type of their
+methods, they cost 574 232 at 200 routes and 4.6 million at 800. `bun check` is printed for reading:
 it counts nothing, and passes types that `tsc` refuses as too deep. A response or error hook costs about 250
 instantiations — the observer and the mapper added 49 390 at 200 routes —
 and several times that on TypeScript 5.7; they are in the

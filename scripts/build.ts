@@ -18,7 +18,10 @@
  * Bun all the same — a command, an export under the `bun` condition — is
  * built apart, for Bun, and without splitting: the generator finds the
  * command beside itself through `import.meta.url`, which a shared chunk
- * would move.
+ * would move. Without a shared chunk, an entry that imports another
+ * imports it as published — `@tetsujs/client/tanstack` from `./index.js`
+ * — rather than carry a copy: the `ClientError` a query fails with is the
+ * one `@tetsujs/client` exports.
  *
  * Every other package is external: `@tetsujs/core` in `cors` stays an
  * import of the core, and TypeBox stays the application's. `@tetsujs/*`
@@ -34,7 +37,8 @@
  */
 
 import { readdir, rm } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import type { BunPlugin } from "bun";
 import { Glob } from "bun";
 
 const root = join(import.meta.dir, "..");
@@ -73,6 +77,37 @@ async function entries(directory: string): Promise<Entry[]> {
     path: file.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts"),
     target,
   }));
+}
+
+/**
+ * Keeps an import of one entry point from another an import of its built
+ * file, for a build without splitting — where it would otherwise be a copy.
+ */
+function entriesApart(directory: string, all: Entry[]): BunPlugin {
+  const sources = new Set(all.map((entry) => join(directory, entry.path)));
+
+  return {
+    name: "entries-apart",
+    setup(build) {
+      build.onResolve({ filter: /^\.\.?\// }, (args) => {
+        const path = resolve(dirname(args.importer), args.path);
+
+        if (!sources.has(path) || path === args.importer) {
+          return undefined;
+        }
+
+        const built = relative(dirname(args.importer), path).replace(
+          /\.ts$/,
+          ".js",
+        );
+
+        return {
+          path: built.startsWith(".") ? built : `./${built}`,
+          external: true,
+        };
+      });
+    },
+  };
 }
 
 type Target = "bun" | "browser";
@@ -144,6 +179,7 @@ for (const name of await readdir(packages)) {
       target,
       format: "esm",
       splitting: targets.size === 1,
+      plugins: targets.size === 1 ? [] : [entriesApart(directory, all)],
       packages: "external",
       external: ["@tetsujs/*"],
       sourcemap: "linked",

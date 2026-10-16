@@ -38,7 +38,10 @@
  *   compiler sees it. `@types/bun` is installed, because the declarations
  *   name the platform's types as they are; a `@ts-expect-error` on an
  *   undeclared path parameter fails if inference through `dist` has
- *   decayed to `any`.
+ *   decayed to `any`. `@tanstack/query-core`, which the TanStack Query
+ *   entry of the client names, needs the DOM's `VoidFunction`: the
+ *   consumer declares that one type rather than take the DOM, whose
+ *   `TextEncoder` the types of Node contradict on TypeScript 5.7.
  *
  * The consumer's own dependencies (`@types/bun`, peer dependencies) come
  * from the registry. Run with `bun run verify:packages`.
@@ -223,6 +226,16 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
     }),
   );
 
+  const specifiers = manifests.flatMap((manifest) =>
+    Object.keys(manifest.exports).map(
+      (subpath) => manifest.name + subpath.slice(1),
+    ),
+  );
+
+  const files = specifiers.includes("@tetsujs/client/tanstack")
+    ? ["smoke.ts", "dom.d.ts"]
+    : ["smoke.ts"];
+
   const modes = {
     bundler: { module: "preserve", moduleResolution: "bundler" },
     nodenext: { module: "nodenext", moduleResolution: "nodenext" },
@@ -242,18 +255,16 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
           verbatimModuleSyntax: true,
           noEmit: true,
         },
-        files: ["smoke.ts"],
+        files,
       }),
     );
   }
 
-  const specifiers = manifests.flatMap((manifest) =>
-    Object.keys(manifest.exports).map(
-      (subpath) => manifest.name + subpath.slice(1),
-    ),
-  );
-
   await Bun.write(join(consumer, "smoke.ts"), smokeScript(specifiers));
+  await Bun.write(
+    join(consumer, "dom.d.ts"),
+    "type VoidFunction = () => void;\n",
+  );
 }
 
 /**
@@ -261,7 +272,8 @@ async function writeConsumer(manifests: Manifest[]): Promise<void> {
  * classes as it exports them, and serves once with every hook package
  * mounted the way an application mounts it — so the published
  * declarations are checked against the form users write, a hook per slot,
- * not only imported.
+ * not only imported. A failed query of `@tetsujs/client/tanstack` must be
+ * the `ClientError` the client exports, not a copy bundled beside it.
  */
 function smokeScript(specifiers: string[]): string {
   const binding = (specifier: string) =>
@@ -274,6 +286,26 @@ function smokeScript(specifiers: string[]): string {
   const entries = specifiers.map(
     (specifier) => `  ["${specifier}", ${binding(specifier)}],`,
   );
+
+  const client = specifiers.includes("@tetsujs/client/tanstack")
+    ? `
+const failing = entry__tetsujs_client_tanstack.queryUtils(
+  entry__tetsujs_client.createClient({
+    fetch: async () => new Response(null, { status: 418 }),
+  }),
+);
+
+const failure = await failing
+  .get("/teapot")
+  .queryOptions()
+  .queryFn({ signal: new AbortController().signal })
+  .catch((error: unknown) => error);
+
+if (!(failure instanceof entry__tetsujs_client.ClientError)) {
+  throw new Error("@tetsujs/client/tanstack fails with a ClientError of its own copy");
+}
+`
+    : "";
 
   return `${imports.join("\n")}
 
@@ -361,7 +393,7 @@ try {
 } finally {
   server.stop(true);
 }
-`;
+${client}`;
 }
 
 /**
