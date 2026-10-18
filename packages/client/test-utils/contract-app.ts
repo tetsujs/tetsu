@@ -185,6 +185,12 @@ export const app = createApp({
       handler: () =>
         new Response("a,b", { headers: { "content-type": "text/csv" } }),
     }),
+    route({
+      method: "GET",
+      path: "/pages/:page",
+      schema: { params: z.object({ page: z.coerce.number().default(1) }) },
+      handler: () => "ok",
+    }),
     route({ method: "GET", path: "/files/*", handler: () => "ok" }),
     route({
       method: "GET",

@@ -32,7 +32,9 @@ type OutputOf<S> = Types<S> extends { readonly output: infer O } ? O : unknown;
  * A part of the request that travels as text — the path, the query, the
  * headers, a form's fields: what the schema takes, except where it takes
  * anything. A coercing schema takes `unknown`, and what it makes of the
- * text is its output — the type a value should have to be sent.
+ * text is its output — the type a value should have to be sent; or
+ * `undefined`, where the field is optional — `.default()` — and is then
+ * not sent.
  */
 type Wire<S> = WireOf<InputOf<S>, OutputOf<S>>;
 
@@ -42,7 +44,9 @@ type WireOf<I, O> = unknown extends I
     ? {
         [K in keyof I]: unknown extends I[K]
           ? K extends keyof O
-            ? Unbranded<O[K]>
+            ?
+                | Unbranded<O[K]>
+                | (Record<never, never> extends Pick<I, K> ? undefined : never)
             : I[K]
           : I[K];
       }
@@ -84,14 +88,32 @@ type PathParams<P extends string> = P extends `${string}:${infer Rest}`
     ? { readonly "*": string }
     : unknown;
 
-/** A part of the request: optional when nothing in it is required. */
+/**
+ * A part of the request: optional when nothing in it is required — left
+ * out, or `undefined`, under `exactOptionalPropertyTypes` too.
+ */
 type Part<K extends string, V> =
   Record<never, never> extends V
-    ? { readonly [Q in K]?: V }
+    ? { readonly [Q in K]?: V | undefined }
     : { readonly [Q in K]: V };
 
+/**
+ * The parameters of a call: every segment of the path, required whatever
+ * the schema says of it — a path cannot leave one out — and what else the
+ * schema takes as it takes it.
+ */
 type Params<P extends string, S> = S extends { readonly params: infer X }
-  ? Part<"params", Flat<Omit<PathParams<P>, keyof Wire<X>> & Wire<X>>>
+  ? Part<
+      "params",
+      Flat<
+        Omit<PathParams<P>, keyof Wire<X>> & {
+          [K in keyof PathParams<P> & keyof Wire<X>]-?: Exclude<
+            Wire<X>[K],
+            undefined
+          >;
+        } & Omit<Wire<X>, keyof PathParams<P>>
+      >
+    >
   : P extends `${string}:${string}` | `${string}/*`
     ? Part<"params", Flat<PathParams<P>>>
     : unknown;
@@ -108,24 +130,27 @@ type Query<S> = S extends { readonly query: infer X }
  */
 type Headers<S> = S extends { readonly headers: infer X }
   ? Part<"headers", Wire<X> & AnyHeaders>
-  : { readonly headers?: AnyHeaders };
+  : { readonly headers?: AnyHeaders | undefined };
 
 /** A form's value: text, a number or a date as text, or a file. */
 type Field = string | number | boolean | Date | Blob;
 
+/**
+ * The body of a call. A JSON or form route with a body schema always
+ * takes one, `{}` where every field is optional, and never `undefined`:
+ * the application answers a request without a body `400`, before the
+ * schema sees anything.
+ */
 type Body<S, B> = B extends "form"
-  ? Part<
-      "form",
-      S extends { readonly body: infer X }
-        ? Wire<X>
-        : Readonly<Record<string, Field | readonly Field[]>>
-    >
+  ? S extends { readonly body: infer X }
+    ? { readonly form: Wire<X> }
+    : Part<"form", Readonly<Record<string, Field | readonly Field[]>>>
   : B extends "text"
     ? Part<"body", S extends { readonly body: infer X } ? InputOf<X> : string>
     : B extends "stream"
       ? Part<"body", NonNullable<RequestInit["body"]>>
       : S extends { readonly body: infer X }
-        ? Part<"body", InputOf<X>>
+        ? { readonly body: Exclude<InputOf<X>, undefined> }
         : B extends "json"
           ? Part<"body", unknown>
           : unknown;
@@ -138,7 +163,7 @@ type Body<S, B> = B extends "form"
 type Status<E> = E extends null
   ? undefined
   : E extends { readonly "~standard": unknown }
-    ? Jsonify<OutputOf<E>>
+    ? Top<OutputOf<E>>
     : E extends { readonly contentType: infer C extends string }
       ? Lowercase<C> extends "application/json" | `${string}+json`
         ? Entry<E>
@@ -147,7 +172,7 @@ type Status<E> = E extends null
 
 type Entry<E> = E extends { readonly body: infer X }
   ? X extends { readonly "~standard": unknown }
-    ? Jsonify<OutputOf<X>>
+    ? Top<OutputOf<X>>
     : undefined
   : undefined;
 
@@ -163,12 +188,26 @@ type Range<M, C extends "4" | "5"> = `${C}XX` extends keyof M
       ? { readonly [K in `${C}XX`]: Status<M["default"]> }
       : unknown;
 
+/**
+ * A body as JSON brings it back, but for an `undefined` the schema allows
+ * at its top: the application answers that with no body at all, which is
+ * no JSON to turn into `null`.
+ */
+type Top<T> = undefined extends T ? Jsonify<T> | undefined : Jsonify<T>;
+
+/** A status a response map declares — `200` or `"200"` — as a number. */
+type Code<K> = K extends number
+  ? K
+  : K extends `${infer N extends number}`
+    ? N
+    : never;
+
 type Responses<S> = S extends { readonly response: infer R }
   ? R extends { readonly "~standard": unknown }
-    ? { readonly "2XX": Jsonify<OutputOf<R>> }
+    ? { readonly "2XX": Top<OutputOf<R>> }
     : Flat<
         {
-          readonly [K in keyof R as K extends number ? K : never]: Status<R[K]>;
+          readonly [K in keyof R as Code<K>]: Status<R[K]>;
         } & Range<R, "4"> &
           Range<R, "5">
       >

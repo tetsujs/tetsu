@@ -31,6 +31,12 @@ API.
   structural match and no import from `@tetsujs/core`. The field is still
   phantom, with no value at runtime, and `AppRoutes` reads it as before.
 
+### Fixed
+
+- A response map with its statuses written as strings, `{ "201": Order }`,
+  narrows `ctx.out.status` as `{ 201: Order }` does: `DeclaredStatus`
+  read only numeric keys and gave `never`.
+
 ## 0.6.4 — 2026-10-15
 
 ### Added

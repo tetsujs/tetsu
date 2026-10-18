@@ -367,8 +367,9 @@ export interface SchemaConfig {
 }
 
 /**
- * The statuses a route's response map declares, as numbers; `never` for a
- * single schema or no `response` at all, which bind no status.
+ * The statuses a route's response map declares, as numbers — a key
+ * written `"201"` too; `never` for a single schema or no `response` at
+ * all, which bind no status.
  *
  * @example
  * ```ts
@@ -380,8 +381,14 @@ export type DeclaredStatus<S extends SchemaConfig> =
   S["response"] extends AnySchema
     ? never
     : S["response"] extends infer M extends ResponseMap
-      ? Extract<keyof M, number>
+      ? StatusOf<keyof M>
       : never;
+
+type StatusOf<K> = K extends number
+  ? K
+  : K extends `${infer N extends number}`
+    ? N
+    : never;
 
 /**
  * `ctx.out` as a handler sees it when its route declares a response map:

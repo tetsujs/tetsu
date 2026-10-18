@@ -263,14 +263,15 @@ type Undeclared<X, E> =
     >
   | Failure<
       Exclude<ServerErrorStatus, keyof X>,
-      X extends { readonly "5XX": infer B } ? Body<B> : E | undefined
+      (X extends { readonly "5XX": infer B } ? Body<B> : E) | undefined
     >;
 
 /**
  * What a call of route `R` resolves to: one member per status the route
  * declares, and one for every failure it does not, whose body is the
- * envelope `E` — or nothing, for a `5xx`: a proxy in front of the
- * application answers `502` and `504` with a page that is not JSON.
+ * envelope `E` — or nothing, for a `5xx`, whatever body the route
+ * declares for the class: a proxy in front of the application answers
+ * `502` and `504` with a page that is not JSON.
  *
  * Every member has its status as a literal, so `res.ok` tells success from
  * failure, and `res.status === 404` narrows to the `404` the route
@@ -290,7 +291,7 @@ type Sent<R extends RouteContract, H extends string> = [H] extends [never]
   : R["request"] extends { readonly headers: infer X }
     ? Omit<R["request"], "headers"> &
         (Record<never, never> extends Shared<X, H>
-          ? { readonly headers?: Shared<X, H> }
+          ? { readonly headers?: Shared<X, H> | undefined }
           : { readonly headers: Shared<X, H> })
     : R["request"];
 
@@ -310,7 +311,7 @@ export type CallOptions<
   H extends string = never,
 > = Sent<R, H> & {
   /** The rest of `fetch`'s options — `signal`, `credentials`, `cache`. */
-  readonly init?: Omit<RequestInit, "method" | "headers" | "body">;
+  readonly init?: Omit<RequestInit, "method" | "headers" | "body"> | undefined;
 };
 
 /**

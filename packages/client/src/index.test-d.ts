@@ -31,6 +31,9 @@ import { createClient, unwrap } from "./index.ts";
 /** Holds `T` to be `true` where a type alias would go unused: in a narrowed branch. */
 declare function check<T extends true>(): void;
 
+/** A value that may be `undefined`, as `process.env.X` is. */
+declare function maybe<T>(): T | undefined;
+
 declare const userId: unique symbol;
 
 type UserId = string & { readonly [userId]: true };
@@ -78,6 +81,14 @@ declare const accountId: unique symbol;
 type Branded<T> = T & { readonly [accountId]: true };
 
 const Account = mockSchema<{ id: Branded<number> }>();
+const PageId = mockSchema<{ id: number }, { id?: unknown }>();
+const Patch = mockSchema<{ name?: string }>();
+const Prefs = mockSchema<{ theme?: string }>();
+const Maybe = mockSchema<{ a: number } | undefined>();
+const MaybeBody = mockSchema<
+  { a: number } | undefined,
+  { a: number } | undefined
+>();
 const Window = mockSchema<{ from: Branded<Date> }>();
 
 const app = createApp({
@@ -235,6 +246,43 @@ const app = createApp({
       schema: { params: Account, query: Window },
       handler: () => "ok",
     }),
+    route({
+      method: "GET",
+      path: "/pages/:id",
+      schema: { params: PageId },
+      handler: () => "ok",
+    }),
+    route({
+      method: "PATCH",
+      path: "/profile",
+      schema: { body: Patch },
+      handler: () => "ok",
+    }),
+    route({
+      method: "PATCH",
+      path: "/prefs",
+      bodyType: "form",
+      schema: { body: Prefs },
+      handler: () => "ok",
+    }),
+    route({
+      method: "PATCH",
+      path: "/maybe",
+      schema: { body: MaybeBody },
+      handler: () => "ok",
+    }),
+    route({
+      method: "GET",
+      path: "/maybe",
+      schema: { response: Maybe },
+      handler: () => undefined,
+    }),
+    route({
+      method: "GET",
+      path: "/quoted",
+      schema: { response: { "200": Id, "404": Problem } },
+      handler: () => ({ id: 1 }),
+    }),
   ],
 });
 
@@ -299,6 +347,28 @@ export async function params() {
   await api.get("/health", { params: { id: 1 } });
 }
 
+export async function defaultedParams() {
+  // @ts-expect-error a path has every segment, whatever the schema defaults
+  await api.get("/pages/:id");
+  await api.get("/pages/:id", { params: { id: 1 } });
+
+  check<Equal<Api["GET /pages/:id"]["request"]["params"], { id: number }>>();
+}
+
+export async function partsUndefined() {
+  await api.get("/health", { init: maybe<RequestInit>() });
+  await api.get("/health", { headers: maybe<{ "x-a": string }>() });
+  await api.get("/users", { query: maybe<{ page?: number }>() });
+  await api.post("/forms", { form: maybe<{ a: string }>() });
+  api.url("/users", { query: maybe<{ page?: number }>() });
+}
+
+export async function optionalBodySchema() {
+  // @ts-expect-error a body the schema may leave out is still sent, and the application answers none 400
+  await api.patch("/maybe", { body: undefined });
+  await api.patch("/maybe", { body: { a: 1 } });
+}
+
 export async function partialParams() {
   await api.get("/teams/:team/members/:id", { params: { team: "t", id: 7 } });
 
@@ -324,6 +394,8 @@ export async function query() {
 
   // @ts-expect-error a coercing schema takes unknown, so the client takes its output
   await api.get("/users", { query: { page: "two" } });
+
+  await api.get("/users", { query: { page: maybe<number>() } });
 
   // @ts-expect-error q is required, so query is
   await api.get("/search");
@@ -373,6 +445,10 @@ export async function headers() {
     query: { since: new Date() },
     headers: { authorization: "Bearer other" },
   });
+  await signed.get("/feed", {
+    query: { since: new Date() },
+    headers: maybe<{ authorization: string }>(),
+  });
 
   const cased = createClient<typeof app, { headers: "Authorization" }>();
 
@@ -390,6 +466,14 @@ export async function bodies() {
 
   // @ts-expect-error the schema's input: role is optional, name is not
   await api.post("/users", { body: { role: "admin" } });
+
+  // @ts-expect-error a body schema needs a body, every field of it optional or not
+  await api.patch("/profile");
+  await api.patch("/profile", { body: {} });
+
+  // @ts-expect-error so does a form's
+  await api.patch("/prefs");
+  await api.patch("/prefs", { form: {} });
 
   // @ts-expect-error a route that takes a form takes it as form, not body
   await api.post("/uploads", { body: { title: "t" } });
@@ -425,6 +509,15 @@ export async function optionsLeftOut() {
 
   // @ts-expect-error init is fetch's, without what the call sets itself
   await api.get("/health", { init: { method: "POST" } });
+}
+
+export function optionsUndefined() {
+  createClient({
+    baseUrl: maybe<string>(),
+    headers: maybe<{ cookie: string }>(),
+    fetch: maybe<typeof fetch>(),
+    init: maybe<RequestInit>(),
+  });
 }
 
 export function clientInit() {
@@ -561,6 +654,25 @@ export async function oneSchema() {
   }
 }
 
+export async function optionalResponse() {
+  const res = await api.get("/maybe");
+
+  if (res.ok) {
+    check<Equal<typeof res.data, { a: number } | undefined>>();
+  }
+}
+
+export async function quotedStatuses() {
+  const res = await api.get("/quoted");
+
+  if (res.ok) {
+    check<Equal<typeof res.status, 200>>();
+    check<Equal<typeof res.data, { id: number }>>();
+  } else if (res.status === 404) {
+    check<Equal<typeof res.error, { title: string }>>();
+  }
+}
+
 export async function undeclaredResponse() {
   const res = await api.get("/health");
 
@@ -595,15 +707,19 @@ export async function ranges() {
     check<
       Equal<
         typeof res.error,
-        { status: 404; error: "USER_NOT_FOUND"; message: string }
+        { status: 404; error: "USER_NOT_FOUND"; message: string } | undefined
       >
     >();
   }
 
   const fallback = await api.get("/fallback");
 
-  if (!fallback.ok) {
+  if (!fallback.ok && fallback.status === 404) {
     check<Equal<typeof fallback.error, { title: string }>>();
+  }
+
+  if (!fallback.ok && fallback.status === 502) {
+    check<Equal<typeof fallback.error, { title: string } | undefined>>();
   }
 }
 

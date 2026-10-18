@@ -111,7 +111,7 @@ export interface ClientOptions {
    * slash is dropped. Empty by default: the paths stay relative, for a
    * `fetch` that resolves them itself.
    */
-  readonly baseUrl?: string | URL;
+  readonly baseUrl?: string | URL | undefined;
 
   /**
    * Headers sent with every request, or a function that returns them —
@@ -120,10 +120,11 @@ export interface ClientOptions {
    */
   readonly headers?:
     | HeadersInput
-    | (() => HeadersInput | Promise<HeadersInput>);
+    | (() => HeadersInput | Promise<HeadersInput>)
+    | undefined;
 
   /** The `fetch` to send with. The global `fetch` by default. */
-  readonly fetch?: Fetch;
+  readonly fetch?: Fetch | undefined;
 
   /**
    * The rest of `fetch`'s options for every request — `credentials`,
@@ -138,7 +139,7 @@ export interface ClientOptions {
    * });
    * ```
    */
-  readonly init?: Omit<RequestInit, "method" | "headers" | "body">;
+  readonly init?: Omit<RequestInit, "method" | "headers" | "body"> | undefined;
 }
 
 /** What a call sends, as the runtime reads it whatever the route. */

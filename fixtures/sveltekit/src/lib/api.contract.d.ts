@@ -8,7 +8,7 @@ export interface Api {
       readonly params: {
         id: number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly 200: {
@@ -33,11 +33,13 @@ export interface Api {
   };
   readonly "GET /users": {
     readonly request: {
-      readonly query?: {
-        page?: number | undefined;
-        since?: Date | undefined;
-        role?: "admin" | "user" | undefined;
-      };
+      readonly query?:
+        | {
+            page?: number | undefined;
+            since?: Date | undefined;
+            role?: "admin" | "user" | undefined;
+          }
+        | undefined;
       readonly headers: {
         authorization: string;
       } & AnyHeaders;
@@ -60,7 +62,7 @@ export interface Api {
   };
   readonly "POST /users": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
       readonly body: {
         name: string;
         role?: "admin" | "user" | undefined;
@@ -95,7 +97,7 @@ export interface Api {
       readonly params: {
         id: number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly 204: undefined;
@@ -114,7 +116,7 @@ export interface Api {
       readonly params: {
         readonly id: string | number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
       readonly body: {
         owners: Map<
           string,
@@ -133,7 +135,7 @@ export interface Api {
   };
   readonly "GET /categories": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly "2XX": Category;
@@ -144,7 +146,7 @@ export interface Api {
       readonly params: {
         readonly id: string | number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly 200:
@@ -164,7 +166,7 @@ export interface Api {
   };
   readonly "POST /uploads": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
       readonly form: {
         title: string;
         size: number;
@@ -177,7 +179,7 @@ export interface Api {
   };
   readonly "POST /notes": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
       readonly body: string;
     };
     readonly responses: {
@@ -189,7 +191,7 @@ export interface Api {
       readonly params: {
         readonly id: string | number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
       readonly body: NonNullable<RequestInit["body"]>;
     };
     readonly responses: {
@@ -198,10 +200,21 @@ export interface Api {
   };
   readonly "GET /export": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly 200: Raw<"text/csv">;
+    };
+  };
+  readonly "GET /pages/:page": {
+    readonly request: {
+      readonly params: {
+        page: number;
+      };
+      readonly headers?: AnyHeaders | undefined;
+    };
+    readonly responses: {
+      readonly "2XX": unknown;
     };
   };
   readonly "GET /files/*": {
@@ -209,7 +222,7 @@ export interface Api {
       readonly params: {
         readonly "*": string;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly "2XX": unknown;
@@ -221,7 +234,7 @@ export interface Api {
         readonly org: string | number;
         readonly "member-id": string | number;
       };
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly "2XX": unknown;
@@ -229,7 +242,7 @@ export interface Api {
   };
   readonly "GET /health": {
     readonly request: {
-      readonly headers?: AnyHeaders;
+      readonly headers?: AnyHeaders | undefined;
     };
     readonly responses: {
       readonly "2XX": unknown;
