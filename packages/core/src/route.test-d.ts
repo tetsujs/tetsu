@@ -685,6 +685,14 @@ export type declaredStatusCases = [
       201 | 204
     >
   >,
+  Expect<
+    Equal<
+      DeclaredStatus<{
+        response: { "201": typeof CreatedSession; "204": null; "4XX": null };
+      }>,
+      201 | 204
+    >
+  >,
   Expect<Equal<DeclaredStatus<{ response: typeof Session }>, never>>,
   Expect<Equal<DeclaredStatus<SchemaConfig>, never>>,
   Expect<Equal<DeclaredStatus<{ body: typeof Session }>, never>>,
