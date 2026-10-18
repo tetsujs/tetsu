@@ -43,6 +43,9 @@ import { queryUtils } from "./tanstack.ts";
 /** Holds `T` to be `true` where a type alias would go unused: in a narrowed branch. */
 declare function check<T extends true>(): void;
 
+/** A value that may be `undefined`, as `process.env.X` is. */
+declare function maybe<T>(): T | undefined;
+
 interface User {
   id: number;
   name: string;
@@ -390,6 +393,8 @@ export async function Keys() {
 
   q.get("/users").key({ query: { page: 1 } });
   q.get("/users/:id").key({ params: {} });
+  q.get("/users").key({ query: maybe<{ page: number }>() });
+  q.get("/users").key({ query: { page: maybe<number>() } });
 
   // @ts-expect-error not a part of the route's call
   q.get("/users").key({ body: {} });
