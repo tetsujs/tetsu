@@ -97,10 +97,15 @@ const Page = z.object({
 });
 ```
 
+A boolean is the exception: `z.coerce.boolean()` makes any non-empty
+string `true`, `"false"` included. Use `z.stringbool()`, which reads
+`"true"` and `"false"` (and `"1"`, `"yes"`, `"on"`…) as they are meant.
+
 Arrays need the same care. A key sent once is a string, and only a
 repeated key becomes an array: `?tag=a` is `"a"`, and `?tag=a&tag=b` is
-`["a", "b"]`. A plain `z.array()` refuses a single tag, so wrap a single
-value in an array first:
+`["a", "b"]`; an empty array sends no key at all. A plain `z.array()`
+refuses a single tag, so wrap a single value in an array first, and let
+the array be missing:
 
 ```ts twoslash
 import { z } from "zod";

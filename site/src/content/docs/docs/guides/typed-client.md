@@ -112,8 +112,9 @@ query of a route.
 
 Two things are worth setting once. Send authorization from the client, not
 from each call: a call's headers are part of its query key, and would end
-up in the cache. And retry only server errors, since TanStack Query retries
-everything three times by default:
+up in the cache. And retry only server errors and network failures, since
+TanStack Query retries everything three times by default in the browser, and
+a `404` would show only after them:
 
 ```ts twoslash
 // @filename: api.contract.d.ts
@@ -126,16 +127,17 @@ import type { Api } from "./api.contract";
 declare function currentToken(): string;
 // ---cut---
 import { QueryClient } from "@tanstack/react-query";
-import { type ClientError, createClient } from "@tetsujs/client";
+import { ClientError, createClient } from "@tetsujs/client";
 
 export const api = createClient<Api, { headers: "authorization" }>({
   headers: () => ({ authorization: `Bearer ${currentToken()}` }),
 });
 
+export const retry = (count: number, error: Error) =>
+  !(error instanceof ClientError && error.status < 500) && count < 3;
+
 export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: (count, error) => (error as ClientError).status >= 500 && count < 3 },
-  },
+  defaultOptions: { queries: { retry } },
 });
 ```
 
@@ -223,7 +225,29 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 ```
 
 `User` is a client component that calls `useQuery` with the same options,
-over `queryUtils(api())`: in the browser, the browser sends the cookies.
+over `queryUtils(api())`: in the browser, the browser sends the cookies. Its
+query client comes from a provider in the root layout, with the `retry`
+above:
+
+```tsx twoslash title="app/providers.tsx"
+// @jsx: react-jsx
+// @filename: retry.ts
+export declare function retry(count: number, error: Error): boolean;
+// @filename: providers.tsx
+// ---cut---
+"use client";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
+import { retry } from "./retry";
+
+export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry } } }));
+
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+```
+
 For an API on another origin, pass `init: { credentials: "include" }` to
 the client. In a monorepo on Bun, set `"types": ["node"]` in the Next.js
 `tsconfig.json`, or it picks up Bun's types from the root.
@@ -249,8 +273,33 @@ export function api(fetch = globalThis.fetch) {
 }
 ```
 
+While it renders, SvelteKit's `fetch` hides the headers of a response unless
+a hook lets them through, and the client reads `content-type`. Without the
+hook, every `load` that calls the client fails with a `500`:
+
+```ts twoslash title="src/hooks.server.ts"
+// @filename: kit.d.ts
+declare module "@sveltejs/kit/hooks" {
+  export type Handle = (input: {
+    event: unknown;
+    resolve(event: unknown, options?: { filterSerializedResponseHeaders?(name: string): boolean }): Promise<Response>;
+  }) => Promise<Response>;
+}
+// @filename: hooks.ts
+// ---cut---
+import type { Handle } from "@sveltejs/kit/hooks";
+
+export const handle: Handle = ({ event, resolve }) =>
+  resolve(event, { filterSerializedResponseHeaders: (name) => name === "content-type" });
+```
+
+In SvelteKit 2, `Handle` comes from `@sveltejs/kit`. For an API on another
+origin, the server's `fetch` asks for CORS headers as a browser does, so the
+application needs [`cors`](/docs/packages/cors/) for the frontend's origin.
+
 With TanStack Query, the root layout creates the query client, with queries
-off on the server, where `load` functions prefetch instead:
+off on the server, where `load` functions prefetch instead, and the `retry`
+above: a `load` runs in the browser too, and waits for every retry.
 
 ```ts twoslash title="src/routes/+layout.ts"
 // @filename: env.d.ts
@@ -259,14 +308,19 @@ declare module "$app/env" {
 }
 // @filename: $types.d.ts
 export type LayoutLoad = () => unknown;
+// @filename: lib.d.ts
+declare module "#lib/api.ts" {
+  export function retry(count: number, error: Error): boolean;
+}
 // @filename: layout.ts
 // ---cut---
 import { QueryClient } from "@tanstack/svelte-query";
 import { browser } from "$app/env";
+import { retry } from "#lib/api.ts";
 import type { LayoutLoad } from "./$types";
 
 export const load: LayoutLoad = () => ({
-  queryClient: new QueryClient({ defaultOptions: { queries: { enabled: browser } } }),
+  queryClient: new QueryClient({ defaultOptions: { queries: { enabled: browser, retry } } }),
 });
 ```
 

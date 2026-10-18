@@ -77,7 +77,7 @@ A call takes the path, then the parts the route declares:
 | --- | --- |
 | `params` | the path's `:name` segments |
 | `query` | the query string; an array repeats its key |
-| `body` | the body: an object goes as JSON |
+| `body` | the body: an object goes as JSON; required with a schema, `{}` when every field is optional |
 | `form` | the body of a route with `bodyType: "form"`, sent as `FormData` |
 | `headers` | the headers the route declares, and any other |
 | `init` | the rest of `RequestInit`: `signal`, `credentials`… |
@@ -125,7 +125,9 @@ if (res.status === 404) {
 A status the route does not declare comes with the core's
 [error envelope](/docs/concepts/errors/#the-envelope). Only what is not a
 response throws: a network failure, an aborted request, JSON that does not
-parse.
+parse; and, before anything is sent, a `TypeError` for an address that
+would go elsewhere: a parameter that is missing, empty, `.` or `..`, or a
+path that does not start with a single `/`.
 
 `unwrap()` returns the data, or throws a `ClientError` with `status`,
 `body` and `response`:
@@ -144,7 +146,7 @@ const user = unwrap(await api.get("/users/:id", { params: { id } }));
 | --- | --- | --- |
 | `baseUrl` | `""` | put before every path |
 | `headers` | none | sent with every request; a function is called for each one |
-| `fetch` | the global `fetch` | what sends the request: SvelteKit's `event.fetch`, a test client, a wrapper |
+| `fetch` | the global `fetch` | what sends the request: SvelteKit's `event.fetch` (with [a hook](/docs/guides/typed-client/#sveltekit) that lets `content-type` through), a test client, a wrapper |
 | `init` | none | the rest of `RequestInit` for every request: `credentials`, `cache`, `signal` |
 
 A client is a plain object, cheap enough to create one per request.
@@ -217,8 +219,14 @@ its values. A type it cannot hold, such as a function, is an error that
 says where.
 
 The command runs on Bun. On first run, Bun downloads TypeScript 6.0.3 into
-its own cache to work the types out. `generateContract()` from
-`@tetsujs/client/contract` does the same from a script.
+its own cache to work the types out. From a script, `generateContract()`
+takes the same options and returns the contract's text:
+
+```ts
+import { generateContract } from "@tetsujs/client/contract";
+
+const text = await generateContract({ entry: "src/app.ts", export: "app" });
+```
 
 ## TanStack Query
 
@@ -242,8 +250,10 @@ const q = queryUtils(api);
 | `q.get(path).key()` | the start of the route's keys, for `invalidateQueries` |
 
 A query's error is a `ClientError`: `error.status === 404` narrows
-`error.body` to that status's body. Its key is
-`[method, path, call]`, typed, so `getQueryData` knows what it holds. The
+`error.body` to that status's body. Its key is `[method, path, call]`, the
+call without its `init` and without what is `undefined`, and
+`{ infinite: true }` after it for an infinite query. It is typed, so
+`getQueryData` knows what it holds. The
 types need `@tanstack/query-core`, which every adapter installs. Usage is
 in the [guide](/docs/guides/typed-client/#tanstack-query).
 
@@ -256,8 +266,11 @@ in the [guide](/docs/guides/typed-client/#tanstack-query).
   `JSON.stringify(text)`.
 - A route with only `rawBody: true` takes no body from the client: give it
   a `bodyType`.
-- A query array of one item reaches the server as a string; see
+- A query or form array of one item reaches the server as a string, and an
+  empty one is not sent at all; see
   [Converting strings](/docs/concepts/validation/#converting-strings).
+- `z.coerce.boolean()` reads the text `"false"` as `true`: the client sends
+  `false` as `"false"`. Use `z.stringbool()` in a query, a form or headers.
 - `const { get } = api` loses the types: call `api.get()`.
 - An undeclared `5xx` from a proxy may have no body, so its `error` can be
   `undefined`.
