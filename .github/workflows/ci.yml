@@ -163,8 +163,9 @@ jobs:
     # server, in a server component and in a load. Their contracts are
     # committed, and checked against what the built command writes today;
     # then the apps are type-checked, not built, and the contract on its own
-    # with library checks on, which the apps leave off. Next on each compiler
-    # a user may bring; SvelteKit on 6 alone, which it requires, and
+    # with library checks on, which the apps leave off; SvelteKit's pages
+    # are also rendered on the server, against the application. Next on each
+    # compiler a user may bring; SvelteKit on 6 alone, which it requires, and
     # svelte-check reads types through the compiler's API, which 7 does not
     # have.
     strategy:
@@ -209,6 +210,14 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run check
+
+      # Rendered on the server against the application, which type-checking
+      # cannot see: SvelteKit refuses a response header its hook does not
+      # allow, and the client reads content-type.
+      - name: SvelteKit on the server
+        if: matrix.typescript == '6'
+        working-directory: fixtures/sveltekit
+        run: bun ssr.ts
 
   strictest:
     name: types (@tsconfig/strictest)

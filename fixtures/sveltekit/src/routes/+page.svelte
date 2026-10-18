@@ -14,8 +14,11 @@ async function create() {
 const created: string | undefined = $derived(
   "createdAt" in data ? data.createdAt : undefined,
 );
+const user: string | undefined = $derived(
+  "name" in data ? data.name : undefined,
+);
 </script>
 
-<p>{created} {error}</p>
+<p>{user} {created} {error}</p>
 <input bind:value={name} />
 <button onclick={create}>new</button>

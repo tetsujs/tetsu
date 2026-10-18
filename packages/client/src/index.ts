@@ -25,8 +25,10 @@
  * A declared status is a result, not an exception: `ok` tells success from
  * failure, and `status` which response it was. Only what is not a response
  * throws — the network failing, the request aborted, a JSON body that does
- * not parse. {@link unwrap} turns a failure into a {@link ClientError} for
- * code that expects one thrown.
+ * not parse — and, before anything is sent, an address that would go
+ * elsewhere: a parameter missing, empty, `.` or `..`, or a path that does
+ * not start with a single `/`. {@link unwrap} turns a failure into a
+ * {@link ClientError} for code that expects one thrown.
  *
  * Nothing here reaches for Bun or the core: the client runs in a browser,
  * Node, Deno or Bun, on whatever `fetch` it is given.
