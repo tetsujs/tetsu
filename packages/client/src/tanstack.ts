@@ -193,9 +193,11 @@ export type VariablesOf<R extends RouteContract, O extends ClientTypes> =
 
 /** Part of what a call sends, each part partly, as a key may hold it. */
 type Partly<X> = {
-  readonly [K in Exclude<keyof X, "init">]?: X[K] extends object
-    ? Partial<X[K]>
-    : X[K];
+  readonly [K in Exclude<keyof X, "init">]?:
+    | (NonNullable<X[K]> extends object
+        ? { [F in keyof NonNullable<X[K]>]?: NonNullable<X[K]>[F] | undefined }
+        : X[K])
+    | undefined;
 };
 
 /** What TanStack Query can do with the route at path `P` and method `M`. */
@@ -387,7 +389,7 @@ export function queryUtils<C, O extends ClientTypes>(
   return utils as unknown as QueryUtils<C, O>;
 }
 
-/** What a key holds of a call: all it sends but its `init`. */
+/** What a key holds of a call: all it sends but its `init`, and but what is `undefined`. */
 function keyed(options: Options | undefined): object {
   if (options === undefined) {
     return {};
@@ -395,7 +397,28 @@ function keyed(options: Options | undefined): object {
 
   const { init: _, ...input } = options;
 
-  return input;
+  return defined(input) as object;
+}
+
+/**
+ * A value without the `undefined` its plain objects hold, at any depth:
+ * the hash of a query drops them, as `JSON.stringify` does, and a key
+ * that kept one would match no query.
+ */
+function defined(value: unknown): unknown {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, field]) => field !== undefined)
+      .map(([key, field]) => [key, defined(field)]),
+  );
 }
 
 /**

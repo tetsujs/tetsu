@@ -366,6 +366,10 @@ function text(value: unknown): string {
  * The wildcard of a path ending in `/*` takes its value from `params["*"]`
  * and is a path: each segment is encoded, the slashes between them kept.
  *
+ * A path that does not start with a single `/` throws: `//evil.example`
+ * is an address of its own, which `fetch` resolves to another host, and
+ * so is a path that runs into the base, `@evil.example`.
+ *
  * A parameter without a value throws rather than send `undefined` to a
  * route that would answer `404` for it. So does a segment of `.` or `..`,
  * or an empty one: `fetch` resolves those however they are encoded, and
@@ -376,6 +380,16 @@ function address(
   path: string,
   call: Pick<Options, "params" | "query">,
 ): string {
+  if (
+    !path.startsWith("/") ||
+    path.startsWith("//") ||
+    path.startsWith("/\\")
+  ) {
+    throw new TypeError(
+      `${path} is not a path: it does not start with a single "/", and the request could go to another host`,
+    );
+  }
+
   const filled = path.replace(
     /:([^/]+)|(?<=\/)\*$/g,
     (match, name: string | undefined) => {

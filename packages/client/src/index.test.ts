@@ -273,6 +273,31 @@ describe("the address", () => {
     }
   });
 
+  test("a path that would move the request to another host throws before anything is sent", async () => {
+    const sent: string[] = [];
+    const relative = createClient({
+      fetch: async (url) => {
+        sent.push(url);
+
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    for (const path of [
+      "//evil.example/x",
+      "/\\evil.example/x",
+      "@evil.example/x",
+      "evil",
+    ]) {
+      await expect(relative.get(path as `/${string}`)).rejects.toThrow(
+        `${path} is not a path: it does not start with a single "/", and the request could go to another host`,
+      );
+      expect(() => relative.url(path as `/${string}`)).toThrow("is not a path");
+    }
+
+    expect(sent).toEqual([]);
+  });
+
   test("the wildcard takes a path: each segment encoded, the slashes kept", async () => {
     const data = unwrap(
       await api.get("/files/*", { params: { "*": "docs/a b/50%.txt" } }),

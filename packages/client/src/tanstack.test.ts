@@ -201,6 +201,30 @@ describe("keys", () => {
     expect(matched(q.get("/users").key())).toHaveLength(2);
     expect(matched(q.post("/users").key())).toEqual([]);
   });
+
+  test("key() leaves out what is undefined, as the hash of a query does", async () => {
+    const client = new QueryClient();
+
+    await client.query(
+      q.get("/users").queryOptions({ query: { page: 1, role: undefined } }),
+    );
+
+    const matched = (queryKey: readonly unknown[]) =>
+      client.getQueryCache().findAll({ queryKey });
+
+    expect(q.get("/users").key({ query: { role: undefined } })).toStrictEqual([
+      "GET",
+      "/users",
+      { query: {} },
+    ]);
+    expect(
+      matched(q.get("/users").key({ query: { role: undefined } })),
+    ).toHaveLength(1);
+    expect(matched(q.get("/users").key({ query: undefined }))).toHaveLength(1);
+    expect(matched(q.get("/users").key({ query: { page: 1 } }))).toHaveLength(
+      1,
+    );
+  });
 });
 
 describe("queries", () => {
