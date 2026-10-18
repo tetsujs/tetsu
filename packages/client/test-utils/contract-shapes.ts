@@ -1,7 +1,7 @@
 /**
  * Applications whose contracts test the printer's edges: brands it strips,
- * an application under another export and name, one a function builds, and
- * types it cannot write.
+ * an application under another export and name, one a function builds,
+ * shapes it writes its own way, and types it cannot write.
  * Compiled by the generator, never run.
  *
  * @module
@@ -79,6 +79,50 @@ export async function buildLater(greeting: Promise<string>) {
   });
 }
 
+type Kind = "user" | "team";
+
+interface Tag {
+  readonly tag: "tag";
+}
+
+interface Keyed {
+  key: `${Kind}_${string & Tag}`;
+  shout: Uppercase<string>;
+  quoted: `a\`\${b}${number}`;
+}
+
+const Topic = z.object({
+  name: z.string(),
+  get children() {
+    return z.array(Topic);
+  },
+});
+
+export const written = createApp({
+  routes: [
+    route({
+      method: "POST",
+      path: "/topics",
+      schema: {
+        body: Topic,
+        response: z.object({
+          meta: z.any(),
+          key: z.templateLiteral(["user_", z.string().brand<"Uid">()]),
+          list: z.array(z.object({}).nullable()),
+          extra: z.object({ a: z.string() }).catchall(z.number()),
+        }),
+      },
+      handler: () => undefined as never,
+    }),
+    route({
+      method: "GET",
+      path: "/keys",
+      schema: { response: mockSchema<Keyed, Keyed>() },
+      handler: () => undefined as never,
+    }),
+  ],
+});
+
 export const notAnApp = { routes: [] };
 
 export const notABuilder = () => ({ routes: [] });
@@ -101,6 +145,10 @@ interface Rewrite {
 
 interface Unresolved {
   value: Missing;
+}
+
+interface Reply {
+  user: Unresolved;
 }
 
 export const unwritable = createApp({
@@ -134,6 +182,12 @@ export const unwritable = createApp({
       path: "/missing",
       schema: { body: mockSchema<Unresolved, Unresolved>() },
       handler: () => "ok",
+    }),
+    route({
+      method: "GET",
+      path: "/replies",
+      schema: { response: mockSchema<Reply, Reply>() },
+      handler: () => undefined as never,
     }),
   ],
 });

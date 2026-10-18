@@ -71,6 +71,8 @@ export interface Setup {
   readonly client: string;
   readonly text: string;
   readonly options: TS.CompilerOptions;
+  /** Whether the application's own tsconfig has `exactOptionalPropertyTypes`. */
+  readonly exact: boolean;
 }
 
 /**
@@ -94,13 +96,31 @@ export function setup(ts: Ts, source: ContractSource, client: string): Setup {
     "",
   ].join("\n");
 
+  const compiled = options(ts, source, directory);
+
   return {
     root,
     client: `${client.replaceAll("\\", "/").replace(/\/$/, "")}/`,
     text,
-    options: options(ts, source, directory),
+    options: { ...compiled, ...EXACT },
+    exact: compiled.exactOptionalPropertyTypes === true,
   };
 }
+
+/**
+ * The contract is worked out with `exactOptionalPropertyTypes`, whatever
+ * the application compiles with: only then does the compiler tell the
+ * `undefined` an optional property declares — `z.string().optional()`
+ * does — from the one its `?` adds, and the contract keeps the first, so
+ * a frontend with the flag can pass `undefined` where the server takes it.
+ */
+const EXACT: TS.CompilerOptions = { exactOptionalPropertyTypes: true };
+
+/**
+ * What only `exactOptionalPropertyTypes` finds wrong: the application's
+ * concern when its own tsconfig has the flag, not otherwise.
+ */
+const EXACT_ONLY = new Set([2375, 2379, 2412]);
 
 /**
  * A module as an import names it: with the extension of what it compiles
@@ -263,10 +283,13 @@ export function printContract(
 
   const entry = program.getSourceFile(source.entry.replaceAll("\\", "/"));
 
-  fail(ts, [
-    ...(entry === undefined ? [] : program.getSemanticDiagnostics(entry)),
-    ...program.getSemanticDiagnostics(file),
-  ]);
+  fail(
+    ts,
+    [
+      ...(entry === undefined ? [] : program.getSemanticDiagnostics(entry)),
+      ...program.getSemanticDiagnostics(file),
+    ].filter((error) => setup.exact || !EXACT_ONLY.has(error.code)),
+  );
 
   const named = (name: string): TS.Type => {
     const alias = file.statements.find(
@@ -296,7 +319,6 @@ export function printContract(
     stream: named("Stream"),
     reserved: source.name,
     client: setup.client,
-    exact: program.getCompilerOptions().exactOptionalPropertyTypes === true,
   });
   const body = printer.members(contract, [source.name]);
 
@@ -370,9 +392,54 @@ function grouped(printed: string): string {
     return `(${printed.replaceAll("\n", "\n  ")}\n)`;
   }
 
-  return /[|&\s]/.test(printed) && !printed.startsWith("{")
-    ? `(${printed})`
-    : printed;
+  return spread(printed) ? `(${printed})` : printed;
+}
+
+/**
+ * Whether a printed type has a `|`, an `&` or a space outside its
+ * brackets and literals — `{} | null`, `readonly string[]` — as opposed
+ * to one whole: `{ a: string | null }`, `` `a ${string}` ``.
+ */
+function spread(printed: string): boolean {
+  const open: string[] = [];
+
+  for (let index = 0; index < printed.length; index += 1) {
+    const char = printed[index] ?? "";
+    const inside = open.at(-1);
+
+    if (inside === '"' || inside === "`") {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === inside) {
+        open.pop();
+      } else if (inside === "`" && printed.startsWith("${", index)) {
+        open.push("{");
+        index += 1;
+      }
+
+      continue;
+    }
+
+    if ('"`{([<'.includes(char)) {
+      open.push(char);
+    } else if ("})]>".includes(char)) {
+      open.pop();
+    } else if (open.length === 0 && /[|&\s]/.test(char)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** The text of a template literal type, escaped as its source writes it, on one line. */
+function template(text: string): string {
+  return text
+    .replaceAll("\\", "\\\\")
+    .replaceAll("`", "\\`")
+    .replaceAll("${", "\\${")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r");
 }
 
 /** A property name as a type literal writes it: bare when it can be. */
@@ -417,9 +484,6 @@ interface Known {
 
   /** The directory of the client's modules, ending in a separator. */
   readonly client: string;
-
-  /** Whether the program reads `?` without `undefined`. */
-  readonly exact: boolean;
 }
 
 /**
@@ -471,16 +535,34 @@ class Printer {
 
   /** The members of an object type, a line each. */
   members(type: TS.Type, path: readonly string[]): string[] {
-    const { ts, checker } = this;
-    const lines: string[] = [];
+    return [...this.indexes(type, path), ...this.properties(type, path)];
+  }
 
-    for (const info of checker.getIndexInfosOfType(type)) {
+  /**
+   * An object type's body: its members in a block — or, when a property
+   * does not fit its index signature, as `.catchall()` makes it, the
+   * properties and the signature in two, `{ a: string } & { [key:
+   * string]: number }`, which a type literal cannot say in one.
+   */
+  private body(type: TS.Type, path: readonly string[]): string {
+    if (!this.clashes(type)) {
+      return block(this.members(type, path));
+    }
+
+    return `${block(this.properties(type, path))} & ${block(this.indexes(type, path))}`;
+  }
+
+  private indexes(type: TS.Type, path: readonly string[]): string[] {
+    return this.checker.getIndexInfosOfType(type).map((info) => {
       const modifier = info.isReadonly ? "readonly " : "";
 
-      lines.push(
-        `${modifier}[key: ${this.print(info.keyType, path)}]:${after(this.print(info.type, path))};`,
-      );
-    }
+      return `${modifier}[key: ${this.print(info.keyType, path)}]:${after(this.print(info.type, path))};`;
+    });
+  }
+
+  private properties(type: TS.Type, path: readonly string[]): string[] {
+    const { ts, checker } = this;
+    const lines: string[] = [];
 
     for (const property of checker.getPropertiesOfType(type)) {
       if (property.escapedName.toString().startsWith("__@")) {
@@ -507,6 +589,42 @@ class Printer {
     }
 
     return lines;
+  }
+
+  /** Whether a property's type is not one its index signature allows. */
+  private clashes(type: TS.Type): boolean {
+    const { ts, checker } = this;
+    const infos = checker.getIndexInfosOfType(type);
+
+    if (infos.length === 0) {
+      return false;
+    }
+
+    return checker.getPropertiesOfType(type).some((property) => {
+      const name = property.escapedName.toString();
+
+      if (name.startsWith("__@")) {
+        return false;
+      }
+
+      return infos.some((info) => {
+        const applies =
+          info.keyType.flags & ts.TypeFlags.Number
+            ? /^(0|[1-9]\d*)$/.test(name)
+            : checker.isTypeAssignableTo(
+                checker.getStringLiteralType(name),
+                info.keyType,
+              );
+
+        return (
+          applies &&
+          !checker.isTypeAssignableTo(
+            checker.getTypeOfSymbol(property),
+            info.type,
+          )
+        );
+      });
+    });
   }
 
   /**
@@ -539,17 +657,16 @@ class Printer {
   }
 
   /**
-   * An optional property's type, or with `exactOptionalPropertyTypes` a
-   * tuple element's, without the `undefined` its `?` already says. A tuple
-   * element keeps it otherwise: there the compiler counts it as part of
-   * the element's type, and `(T | undefined)?` is what `T?` reads as. With `exactOptionalPropertyTypes` the compiler tells that one —
+   * An optional property's or tuple element's type without the
+   * `undefined` its `?` already says. Under `exactOptionalPropertyTypes`,
+   * which the contract is worked out with, the compiler tells that one —
    * a type of its own — from an `undefined` the property declares, which
    * stays.
    */
   private defined(type: TS.Type, path: readonly string[]): string {
     const added = (member: TS.Type) =>
       (member.flags & this.ts.TypeFlags.Undefined) !== 0 &&
-      (!this.known.exact || member !== this.checker.getUndefinedType());
+      member !== this.checker.getUndefinedType();
 
     if (!type.isUnion()) {
       return added(type) ? "never" : this.print(type, path);
@@ -588,12 +705,20 @@ class Printer {
     if (flags & F.BooleanLiteral) return checker.typeToString(type);
     if (flags & F.BigIntLiteral) return checker.typeToString(type);
 
-    if (flags & (F.TemplateLiteral | F.StringMapping)) {
-      return checker.typeToString(
-        type,
-        undefined,
-        ts.TypeFormatFlags.NoTruncation,
+    if (flags & F.TemplateLiteral) {
+      const { texts, types } = type as TS.TemplateLiteralType;
+      const parts = types.map(
+        (part, index) =>
+          `\${${this.print(part, path)}}${template(texts[index + 1] ?? "")}`,
       );
+
+      return `\`${template(texts[0] ?? "")}${parts.join("")}\``;
+    }
+
+    if (flags & F.StringMapping) {
+      const mapping = type as TS.StringMappingType;
+
+      return `${mapping.symbol.name}<${this.print(mapping.type, path)}>`;
     }
 
     if (flags & (F.ESSymbol | F.UniqueESSymbol)) {
@@ -770,7 +895,7 @@ class Printer {
 
     this.open.add(type);
 
-    const body = block(this.members(type, path));
+    const body = this.body(type, path);
 
     this.open.delete(type);
 
@@ -780,7 +905,11 @@ class Printer {
       return body;
     }
 
-    this.hoisted.push(`export interface ${recursive} ${body}`);
+    this.hoisted.push(
+      spread(body)
+        ? `export type ${recursive} = ${body};`
+        : `export interface ${recursive} ${body}`,
+    );
 
     return recursive;
   }
@@ -801,11 +930,7 @@ class Printer {
           return this.print(element, path);
         }
 
-        const printed = this.known.exact
-          ? this.defined(element, path)
-          : this.print(element, path);
-
-        return `${grouped(printed)}?`;
+        return `${grouped(this.defined(element, path))}?`;
       });
 
     return `${target.readonly ? "readonly " : ""}[${elements.join(", ")}]`;
@@ -825,11 +950,7 @@ class Printer {
     const { ts, checker } = this;
     const symbol = type.aliasSymbol ?? type.symbol;
 
-    if (
-      symbol === undefined ||
-      symbol.flags & ts.SymbolFlags.TypeLiteral ||
-      !IDENTIFIER.test(symbol.name)
-    ) {
+    if (symbol === undefined || !this.named(symbol)) {
       return undefined;
     }
 
@@ -956,12 +1077,7 @@ class Printer {
     }
 
     for (const symbol of [type.aliasSymbol, type.symbol]) {
-      if (
-        symbol !== undefined &&
-        !(symbol.flags & this.ts.SymbolFlags.TypeLiteral) &&
-        IDENTIFIER.test(symbol.name) &&
-        !this.ours(symbol)
-      ) {
+      if (symbol !== undefined && this.named(symbol) && !this.ours(symbol)) {
         return symbol.name;
       }
     }
@@ -982,6 +1098,21 @@ class Printer {
     }
 
     return undefined;
+  }
+
+  /**
+   * Whether a symbol is a name the source gave a type, as opposed to one
+   * the compiler made up: `__type` of a type literal, `__object` of an
+   * object literal — a zod 4 schema with a getter.
+   */
+  private named(symbol: TS.Symbol): boolean {
+    const F = this.ts.SymbolFlags;
+
+    return (
+      !(symbol.flags & (F.TypeLiteral | F.ObjectLiteral)) &&
+      !symbol.name.startsWith("__") &&
+      IDENTIFIER.test(symbol.name)
+    );
   }
 
   /** Whether the client declares `symbol` — `Jsonify`, `Flat` and the like. */

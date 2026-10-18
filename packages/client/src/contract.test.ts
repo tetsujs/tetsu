@@ -11,7 +11,7 @@
  */
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import ts from "typescript6";
 import { generateContract } from "./contract.ts";
@@ -90,6 +90,33 @@ describe("generateContract", () => {
     expect(second).toBe(first);
   });
 
+  test("writes the same contract whether or not the server's tsconfig has exactOptionalPropertyTypes", async () => {
+    const loose = await generateContract({ entry: app });
+
+    expect(loose).toBe(await Bun.file(committed).text());
+  });
+
+  test("does not report what only exactOptionalPropertyTypes finds, when the server's tsconfig leaves it off", async () => {
+    const entry = join(scratch, "loose.ts");
+
+    await Bun.write(
+      entry,
+      [
+        'import { createApp, route } from "@tetsujs/core";',
+        "",
+        "const maybe = (): string | undefined => undefined;",
+        "const options: { q?: string } = { q: maybe() };",
+        "",
+        "export const app = createApp({",
+        '  routes: [route({ method: "GET", path: "/loose", handler: () => options.q ?? "" })],',
+        "});",
+        "",
+      ].join("\n"),
+    );
+
+    expect(await generateContract({ entry })).toContain('"GET /loose"');
+  });
+
   test("loads the pinned compiler, whatever the repository compiles with", async () => {
     const child = Bun.spawn(
       [
@@ -135,6 +162,26 @@ describe("generateContract", () => {
     const health = await generateContract({ entry: shapes, export: "default" });
 
     expect(health).toContain('readonly "GET /health"');
+  });
+
+  test("writes each shape as JSON carries it, in a contract that compiles on its own", async () => {
+    const text = await generateContract({ entry: shapes, export: "written" });
+    const out = join(scratch, "written.d.ts");
+
+    await Bun.write(out, text);
+
+    expect(text).toContain("meta?: any;");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a type's text.
+    expect(text).toContain("key: `user_${string}`;");
+    expect(text).toContain("list: ({} | null)[];");
+    expect(text).toContain("body: Recursive1;");
+    expect(text).toContain("shout: Uppercase<string>;");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a type's text.
+    expect(text).toContain("quoted: `a\\`\\${b}${number}`;");
+    expect(text).not.toContain("__object");
+    expect(text).not.toContain("$brand");
+    expect(text).not.toMatch(/\bTag\b/);
+    expect(problems(out)).toEqual([]);
   });
 
   test("reads the application a function builds, awaited or not", async () => {
@@ -209,6 +256,7 @@ describe("generateContract", () => {
         "  Api → POST /symbols → request → body → tag: a symbol",
         "  Api → POST /rewrites → request → body → rewriter: HTMLRewriter, a global the frontend does not have",
         "  Api → POST /missing → request → body → value: a type that did not resolve",
+        "  Api → GET /replies → responses → 2XX → user: a type that did not resolve",
       ].join("\n"),
     );
   });
@@ -290,12 +338,40 @@ describe("tetsu-client contract", () => {
       ["contract", app, "--nope"],
       ["contract", app, "--name", "my-api"],
       ["contract", app, "--name", "Raw"],
+      ["contract", app, "--name", "class"],
+      ["contract", app, "--name", "string"],
     ]) {
       const result = await run(args);
 
       expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("Usage: tetsu-client contract <entry>");
     }
+  });
+
+  test("refuses to write over a module of the application, and tells in a line why it cannot write", async () => {
+    const entry = join(scratch, "self.ts");
+    const source =
+      'import { createApp, route } from "@tetsujs/core";\n\nexport const app = createApp({ routes: [route({ method: "GET", path: "/self", handler: () => "ok" })] });\n';
+
+    await Bun.write(entry, source);
+
+    const over = await run(["contract", entry, "--out", entry]);
+
+    expect(over.exitCode).toBe(1);
+    expect(over.stderr).toBe(
+      `${entry} is a module of the application: the contract would overwrite it\n`,
+    );
+    expect(await Bun.file(entry).text()).toBe(source);
+
+    const directory = join(scratch, "web");
+
+    await mkdir(directory, { recursive: true });
+
+    const failed = await run(["contract", entry, "--out", directory]);
+
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toStartWith(`Cannot write ${directory}: `);
+    expect(failed.stderr.trimEnd()).not.toContain("\n");
   });
 
   test("--watch writes the contract again when the application changes, and stops with the command", async () => {
