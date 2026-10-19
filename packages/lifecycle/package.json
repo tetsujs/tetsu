@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/lifecycle",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Graceful shutdown for Tetsu: drain requests, then close what the server used",
   "keywords": [
     "bun",
