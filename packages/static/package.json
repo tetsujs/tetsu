@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/static",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Static files for Tetsu: a built site, a single-page app or assets, with caching headers and precompressed copies",
   "keywords": [
     "bun",

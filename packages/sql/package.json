@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/sql",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Postgres on Bun: SQL migrations, and Kysely types generated from the real database",
   "keywords": [
     "bun",

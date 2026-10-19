@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/request-id",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Request ids for Tetsu",
   "keywords": [
     "bun",
