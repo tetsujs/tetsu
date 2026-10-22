@@ -120,6 +120,18 @@ class Turns {
 }
 
 /**
+ * Hands back the turn of a reserved connection whose `ReservedSQL` is
+ * garbage-collected before the turn went back, as that of a transaction
+ * Kysely controls that was dropped without a commit or a rollback. Bun
+ * reclaims the connection when that `ReservedSQL` is collected, closing
+ * one that a transaction is open on rather than hand the transaction on,
+ * so that, kept, the turn would stand for a connection no one holds.
+ */
+const UNRETURNED = new FinalizationRegistry<Turns>((turns) => {
+  turns.give();
+});
+
+/**
  * Kysely's dialect on a Bun.SQL client of Postgres, the pool, and a client
  * of the same database beside it, of one connection, that cancels a query
  * of the pool's. The cancel cannot wait for a connection of the pool: the
@@ -158,10 +170,12 @@ export class BunDialect implements Dialect {
  * as Kysely's own driver for Postgres does.
  *
  * Reservations take turns at one fewer connection than the pool holds, at
- * least one. Bun hands a connection that comes free to a reservation that
- * waits before a query of the pool (oven-sh/bun#45275), so that, were
- * every connection for reservations to take, a query of the pool would
- * wait for as long as they kept coming.
+ * least one. Bun hands a connection that comes free to what has waited
+ * longest, a query of the pool or a reservation, so that, were every
+ * connection for reservations to take, a query would wait for each
+ * reservation asked for before it, and behind long transactions for as
+ * long as they run. A turn is handed back with its connection, or, when
+ * Kysely never hands that back, once the connection is garbage-collected.
  *
  * A transaction whose `begin` or `rollback` fails closes its connection
  * and hands its turn back at once. Neither fails on a sound connection,
@@ -340,6 +354,8 @@ class BunConnection implements DatabaseConnection {
 
         throw error;
       }
+
+      UNRETURNED.register(this.reserved, this.turns, this);
     }
 
     return this.reserved;
@@ -460,6 +476,7 @@ class BunConnection implements DatabaseConnection {
   release(): void {
     if (this.reserved !== undefined && !this.ended) {
       this.ended = true;
+      UNRETURNED.unregister(this);
       this.reserved.release();
       this.turns.give();
     }
@@ -475,6 +492,7 @@ class BunConnection implements DatabaseConnection {
   async discard(): Promise<void> {
     if (this.reserved !== undefined && !this.ended) {
       this.ended = true;
+      UNRETURNED.unregister(this);
       await this.reserved.close().catch(() => undefined);
       this.turns.give();
     }

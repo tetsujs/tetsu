@@ -260,11 +260,11 @@ Three things reserve a connection for themselves:
   by.
 
 Reservations take turns, in the order they come, at one fewer connection
-than `max`, at least one. Bun hands a connection that comes free to a
-waiting reservation before any other query, so were every connection
-theirs to take, a burst of transactions would hold up every other query —
-health checks included — until it ended. The connection left over is the
-pool's.
+than `max`, at least one. Bun hands a connection that comes free to what
+has waited longest, a query or a reservation, so were every connection
+theirs to take, a query that comes behind a burst of transactions — a
+health check included — would wait for each of them to start, and behind
+long ones for as long as they run. The connection left over is the pool's.
 
 A reservation inside another's work, such as a transaction opened on `db`
 inside the callback of `db.connection()`, needs a turn of its own, and waits

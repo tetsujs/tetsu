@@ -46,8 +46,10 @@ run the part that may fail in a unit of its own, below: a savepoint takes
 the failure, and the transaction goes on.
 
 A transaction Kysely controls, from `db.startTransaction()`, holds its
-connection until it is committed or rolled back. One whose commit failed
-still holds it, so roll back in the `catch`:
+connection until it is committed or rolled back, or, dropped without
+either, until it is garbage-collected: Bun then closes the connection,
+which rolls the transaction back. One whose commit failed still holds it,
+so roll back in the `catch`:
 
 ```ts twoslash
 // @filename: src/db.generated.ts

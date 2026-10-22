@@ -44,12 +44,20 @@ async function exists(name: string): Promise<boolean> {
 /**
  * Runs a fixture in a child `bun test` and returns the name of the
  * database it printed, with how the run ended.
+ *
+ * This process goes on while the child runs, rather than wait in
+ * `Bun.spawnSync`: Bun opens every connection of a pool for its first
+ * query, and answers it on the first that is ready, so that a connection
+ * of this file's clients may still be signing in. Stopped there, it would
+ * hold up the child's drop of its database, which on Postgres 15 and later
+ * waits for every backend of the server, one signing in included, until
+ * the child was killed.
  */
-function runFixture(
+async function runFixture(
   file: string,
   ...flags: string[]
-): { name: string; exitCode: number } {
-  const run = Bun.spawnSync(
+): Promise<{ name: string; exitCode: number }> {
+  const child = Bun.spawn(
     [
       "bun",
       "test",
@@ -57,13 +65,22 @@ function runFixture(
       "--path-ignore-patterns=**/node_modules/**",
       ...flags,
     ],
-    { env: Bun.env, stdout: "pipe", stderr: "pipe", timeout: FIXTURE_MS },
+    { env: Bun.env, stdout: "pipe", stderr: "pipe" },
   );
-  const output = `${run.stdout.toString()}${run.stderr.toString()}`;
+  const timer = setTimeout(() => child.kill(), FIXTURE_MS);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
 
-  if (run.exitCode === null) {
+  clearTimeout(timer);
+
+  const output = `${stdout}${stderr}`;
+
+  if (child.signalCode !== null) {
     throw new Error(
-      `the fixture did not end within ${FIXTURE_MS} ms (${run.signalCode}):\n${output}`,
+      `the fixture did not end within ${FIXTURE_MS} ms (${child.signalCode}):\n${output}`,
     );
   }
 
@@ -73,7 +90,7 @@ function runFixture(
     throw new Error(`the fixture printed no database name:\n${output}`);
   }
 
-  return { name, exitCode: run.exitCode };
+  return { name, exitCode };
 }
 
 /**
@@ -138,7 +155,7 @@ test("the url reaches the same database as the client", async () => {
 test(
   "the database is dropped once its file ends",
   async () => {
-    const { name, exitCode } = runFixture("lifetime.ts");
+    const { name, exitCode } = await runFixture("lifetime.ts");
 
     expect(exitCode).toBe(0);
     expect(await exists(name)).toBe(false);
@@ -149,7 +166,7 @@ test(
 test(
   "no database is left when no test of the file runs",
   async () => {
-    const { name } = runFixture("lifetime.ts", "-t", "matches no test");
+    const { name } = await runFixture("lifetime.ts", "-t", "matches no test");
 
     expect(await exists(name)).toBe(false);
   },
@@ -159,7 +176,7 @@ test(
 test(
   "a query a timed-out test left running does not keep its database",
   async () => {
-    const { name, exitCode } = runFixture("hang.ts");
+    const { name, exitCode } = await runFixture("hang.ts");
 
     expect(exitCode).not.toBe(0);
     expect(await exists(name)).toBe(false);
