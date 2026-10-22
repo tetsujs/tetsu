@@ -13,7 +13,7 @@ import { testDatabase } from "./database.ts";
 const first = testDatabase();
 const second = testDatabase();
 
-const helper = JSON.stringify(join(import.meta.dir, "database.ts"));
+const helper = join(import.meta.dir, "database.ts");
 
 /**
  * How long a test that runs a fixture in a child `bun test` may take: the
@@ -76,7 +76,11 @@ function runFixture(
   return { name, exitCode: run.exitCode };
 }
 
-/** Calls the helper in a child `bun` with that environment, outside the test runner. */
+/**
+ * Calls the helper in a child `bun` with that environment, outside the test
+ * runner. The UUID and the helper's path reach the child as variables of its
+ * environment, so that its code is the same every time.
+ */
 function callOutsideRunner(
   env: Record<string, string | undefined>,
   uuid = Bun.randomUUIDv7(),
@@ -85,11 +89,16 @@ function callOutsideRunner(
     [
       "bun",
       "-e",
-      `Bun.randomUUIDv7 = () => ${JSON.stringify(uuid)};
-       const { testDatabase } = await import(${helper});
+      `const { TETSU_TEST_UUID, TETSU_TEST_HELPER } = Bun.env;
+       Bun.randomUUIDv7 = () => TETSU_TEST_UUID;
+       const { testDatabase } = await import(TETSU_TEST_HELPER);
        await testDatabase();`,
     ],
-    { env, stdout: "pipe", stderr: "pipe" },
+    {
+      env: { ...env, TETSU_TEST_UUID: uuid, TETSU_TEST_HELPER: helper },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
 
   return { stderr: run.stderr.toString(), exitCode: run.exitCode };
