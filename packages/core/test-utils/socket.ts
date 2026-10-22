@@ -24,8 +24,8 @@ export interface SocketSession {
   /** Resolves when the connection ends, with the code and reason. */
   closed: () => Promise<{ code: number; reason: string }>;
 
-  /** Closes from this side. */
-  close: () => void;
+  /** Closes from this side, with a code and reason when given. */
+  close: (code?: number, reason?: string) => void;
 }
 
 /**
@@ -96,7 +96,7 @@ export function connect(
         endWaiters.push(resolve);
       }),
 
-    close: () => socket.close(),
+    close: (code, reason) => socket.close(code, reason),
   };
 
   return withTimeout("the connection to open", (resolve, reject) => {

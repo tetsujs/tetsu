@@ -303,12 +303,12 @@ describe("the socket's lifetime", () => {
     const socket = await connect(request, "/chat/general?token=secret");
 
     await socket.next();
-    socket.close();
+    socket.close(4000);
     await socket.closed();
 
     await Bun.sleep(20);
 
-    expect(seen).toEqual(["close:1000"]);
+    expect(seen).toEqual(["close:4000"]);
   });
 
   test("a throwing handler is logged and the socket survives", async () => {
@@ -852,13 +852,13 @@ describe("sockets ended from outside", () => {
     const gone = await connect(request, "/feed");
 
     await gone.next();
-    gone.close();
+    gone.close(4000);
     await gone.closed();
     await Bun.sleep(20);
 
     draining.abort();
     await Bun.sleep(20);
 
-    expect(closed).toEqual([1000]);
+    expect(closed).toEqual([4000]);
   });
 });

@@ -183,10 +183,10 @@ export interface WsConfig<
    * What a server that is stopping closes its sockets on: `draining` from
    * `@tetsujs/lifecycle`. `server.stop()` waits for every open socket, and
    * a socket stays open for as long as its client wants: left open, one
-   * held every deploy for the whole grace period, and was then cut with
-   * `1006` and no reason, and the process exited as a forced stop. Closed
-   * here, its client sees a server going away and reconnects to one that
-   * stays; `close` runs for each as for any other.
+   * held every deploy for the whole grace period, and was then cut, and
+   * the process exited as a forced stop. Closed here, its client sees a
+   * server going away and reconnects to one that stays; `close` runs for
+   * each as for any other.
    *
    * A signal, or a function that returns one, called as a socket opens.
    * The function is the usual form: an endpoint is declared before the
