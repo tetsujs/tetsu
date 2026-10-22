@@ -69,8 +69,9 @@ type ArrayOf<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
 
 /**
  * An array Bun reads as its Postgres literal, such as `"{a,b}"`: one of
- * `uuid`, of an enum, a domain, a range or an extension's type
- * (oven-sh/bun#41039, oven-sh/bun#41040). It is written as an array.
+ * an enum, a domain, a composite type, a range or a multirange of one's
+ * own, or an extension's type (oven-sh/bun#41040). It is written as an
+ * array.
  */
 type ArrayLiteral<E> = [E] extends [ColumnType<unknown, infer I, unknown>]
   ? ColumnType<string, readonly I[], readonly I[]>
@@ -120,7 +121,7 @@ export interface DB {
     a_bpchar: ArrayOfNullable<string> | null;
     a_name: ArrayOfNullable<string> | null;
     a_char: ArrayOfNullable<string> | null;
-    a_uuid: ArrayLiteral<string> | null;
+    a_uuid: ArrayOfNullable<string> | null;
     a_json: ArrayOfNullable<Json> | null;
     a_jsonb: ArrayOfNullable<Json> | null;
     a_timestamp: ArrayOfNullable<Timestamp> | null;
@@ -144,12 +145,12 @@ export interface DB {
     a_polygon: ArrayOfNullable<string> | null;
     a_circle: ArrayOfNullable<string> | null;
     a_xml: ArrayOfNullable<string> | null;
-    a_tsvector: ArrayLiteral<string> | null;
-    a_tsquery: ArrayLiteral<string> | null;
-    a_pg_lsn: ArrayLiteral<string> | null;
-    a_int4range: ArrayLiteral<string> | null;
-    a_int4multirange: ArrayLiteral<string> | null;
-    a_regclass: ArrayLiteral<string> | null;
+    a_tsvector: ArrayOfNullable<string> | null;
+    a_tsquery: ArrayOfNullable<string> | null;
+    a_pg_lsn: ArrayOfNullable<string> | null;
+    a_int4range: ArrayOfNullable<string> | null;
+    a_int4multirange: ArrayOfNullable<string> | null;
+    a_regclass: ArrayOfNullable<string> | null;
     a_citext: ArrayLiteral<string> | null;
     a_order_status: ArrayLiteral<OrderStatus> | null;
     a_positive: ArrayLiteral<number> | null;
@@ -224,7 +225,7 @@ export interface DB {
     labels: Generated<ArrayOf<string>>;
     notes: ArrayOfNullable<string> | null;
     scores: Generated<ArrayOfNullable<number>>;
-    coupons: ArrayLiteral<string> | null;
+    coupons: ArrayOfNullable<string> | null;
     history: ArrayLiteral<OrderStatus> | null;
     kinds: ArrayLiteral<Kind> | null;
     moments: ArrayLiteral<Timestamp> | null;

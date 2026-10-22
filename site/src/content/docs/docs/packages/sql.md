@@ -15,7 +15,7 @@ section of its own: [Database](/docs/database/).
 bun add @tetsujs/sql kysely
 ```
 
-It needs Bun 1.4.3 or later and Postgres 14 or later. `kysely` is a peer
+It needs Bun 1.4.4 or later and Postgres 14 or later. `kysely` is a peer
 dependency, 0.29.6 or a later 0.29.
 
 ## Usage

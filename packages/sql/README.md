@@ -20,7 +20,7 @@ const paid = await db
   .execute();
 ```
 
-`tetsu-sql migrations:run` applies the migrations, and `tetsu-sql types:generate` writes `db.generated.ts` from the database they build. It needs Bun 1.4.3 or later and Postgres 14 or later.
+`tetsu-sql migrations:run` applies the migrations, and `tetsu-sql types:generate` writes `db.generated.ts` from the database they build. It needs Bun 1.4.4 or later and Postgres 14 or later.
 
 ## Documentation
 

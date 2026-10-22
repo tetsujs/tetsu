@@ -3,9 +3,11 @@
  * column, and which values it cannot send at all.
  *
  * A case that names an issue pins a Bun bug as it stands: when Bun fixes
- * it, the case fails, and whatever works around it can go. A Postgres
- * array literal written as a string — what the package sends instead of
- * a JavaScript array — is pinned as working.
+ * it, the case fails, and whatever works around it can go. Bun 1.4.4 binds
+ * a `Date` to a `date` and a `time`, and a JavaScript array to an array
+ * type, as Postgres reads them; the package still writes a `Date` as its
+ * ISO text and an array as its Postgres literal, until a release of its
+ * own drops them, so the literal stays pinned as working.
  *
  * @module
  */
@@ -90,18 +92,13 @@ test("a Date bound to timestamptz is the same instant, and to timestamp its UTC 
   expect(await stored("ts", date)).toBe('string "2026-10-09 21:30:00"');
 });
 
-test("an invalid Date bound to timestamptz is stored as the epoch", async () => {
-  expect(await stored("tstz", new Date(Number.NaN))).toBe(
-    'string "1970-01-01 00:00:00+00"',
-  );
+test("an invalid Date bound to timestamptz is refused", async () => {
+  expect(await stored("tstz", new Date(Number.NaN))).toBe("throws 22007");
 });
 
-test("a Date bound to date fails, as Bun sends Date#toString(), still oven-sh/bun#29010", async () => {
-  expect(await stored("d", date)).toMatch(/^throws 22(007|023)$/);
-});
-
-test("a Date bound to time fails, still oven-sh/bun#29010", async () => {
-  expect(await stored("t", date)).toBe("throws 22008");
+test("a Date bound to date is its UTC date, and to time its UTC wall time", async () => {
+  expect(await stored("d", date)).toBe('string "2026-10-09"');
+  expect(await stored("t", date)).toBe('string "21:30:00"');
 });
 
 test("an ISO string is stored by date, but time refuses it", async () => {
@@ -109,39 +106,44 @@ test("an ISO string is stored by date, but time refuses it", async () => {
   expect(await stored("t", date.toISOString())).toBe("throws 22007");
 });
 
-test("a JavaScript array bound to an array column fails, still oven-sh/bun#29551", async () => {
-  expect(await stored("ints", [1, 2])).toBe("throws 08P01");
-  expect(await stored("texts", ["a", "b"])).toBe("throws 22P02");
-  expect(await stored("ids", [uuid])).toBe("throws 22P02");
+test("a JavaScript array bound to an array column is stored, of more dimensions too", async () => {
+  expect(await stored("ints", [1, null])).toBe('string "{1,NULL}"');
+  expect(
+    await stored("ints", [
+      [1, 2],
+      [3, 4],
+    ]),
+  ).toBe('string "{{1,2},{3,4}}"');
+  expect(await stored("texts", ["a,b", 'q"uote', "NULL", null])).toBe(
+    'string "{\\"a,b\\",\\"q\\\\\\"uote\\",\\"NULL\\",NULL}"',
+  );
+  expect(await stored("ids", [uuid])).toBe(`string "{${uuid}}"`);
 });
 
-test("a typed array read back from int4[] or float4[] cannot be written back", async () => {
-  expect(await stored("ints", new Int32Array([1, 2]))).toBe("throws 08P01");
+test("an Int32Array read back from int4[] can be written back, but a Float32Array read back from float4[] cannot", async () => {
+  expect(await stored("ints", new Int32Array([1, 2]))).toBe('string "{1,2}"');
   expect(await stored("floats", new Float32Array([1.5]))).toBe("throws 42804");
 });
 
-test("sql.array() fails as a parameter of sql.unsafe(), still oven-sh/bun#29551", async () => {
-  expect(await stored("ints", sql.array([1, 2], "INT"))).toBe("throws 08P01");
+test("sql.array() is stored as a parameter of sql.unsafe()", async () => {
+  expect(await stored("ints", sql.array([1, 2], "INT"))).toBe('string "{1,2}"');
 });
 
-test("sql.array() without a type binds json[]: int4[] refuses it, text[] stores the quotes, still oven-sh/bun#41242", async () => {
-  const insert = sql`insert into writes (ints) values (${sql.array([1, 2])})`;
-
-  expect(await insert.then(() => "stored", failure)).toBe("42804");
-
+test("sql.array() without a type is stored as the column's array", async () => {
   const [row] = await sql`
-    insert into writes (texts) values (${sql.array(["a", "b"])})
-    returning texts`;
+    insert into writes (ints, texts)
+    values (${sql.array([1, 2])}, ${sql.array(["a", "b"])})
+    returning ints::text as ints, texts::text as texts`;
 
-  expect(show(row.texts)).toBe('Array [string "\\"a\\"", string "\\"b\\""]');
+  expect(row).toEqual({ ints: "{1,2}", texts: "{a,b}" });
 });
 
-test("sql.array() stores a null element as the string null, still oven-sh/bun#41242", async () => {
+test("sql.array() stores a null element as NULL", async () => {
   const [row] = await sql`
     insert into writes (texts) values (${sql.array(["a", null], "TEXT")})
     returning texts::text as v, texts[2] is null as missing`;
 
-  expect(row).toEqual({ v: '{a,"null"}', missing: false });
+  expect(row).toEqual({ v: "{a,NULL}", missing: true });
 });
 
 test("a Postgres array literal bound as a string is stored, whatever its elements hold", async () => {

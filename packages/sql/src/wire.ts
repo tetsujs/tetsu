@@ -121,7 +121,7 @@ export interface Settings {
   readonly timeout: number;
 }
 
-/** A client's settings as Bun 1.4.3 keeps them, which nothing promises. */
+/** A client's settings as Bun 1.4.4 keeps them, which nothing promises. */
 interface Resolved {
   readonly hostname?: unknown;
   readonly port?: unknown;

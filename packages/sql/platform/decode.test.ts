@@ -148,26 +148,21 @@ const cases: Case[] = [
     reads:
       'Array [Array [string "a", string "b"], Array [string "c", string "d"]]',
   },
-  { sql: `'{${uuid}}'::uuid[]`, reads: `string "{${uuid}}"`, issue: 41039 },
+  { sql: `'{${uuid}}'::uuid[]`, reads: `Array [string "${uuid}"]` },
+  { sql: `'{"[1,5)"}'::int4range[]`, reads: 'Array [string "[1,5)"]' },
   { sql: "'{happy,sad}'::mood[]", reads: 'string "{happy,sad}"', issue: 41040 },
   { sql: "'{1,2}'::positive[]", reads: 'string "{1,2}"', issue: 41040 },
   {
     sql: "'{1,NULL}'::int4[]",
     reads: "Array [number 1, null]",
-    binary: "throws ERR_POSTGRES_NULLS_IN_ARRAY_NOT_SUPPORTED_YET",
-    issue: 45062,
   },
   {
     sql: "'{1.5,NULL}'::float4[]",
     reads: "Array [number 1.5, null]",
-    binary: "throws ERR_POSTGRES_NULLS_IN_ARRAY_NOT_SUPPORTED_YET",
-    issue: 45062,
   },
   {
     sql: "'{{1,2},{3,4}}'::int4[]",
     reads: "Array [Array [number 1, number 2], Array [number 3, number 4]]",
-    binary: "throws ERR_POSTGRES_MULTIDIMENSIONAL_ARRAY_NOT_SUPPORTED_YET",
-    issue: 45062,
   },
   {
     sql: "(select count(*) from generate_series(1, 3))",

@@ -18,7 +18,7 @@ whose functions Postgres types as well.
 bun add @tetsujs/sql kysely
 ```
 
-The package needs Bun 1.4.3 or later and Postgres 14 or later. Kysely is a
+The package needs Bun 1.4.4 or later and Postgres 14 or later. Kysely is a
 peer dependency: queries are written with it, and the package gives it a
 driver on Bun.SQL that keeps every value what the types say.
 

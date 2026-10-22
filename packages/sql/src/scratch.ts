@@ -93,7 +93,7 @@ export function connectOptionsOf(options: ConnectOptions): ConnectOptions {
  * with a client of it: named `name`, a {@link scratchName} by default.
  * Both connections are made from `url` itself, with `options`, so what it
  * says — `sslmode`, `options` with a `search_path` — holds for each, and
- * nothing of the environment does: not even `PGDATABASE`, which Bun 1.4.3
+ * nothing of the environment does: not even `PGDATABASE`, which Bun 1.4.4
  * takes over the database a URL names. Each client holds one connection:
  * its queries run one after another, and a test file's pool is made apart
  * from them. The user needs the right to create databases.

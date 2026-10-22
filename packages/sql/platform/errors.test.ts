@@ -148,12 +148,12 @@ test("a not-null violation names the column and no constraint", async () => {
   expect(error.column).toBe("email");
 });
 
-test("column is a number when Postgres sends none, still oven-sh/bun#45064", async () => {
+test("column is undefined when Postgres sends none", async () => {
   const error = await refusal(
     sql`insert into people (id, email) values (5, 'ada@example.com')`,
   );
 
-  expect(typeof error.column).toBe("number");
+  expect(error.column).toBeUndefined();
 });
 
 test("after a violation a transaction refuses everything, and sql.begin() refuses its commit", async () => {

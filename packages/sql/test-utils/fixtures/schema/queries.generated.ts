@@ -235,7 +235,7 @@ export interface OrderByIdRow {
   labels: string[];
   notes: (string | null)[] | null;
   scores: (number | null)[];
-  coupons: string | null;
+  coupons: (string | null)[] | null;
   history: string | null;
   moments: string | null;
   amount: string;

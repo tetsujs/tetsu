@@ -5,6 +5,27 @@ API.
 
 ## Unreleased
 
+### Breaking changes
+
+- `@tetsujs/sql` needs Bun 1.4.4 or later: `database()` throws on an older
+  one. Bun 1.4.4 reads an array of `uuid`, of a built-in range or
+  multirange, of a `reg*` type, of `tsvector`, `tsquery`, `pg_lsn` and
+  `oidvector` as an array, which it read as its Postgres literal, such as
+  `"{a,b}"`. The generated types say so: such a column is
+  `ArrayOfNullable<string>`, or `ArrayOf<string>` without NULLs, where it
+  was `ArrayLiteral<string>`. An array of an enum, of a domain, of a
+  composite type, of a range of one's own or of an extension's type is
+  still read as its literal.
+
+### Moving from 0.6
+
+Run Bun 1.4.4 or later, and run `tetsu-sql types:generate` again: until
+then `types:generate --check` fails, for the tables and for the rows of
+query files. Code that parsed the literal of one of these arrays reads the
+array as it comes instead. An `int4[]` or a `float4[]` that holds a NULL,
+or has more dimensions, now reads with parameters too, so a `::text` cast
+or a check kept for that alone can go.
+
 ### Fixed
 
 - `@tetsujs/sql`: on Bun 1.4.4, a query given up by its signal, with

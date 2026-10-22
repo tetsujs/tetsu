@@ -72,20 +72,21 @@ jobs:
 
     # @tetsujs/sql is tested against a real server: the oldest Postgres the
     # package supports and the newest. The job above leaves these tests
-    # out and needs no database. The package needs Bun 1.4.3, not the
-    # framework's 1.4.2: before it, Bun.SQL could hand a query the rows of
-    # another after a failure in the pipeline. Its guarantees rest on
-    # measured Bun.SQL behaviour, so `latest` runs alongside the pinned Bun
-    # and is allowed to fail, as above.
+    # out and needs no database. The package needs Bun 1.4.4, not the
+    # framework's 1.4.2: before it, Bun.SQL read an array of uuid, of a
+    # range and of more types as its literal, where the generated types
+    # say it reads as an array. Its guarantees rest on measured Bun.SQL
+    # behaviour, so `latest` runs alongside the pinned Bun and is allowed
+    # to fail, as above.
     continue-on-error: ${{ matrix.experimental == true }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - bun: "1.4.3"
+          - bun: "1.4.4"
             postgres: "14"
-          - bun: "1.4.3"
+          - bun: "1.4.4"
             postgres: "18"
           - bun: "latest"
             postgres: "18"

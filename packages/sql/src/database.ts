@@ -36,7 +36,7 @@ export interface DatabaseOptions
   /**
    * A `postgres://` URL of the database: the server, the user and the
    * database it names are the ones used. The database is given apart from
-   * the URL as well, since Bun 1.4.3 would take `PGDATABASE` over it.
+   * the URL as well, since Bun 1.4.4 would take `PGDATABASE` over it.
    */
   readonly url: string;
 }
@@ -50,20 +50,17 @@ export interface DatabaseOptions
  * with parameters and without, a `Date` is written to any timestamp and to
  * a `date`, a number that is not whole, written to an integer column by an
  * insert, an upsert, a merge or a `set`, is refused rather than rounded,
- * and a JavaScript array to a column of arrays, which Bun cannot bind: an
- * array of arrays as one of more dimensions, as Bun reads one, and an array
- * of json as the JSON of its elements. An array goes in as the literal
- * Postgres reads where a query says it goes to such a column: a value of an
- * insert, an upsert or a merge, a `set`, a value compared with such a
- * column of the same query, and the argument of `any()` or `all()`. In raw
- * SQL, or as the argument of another function, it is bound as Bun binds it,
- * which fails for an array type: write `` sql`array[${sql.join(items)}]` ``
- * there.
+ * and a JavaScript array to a column of arrays, as Bun could not bind one
+ * before 1.4.4: an array of arrays as one of more dimensions, as Bun reads
+ * one, and an array of json as the JSON of its elements. An array goes in
+ * as the literal Postgres reads where a query says it goes to such a
+ * column: a value of an insert, an upsert or a merge, a `set`, a value
+ * compared with such a column of the same query, and the argument of
+ * `any()` or `all()`. In raw SQL, or as the argument of another function,
+ * it is bound as Bun binds it, which a cast to an array type reads.
  *
- * Two values Bun reads with parameters stay as it reads them: an `int4[]`
- * or a `float4[]` that holds a NULL cannot be read at all
- * (oven-sh/bun#45062), and a `float4` is read as its 32-bit value, such as
- * `1.100000023841858` for `1.1`.
+ * A `float4` Bun reads with parameters stays as it reads it: its 32-bit
+ * value, such as `1.100000023841858` for `1.1`.
  *
  * A query runs on the pool, which sends the queries of many callers down
  * one connection without waiting for each answer, so a query holds no
@@ -103,8 +100,9 @@ export interface DatabaseOptions
  *
  * @throws {TypeError} when `url` is not a `postgres://` or
  * `postgresql://` URL.
- * @throws {Error} on a Bun older than 1.4.3, before which a query could be
- * handed the rows of another after a failure.
+ * @throws {Error} on a Bun older than 1.4.4, which reads an array of
+ * `uuid`, of a range and of more types as its literal, where the generated
+ * types say it reads as an array.
  */
 export function database<DB>(
   schema: Schema<DB>,
@@ -139,7 +137,7 @@ export function database<DB>(
 }
 
 /**
- * Refuses a version of Bun older than 1.4.3. Only its numbers count, so a
+ * Refuses a version of Bun older than 1.4.4. Only its numbers count, so a
  * canary build is taken as the release it leads to.
  */
 export function checkBun(version: string): void {
@@ -148,10 +146,10 @@ export function checkBun(version: string): void {
   ).map(Number);
 
   if (
-    !(major > 1 || (major === 1 && (minor > 4 || (minor === 4 && patch >= 3))))
+    !(major > 1 || (major === 1 && (minor > 4 || (minor === 4 && patch >= 4))))
   ) {
     throw new Error(
-      `@tetsujs/sql needs Bun 1.4.3 or later, and this is Bun ${version}`,
+      `@tetsujs/sql needs Bun 1.4.4 or later, and this is Bun ${version}`,
     );
   }
 }

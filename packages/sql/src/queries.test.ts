@@ -63,10 +63,7 @@ async function newOrder(): Promise<bigint> {
   return inserted.id;
 }
 
-/**
- * The scores of an order, as their text: Bun cannot read an `int4[]` that
- * holds a NULL with parameters (oven-sh/bun#45062).
- */
+/** The scores of an order, as their text: what Postgres stored. */
 async function scoresOf(id: bigint): Promise<string | undefined> {
   const { rows } = await sql<{
     scores: string;

@@ -31,7 +31,7 @@ files are the contract tests for type inference and for the compile errors
 the framework promises, and `tsc` is the only thing that runs them.
 
 The tests of `@tetsujs/sql` run against a real Postgres, so `bun test`
-leaves them out, and they need Bun 1.4.3 or later, as the package does.
+leaves them out, and they need Bun 1.4.4 or later, as the package does.
 Start a server in one terminal and run them in another, with
 `DATABASE_URL` pointing at it; each test file creates a database of its
 own and drops it when it ends:

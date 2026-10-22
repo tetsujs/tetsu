@@ -40,7 +40,7 @@ export interface Schema<DB, Constraint extends string = string> {
    * elements — a comma, or what its element type has instead, such as the
    * semicolon of `box` — or as `json`, for an array of json or jsonb, whose
    * elements are written as JSON. `database()` writes a JavaScript array to
-   * them as that literal, as Bun cannot bind an array (oven-sh/bun#29551).
+   * them as that literal, as Bun could not bind an array before 1.4.4.
    */
   readonly arrays: Readonly<Record<string, Readonly<Record<string, string>>>>;
 
