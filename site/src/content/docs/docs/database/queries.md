@@ -105,7 +105,10 @@ say: an `int8` is a `bigint` both ways, unless the types were generated with
 The driver mends what Bun does not do:
 
 - a `Date` is written to any timestamp and to a `date` as its instant, in
-  ISO text; an invalid `Date` throws a `RangeError` before anything is sent;
+  ISO text, which a `date` takes of any year, where it refuses Bun's own
+  text of a year past 9999 or before 1; an invalid `Date` throws a
+  `RangeError` before anything is sent, where Bun would send it for
+  Postgres to refuse;
 - a number that is not whole, such as `2.5`, is sent as its text where the
   builder writes it to a column — a value of an insert, an upsert or a
   merge, a `set` — and to any parameter of a [query
@@ -123,9 +126,12 @@ The driver mends what Bun does not do:
 ### Arrays
 
 `database()` writes a JavaScript array to a column of arrays as the literal
-Postgres reads, such as `{"gift","glass"}`, as Bun could not bind one
-before 1.4.4. It does so wherever a query says the array goes to such a
-column:
+Postgres reads, such as `{"gift","glass"}`. Bun binds an array as Postgres
+reads it only to an array of a type it knows: not of an enum, a domain, a
+composite type, a range of one's own or an extension's type, and not every
+array of json ([Bun's limits](/docs/database/bun-limits/#values)). A
+literal is read as the column's own type, whatever it is. `database()`
+writes one wherever a query says the array goes to such a column:
 
 - a value of an insert, an upsert or a merge, and a `set` of an update;
 - a value compared with a column of arrays of the same query, such as
@@ -159,7 +165,7 @@ type, which is `;` for a `box`, and as JSON for an array of `json` or
 
 Anywhere else an array is bound as Bun binds it: as JSON into a `jsonb`
 column, and as a Postgres array where raw SQL, or the argument of another
-function, casts it to an array type:
+function, casts it to an array of a built-in type:
 
 ```ts twoslash
 // @filename: src/db.generated.ts
@@ -176,6 +182,9 @@ const { rows } = await sql<{ tagged: boolean }>`
   select ${labels}::text[] && array['gift'] as tagged
 `.execute(db);
 ```
+
+An array of an enum, or of another type Bun does not know, takes a second
+cast from one it knows: `${moods}::text[]::mood[]`.
 
 ## Values and SQL
 

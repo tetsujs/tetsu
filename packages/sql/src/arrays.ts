@@ -1,8 +1,12 @@
 /**
  * The plugin that writes a JavaScript array to a column of arrays as the
- * literal of a Postgres array: Bun cannot bind an array
- * (oven-sh/bun#29551), and a literal bound as text is read by the column's
- * own type.
+ * literal of a Postgres array, which the column reads as its own type,
+ * whatever it is. Bun binds an array as Postgres reads it only to an array
+ * of a type it knows: of an enum, a domain, a composite type, a range of
+ * one's own or an extension's type, it sends the elements joined by
+ * commas, which Postgres refuses; of json, it sends null as JSON's null and
+ * an array as one of more dimensions; and it writes a `Date` of a year past
+ * 9999 or before 1, and `-0`, as no array reads them.
  *
  * The generated file names the columns of arrays, and an array becomes a
  * literal where a query says it goes to one: a value of an insert, an
