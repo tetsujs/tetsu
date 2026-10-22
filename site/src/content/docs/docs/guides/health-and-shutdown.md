@@ -236,7 +236,7 @@ const shutdown = onShutdownSignals(server, { preStopDelayMs: 5_000 });
 ```
 
 Without `until`, an open socket holds every stop for `graceMs` and is then
-cut with `1006`.
+cut by the forced stop.
 
 ## Kubernetes
 
