@@ -582,12 +582,12 @@ describe("migrations that fail", () => {
   test("with a journal name that cannot be one are refused before any database is made", async () => {
     const role = `tetsu_sql_role_${Bun.randomUUIDv7().replaceAll("-", "")}`;
 
-    await sql.unsafe(`create role ${role} login nocreatedb password 'scratch'`);
+    await sql.unsafe(`create role ${role} login nocreatedb password '${process.env.DB_URL_WITH_PASS}'`);
 
     const limited = new URL(url);
 
     limited.username = role;
-    limited.password = "scratch";
+    limited.password = process.env.DB_URL_WITH_PASS;
 
     try {
       await expect(
