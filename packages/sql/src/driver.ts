@@ -291,9 +291,12 @@ class BunDriver implements Driver {
  * A query given a signal that is aborted while the query waits in Bun's
  * queue for a connection is taken out of the queue, as Kysely never runs
  * a query given up before it had a connection; one already sent runs to
- * its end, as Kysely's `ignore query` says. Bun queues a query only when no
- * connection can take it on, as when reservations hold every one: on a
- * pool busy with other queries, it sends one at once, behind theirs.
+ * its end, as Kysely's `ignore query` says. Bun's `cancel()` would cancel
+ * that one on the server, failing its transaction, so it is called only
+ * on a query Bun has not sent, which is not `active`. Bun queues a query
+ * only when no connection can take it on, as when reservations hold every
+ * one: on a pool busy with other queries, it sends one at once, behind
+ * theirs.
  */
 class BunConnection implements DatabaseConnection {
   private readonly pool: SQL;
@@ -351,7 +354,9 @@ class BunConnection implements DatabaseConnection {
     );
     const signal = options?.signal;
     const drop = () => {
-      query.cancel();
+      if (!query.active) {
+        query.cancel();
+      }
     };
 
     this.running = compiledQuery;
