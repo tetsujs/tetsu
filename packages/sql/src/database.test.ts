@@ -103,7 +103,7 @@ const columns: readonly [keyof DB["arrays"], unknown, unknown][] = [
   [
     "a_uuid",
     ["0190d0a1-7f6e-7c3a-8f6e-1234567890ab", null],
-    "{0190d0a1-7f6e-7c3a-8f6e-1234567890ab,NULL}",
+    ["0190d0a1-7f6e-7c3a-8f6e-1234567890ab", null],
   ],
   ["a_json", [{ a: 1 }, [1, "two"], null], [{ a: 1 }, [1, "two"], null]],
   ["a_jsonb", [{ a: 1, b: [true] }, null], [{ a: 1, b: [true] }, null]],
@@ -144,12 +144,12 @@ const columns: readonly [keyof DB["arrays"], unknown, unknown][] = [
   ["a_polygon", ["((0,0),(1,1),(1,0))"], ["((0,0),(1,1),(1,0))"]],
   ["a_circle", ["<(0,0),1>"], ["<(0,0),1>"]],
   ["a_xml", ["<a>x</a>"], ["<a>x</a>"]],
-  ["a_tsvector", ["a b"], `{"'a' 'b'"}`],
-  ["a_tsquery", ["a & b"], `{"'a' & 'b'"}`],
-  ["a_pg_lsn", ["16/B374D848"], "{16/B374D848}"],
-  ["a_int4range", ["[1,3)", "empty", null], '{"[1,3)",empty,NULL}'],
-  ["a_int4multirange", ["{[1,3)}"], '{"{[1,3)}"}'],
-  ["a_regclass", ["pg_class"], "{pg_class}"],
+  ["a_tsvector", ["a b"], ["'a' 'b'"]],
+  ["a_tsquery", ["a & b"], ["'a' & 'b'"]],
+  ["a_pg_lsn", ["16/B374D848"], ["16/B374D848"]],
+  ["a_int4range", ["[1,3)", "empty", null], ["[1,3)", "empty", null]],
+  ["a_int4multirange", ["{[1,3)}"], ["{[1,3)}"]],
+  ["a_regclass", ["pg_class"], ["pg_class"]],
   ["a_citext", ["Abc", null], "{Abc,NULL}"],
   ["a_order_status", ["new", "paid"], "{new,paid}"],
   ["a_positive", [1, 2], "{1,2}"],
@@ -193,7 +193,7 @@ describe("an array of each type", () => {
     }
   });
 
-  test("of int4 or float4 that holds a NULL reads without parameters, but not with them, still oven-sh/bun#45062", async () => {
+  test("of int4 or float4 that holds a NULL reads the same with parameters and without", async () => {
     await db.deleteFrom("arrays").execute();
     await db
       .insertInto("arrays")
@@ -204,25 +204,14 @@ describe("an array of each type", () => {
       .selectFrom("arrays")
       .select(["a_int4", "a_float4"])
       .execute();
-    const failures = await Promise.all(
-      (["a_int4", "a_float4"] as const).map((column) =>
-        db
-          .selectFrom("arrays")
-          .select(column)
-          .where(sql<boolean>`${true}`)
-          .execute()
-          .then(
-            () => "read",
-            (error: { code?: unknown }) => error.code,
-          ),
-      ),
-    );
+    const [binary] = await db
+      .selectFrom("arrays")
+      .select(["a_int4", "a_float4"])
+      .where(sql<boolean>`${true}`)
+      .execute();
 
     expect(text).toEqual({ a_int4: [1, null], a_float4: [null, 1.5] });
-    expect(failures).toEqual([
-      "ERR_POSTGRES_NULLS_IN_ARRAY_NOT_SUPPORTED_YET",
-      "ERR_POSTGRES_NULLS_IN_ARRAY_NOT_SUPPORTED_YET",
-    ]);
+    expect(binary).toEqual({ a_int4: [1, null], a_float4: [null, 1.5] });
   });
 
   test("covers every column of arrays the generated file names", () => {
@@ -357,7 +346,7 @@ describe("an order", () => {
       labels: ["a"],
       notes: ["n", null],
       scores: [1, 2],
-      coupons: "{0190d0a1-7f6e-7c3a-8f6e-1234567890ab}",
+      coupons: ["0190d0a1-7f6e-7c3a-8f6e-1234567890ab"],
       history: "{new,paid}",
       kinds: "{bulk}",
       payload: [1, { two: 2 }],
@@ -875,19 +864,19 @@ describe("db", () => {
 });
 
 describe("a version of Bun", () => {
-  test.each(["1.4.3", "1.4.10", "1.5.0", "2.0.0", "1.4.3-canary.20+c6da4a4d3"])(
+  test.each(["1.4.4", "1.4.10", "1.5.0", "2.0.0", "1.4.4-canary.20+c6da4a4d3"])(
     "%s runs the package",
     (version) => {
       expect(() => checkBun(version)).not.toThrow();
     },
   );
 
-  test.each(["1.4.2", "1.4.2-canary.7", "1.3.14", "0.9.9", ""])(
+  test.each(["1.4.3", "1.4.3-canary.7", "1.3.14", "0.9.9", ""])(
     "%j is refused, by its version",
     (version) => {
       expect(() => checkBun(version)).toThrow(
         new Error(
-          `@tetsujs/sql needs Bun 1.4.3 or later, and this is Bun ${version}`,
+          `@tetsujs/sql needs Bun 1.4.4 or later, and this is Bun ${version}`,
         ),
       );
     },

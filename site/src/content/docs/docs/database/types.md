@@ -187,21 +187,20 @@ elements may be NULL, as those of any Postgres array may.
 `check (array_position(tags, null) is null)` keeps them out, and makes the
 column `ArrayOf<E>`.
 
-Bun reads an array of `uuid`, of an enum, of a domain, of a range, of a
-composite type or of an extension's type as its Postgres literal, such as
-`"{a,b}"`: such a column is `ArrayLiteral<E>`, read as that string and
-written as an array.
+Bun reads an array of an enum, of a domain, of a composite type, of a
+range or a multirange of one's own or of an extension's type as its
+Postgres literal, such as `"{a,b}"`: such a column is `ArrayLiteral<E>`,
+read as that string and written as an array.
 
 An array of more dimensions is typed as an array of one: Postgres keeps no
-number of dimensions with a column. Bun reads it as nested arrays — but
-for an `int4[]` or a `float4[]` read with parameters, which fails: [Bun's
-limits](/docs/database/bun-limits/) — so a query that reads one says what
-it holds itself, as `` sql<string[][]>`cells` ``, and the package writes
-nested arrays back as more dimensions.
+number of dimensions with a column. Bun reads it as nested arrays, so a
+query that reads one says what it holds itself, as
+`` sql<string[][]>`cells` ``, and the package writes nested arrays back as
+more dimensions.
 
-An array is written to a column of arrays as the literal Postgres reads,
-since Bun cannot bind it: [Queries](/docs/database/queries/#arrays) has
-where that happens, and where it does not.
+An array is written to a column of arrays as the literal Postgres reads:
+[Queries](/docs/database/queries/#arrays) has where that happens, and where
+it does not.
 
 ## More than one database
 

@@ -9,7 +9,7 @@ import { SQL } from "bun";
 /**
  * A client of the database `url` names, with `options` besides: the one in
  * its path, or, with none, the one of its user's name, as Postgres's own
- * clients take it. The name is given apart from the URL as well: Bun 1.4.3
+ * clients take it. The name is given apart from the URL as well: Bun 1.4.4
  * takes `PGDATABASE`, when it is set, over the name a URL holds, and would
  * reach another database (oven-sh/bun#45276).
  */

@@ -136,12 +136,9 @@ on. `tetsu-sql` and `generate()` take only a URL: name the authority's file
 in `NODE_EXTRA_CA_CERTS`, which Bun trusts for every connection, theirs
 included.
 
-`sslmode=prefer` hangs on a server that offers no TLS, in Bun 1.4.3: use
-`require`, or `disable` on a network of your own.
-
 ### The database a URL names
 
-Bun 1.4.3 takes `PGDATABASE`, when it is set, over the database a URL
+Bun 1.4.4 takes `PGDATABASE`, when it is set, over the database a URL
 names. `database()`, `tetsu-sql` and `testDatabase()` give Bun the URL's
 database apart from the URL, so the URL wins. A client of your own, such as
 one handed to `migrate()`, needs the same: `new SQL({ url, database: "shop"

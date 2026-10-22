@@ -145,8 +145,9 @@ type ArrayOf<E> = [E] extends [ColumnType<infer S, infer I, unknown>]
     "ArrayLiteral",
     `/**
  * An array Bun reads as its Postgres literal, such as \`"{a,b}"\`: one of
- * \`uuid\`, of an enum, a domain, a range or an extension's type
- * (oven-sh/bun#41039, oven-sh/bun#41040). It is written as an array.
+ * an enum, a domain, a composite type, a range or a multirange of one's
+ * own, or an extension's type (oven-sh/bun#41040). It is written as an
+ * array.
  */
 type ArrayLiteral<E> = [E] extends [ColumnType<unknown, infer I, unknown>]
   ? ColumnType<string, readonly I[], readonly I[]>

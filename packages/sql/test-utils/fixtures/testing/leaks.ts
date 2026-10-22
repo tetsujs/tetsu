@@ -1,7 +1,9 @@
 /**
  * A test file of its own for `testing.test.ts`, run in a child `bun test`:
  * its test leaves a transaction open, so the pool cannot close, and the
- * file fails once its database is dropped all the same.
+ * file fails once its database is dropped all the same. The transaction is
+ * kept: Bun 1.4.4 hands a reserved connection back once nothing holds it,
+ * and the pool would then close.
  *
  * @module
  */
@@ -18,6 +20,8 @@ const { db, name } = testDatabase(schema, {
 
 console.log(`database: ${name}`);
 
+const kept: unknown[] = [];
+
 test("leaves a transaction open", async () => {
-  await db.startTransaction().execute();
+  kept.push(await db.startTransaction().execute());
 });

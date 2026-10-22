@@ -71,7 +71,7 @@ try {
 ```
 
 The run reserves one connection of the client and closes it at the end, so
-nothing a migration set for its session reaches anything else. Bun 1.4.3
+nothing a migration set for its session reaches anything else. Bun 1.4.4
 takes `PGDATABASE`, when it is set, over the database a URL names: where it
 may be set, give the client the database as `database` too, as the command
 does.

@@ -50,8 +50,9 @@ const server = Bun.serve({ ...createApp({ routes: ordersController(db) }) });
 onShutdownSignals(server, { close: [() => db.destroy()] });
 ```
 
-On a Bun older than 1.4.3, `database()` throws: before it, a query could be
-handed the rows of another after a failure on the same connection.
+On a Bun older than 1.4.4, `database()` throws: before it, Bun read an
+array of `uuid`, of a range and of more types as its literal, where the
+generated types say it reads as an array.
 
 ## Queries are Kysely's
 
@@ -121,9 +122,10 @@ The driver mends what Bun does not do:
 
 ### Arrays
 
-Bun cannot bind a JavaScript array to a column of arrays, so `database()`
-writes it as the literal Postgres reads, such as `{"gift","glass"}`. It does
-so wherever a query says the array goes to such a column:
+`database()` writes a JavaScript array to a column of arrays as the literal
+Postgres reads, such as `{"gift","glass"}`, as Bun could not bind one
+before 1.4.4. It does so wherever a query says the array goes to such a
+column:
 
 - a value of an insert, an upsert or a merge, and a `set` of an update;
 - a value compared with a column of arrays of the same query, such as
@@ -156,9 +158,8 @@ type, which is `;` for a `box`, and as JSON for an array of `json` or
 `jsonb`. An array of arrays is written as one of more dimensions.
 
 Anywhere else an array is bound as Bun binds it: as JSON into a `jsonb`
-column, which is right, and as nothing Postgres reads for an array type, in
-raw SQL or as the argument of another function. There, build the array in
-the query:
+column, and as a Postgres array where raw SQL, or the argument of another
+function, casts it to an array type:
 
 ```ts twoslash
 // @filename: src/db.generated.ts
@@ -172,7 +173,7 @@ import { sql } from "kysely";
 
 const labels = ["gift", "fragile"];
 const { rows } = await sql<{ tagged: boolean }>`
-  select array[${sql.join(labels)}]::text[] && array['gift'] as tagged
+  select ${labels}::text[] && array['gift'] as tagged
 `.execute(db);
 ```
 

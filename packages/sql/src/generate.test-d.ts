@@ -46,8 +46,11 @@ export type columns = [
   Expect<Equal<InsertType<Orders["tags"]>, readonly string[] | undefined>>,
   Expect<Equal<SelectType<Orders["notes"]>, (string | null)[] | null>>,
   Expect<Equal<InsertType<Orders["notes"]>, readonly (string | null)[] | null>>,
-  Expect<Equal<SelectType<Orders["coupons"]>, string | null>>,
-  Expect<Equal<InsertType<Orders["coupons"]>, readonly string[] | null>>,
+  Expect<Equal<SelectType<Orders["coupons"]>, (string | null)[] | null>>,
+  Expect<
+    Equal<InsertType<Orders["coupons"]>, readonly (string | null)[] | null>
+  >,
+  Expect<Equal<SelectType<Orders["history"]>, string | null>>,
   Expect<Equal<InsertType<Orders["history"]>, readonly OrderStatus[] | null>>,
   Expect<Equal<SelectType<Orders["amount"]>, string>>,
   Expect<Equal<SelectType<Orders["total"]>, string | null>>,
