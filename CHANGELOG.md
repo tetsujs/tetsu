@@ -32,6 +32,12 @@ or a check kept for that alone can go.
   Kysely's default `ignore query`, runs to its end again once it was sent,
   rather than Bun cancelling it on the server, which also failed the
   transaction it ran in and had Kysely print the cancel.
+- `@tetsujs/sql`: a transaction Kysely controls that is dropped without a
+  commit or a rollback hands its turn at the pool's connections back once
+  it is garbage-collected, when Bun 1.4.4 closes its connection. The turn
+  was lost until the pool was closed, and once every turn was lost, each
+  transaction, `db.connection()` and query with `cancel query` waited
+  forever.
 
 ## 0.6.5 — 2026-10-19
 

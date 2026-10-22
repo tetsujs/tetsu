@@ -862,6 +862,40 @@ describe("the pool", () => {
       await pooled.destroy();
     }
   });
+
+  test("hands back the turn of a transaction dropped without an end once it is garbage-collected, and runs nothing in it", async () => {
+    const pooled = kysely(1);
+
+    try {
+      await (async () => {
+        const trx = await pooled.startTransaction().execute();
+
+        await trx
+          .insertInto("notes")
+          .values({ id: 51, text: "lost" })
+          .execute();
+      })();
+
+      let begun = false;
+      const next = pooled
+        .transaction()
+        .execute(pidOf)
+        .finally(() => {
+          begun = true;
+        });
+
+      for (let rounds = 0; rounds < 100 && !begun; rounds += 1) {
+        Bun.gc(true);
+        await Bun.sleep(20);
+      }
+
+      expect(begun).toBe(true);
+      expect(await next).toEqual(expect.any(Number));
+      expect(await notes()).not.toContain(51);
+    } finally {
+      await pooled.destroy();
+    }
+  });
 });
 
 describe("a connection that dies", () => {

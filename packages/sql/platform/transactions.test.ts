@@ -3,9 +3,12 @@
  * package's driver for Kysely opens and ends with plain statements: they
  * run there, and a commit Postgres turns into a rollback says so only in
  * the command of its result. A connection that comes free goes to the
- * query or the reservation that has waited longest. Before Bun 1.4.4 a
- * reservation went first, which is why the driver lets reservations take
- * turns, until a release of the package drops them.
+ * query or the reservation that has waited longest, so that a query asked
+ * for after a reservation waits for it: why the driver lets reservations
+ * take turns at every connection but one. A reserved connection
+ * garbage-collected with a transaction open on it is closed, rather than
+ * handed on with the transaction: why the driver hands back the turn of a
+ * connection collected before its turn went back.
  *
  * @module
  */
@@ -104,7 +107,7 @@ test("rolling back to a savepoint undoes only what came after it", async () => {
   expect(await notes()).toEqual(expect.arrayContaining([3, 4]));
 });
 
-test("a connection that comes free goes to a query that waited longer before a waiting reservation", async () => {
+test("a connection that comes free goes to what waited longest, a query or a reservation", async () => {
   const pool = new SQL({ url, max: 1 });
   const done: string[] = [];
   const transaction = (name: string) =>
@@ -113,21 +116,69 @@ test("a connection that comes free goes to a query that waited longer before a w
       .then(() => {
         done.push(name);
       });
+  const query = (name: string) =>
+    pool`select 1`.then(() => {
+      done.push(name);
+    });
 
   try {
     const first = transaction("first transaction");
 
     await Bun.sleep(20);
 
-    const query = pool`select 1`.then(() => {
-      done.push("query");
-    });
+    const earlier = query("query");
 
     await Bun.sleep(20);
-    await Promise.all([first, query, transaction("later transaction")]);
+
+    const later = transaction("later transaction");
+
+    await Bun.sleep(20);
+    await Promise.all([first, earlier, later, query("later query")]);
   } finally {
     await pool.close();
   }
 
-  expect(done).toEqual(["first transaction", "query", "later transaction"]);
+  expect(done).toEqual([
+    "first transaction",
+    "query",
+    "later transaction",
+    "later query",
+  ]);
+});
+
+test("a reserved connection garbage-collected with a transaction open on it is closed, not handed on", async () => {
+  const pool = new SQL({ url, max: 1 });
+
+  try {
+    const pid = await (async () => {
+      const connection = await pool.reserve();
+
+      await connection.unsafe("begin");
+      await connection.unsafe("insert into notes values ($1, $2)", [5, "open"]);
+
+      const [row] = await connection.unsafe("select pg_backend_pid() as pid");
+
+      return row.pid;
+    })();
+    let answered = false;
+    const next = pool`
+      select pg_backend_pid() as pid,
+        (select count(*)::int from notes where id = 5) as seen`.finally(() => {
+      answered = true;
+    });
+
+    for (let rounds = 0; rounds < 100 && !answered; rounds += 1) {
+      Bun.gc(true);
+      await Bun.sleep(20);
+    }
+
+    const [row] = await next;
+
+    expect({ moved: row.pid !== pid, seen: row.seen }).toEqual({
+      moved: true,
+      seen: 0,
+    });
+  } finally {
+    await pool.close();
+  }
 });
