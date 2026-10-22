@@ -747,14 +747,10 @@ describe("starting a session", () => {
       await stub.stop();
     }
 
-    const md5 = (data: string | Buffer) =>
-      createHash("md5").update(data).digest("hex");
-
+    // md5(md5("secret" + "tetsu") in hex + the salt) in hex, after "md5".
     expect(sent).toEqual({
       type: "p",
-      body: Buffer.from(
-        `md5${md5(Buffer.concat([Buffer.from(md5("secrettetsu")), salt]))}\0`,
-      ),
+      body: Buffer.from("md517ce30eb801937aa2c609b37ccdf0f53\0"),
     });
   });
 
