@@ -15,6 +15,11 @@ and fail once Bun fixes it, so that the workaround goes with the bug.
 | Bun | the package | left to you |
 | --- | --- | --- |
 | reads an array of an enum, of a domain, of a composite type, of a range or a multirange of one's own or of an extension's type as its literal, such as `"{a,b}"` ([#41040](https://github.com/oven-sh/bun/issues/41040)) | types such a column `ArrayLiteral<E>`: read as that string, written as an array | parse the string where the elements are needed |
+| binds a JavaScript array to an array of an enum, of a domain, of a composite type, of a range or a multirange of one's own or of an extension's type as its elements joined by commas, which Postgres refuses | writes an array to a column of arrays, and to a parameter of a query file, as the literal Postgres reads | in raw SQL, cast the array to one of a built-in type first: `${moods}::text[]::mood[]` |
+| binds a JavaScript array to a `json[]` or a `jsonb[]` with `null` as JSON's `null`, and an array element as an array of more dimensions | writes the JSON of each element, and `null` as NULL | |
+| binds `-0` in a JavaScript array as `0` | writes it as `-0` | |
+| binds a `Date` of a year past 9999 or before 1 as `toISOString()` writes it, such as `+010000-01-01`, which a `date` and an array of dates or timestamps refuse | writes a `Date` as its ISO text, which a `date` reads of any year | |
+| binds an invalid `Date` as the text `Invalid Date`, which Postgres refuses | throws a `RangeError` before anything is sent | |
 | reads an `int4[]` or a `float4[]` as an `Int32Array` or a `Float32Array` when a query has parameters | reads it as an array | |
 | reads a `float4` with parameters as its 32-bit value, such as `1.100000023841858` for `1.1` | | store what is compared or shown as `float8` or `numeric` |
 | reads `'infinity'` and `'-infinity'` of a timestamp or a date as the numbers `Infinity` and `-Infinity` | says so in the generated types | check for a number where a column may hold them |

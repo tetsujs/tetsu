@@ -1,7 +1,7 @@
 /**
- * How a JavaScript value is written as Postgres text, where Bun cannot bind
- * the value itself: a `Date` as its ISO text, an array as the literal of a
- * Postgres array.
+ * How a JavaScript value is written as Postgres text, where Bun does not
+ * bind the value itself as Postgres reads it: a `Date` as its ISO text, an
+ * array as the literal of a Postgres array.
  *
  * @module
  */
@@ -9,23 +9,21 @@
 /**
  * The ISO text of a `Date`, which `timestamp`, `timestamptz` and `date`
  * all read: a `timestamptz` as the instant, a `timestamp` as its time in
- * UTC, a `date` as its day in UTC. Bun binds a `Date` as such text for the
- * first two, and as `Date#toString()` for a `date`, which Postgres refuses
- * (oven-sh/bun#29010).
+ * UTC, a `date` as its day in UTC. Bun binds a `Date` so too, but for a
+ * year past 9999 or before 1, which it writes as `toISOString()` does, and
+ * which a `date`, and an array of any of the three, refuse.
  *
  * A year past 9999 is written as its digits, which `toISOString()` writes
  * as `+010000`, and a year before 1 as the year Before Christ it is, which
  * Postgres counts from 1 BC, the year 0 of the ISO calendar: `-000043` is
  * `0044 … BC`.
  *
- * @throws {RangeError} when the `Date` is invalid: Bun would bind it as the
- * epoch.
+ * @throws {RangeError} when the `Date` is invalid, before anything is sent:
+ * Bun would send it as the text `Invalid Date`, which Postgres refuses.
  */
 export function isoOf(date: Date): string {
   if (Number.isNaN(date.getTime())) {
-    throw new RangeError(
-      "an invalid Date cannot be written: it holds no time, and Bun would store the epoch",
-    );
+    throw new RangeError("an invalid Date cannot be written: it holds no time");
   }
 
   const iso = date.toISOString();

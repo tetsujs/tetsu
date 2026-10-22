@@ -68,10 +68,10 @@ export async function queryCount(
 
 /**
  * A query with its values: each parameter's, by its name; an array to a
- * parameter of arrays as the literal Postgres reads, which Bun cannot
- * bind; and a number that is not whole as its text, which Postgres reads
- * as the parameter's type, so that an integer one refuses it rather than
- * round the `float8` Bun would bind.
+ * parameter of arrays as the literal Postgres reads, as `database()`
+ * writes one to a column of arrays; and a number that is not whole as its
+ * text, which Postgres reads as the parameter's type, so that an integer
+ * one refuses it rather than round the `float8` Bun would bind.
  */
 function compiled<Row>(query: FileQuery, params: object): CompiledQuery<Row> {
   return CompiledQuery.raw(

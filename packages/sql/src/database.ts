@@ -50,14 +50,16 @@ export interface DatabaseOptions
  * with parameters and without, a `Date` is written to any timestamp and to
  * a `date`, a number that is not whole, written to an integer column by an
  * insert, an upsert, a merge or a `set`, is refused rather than rounded,
- * and a JavaScript array to a column of arrays, as Bun could not bind one
- * before 1.4.4: an array of arrays as one of more dimensions, as Bun reads
- * one, and an array of json as the JSON of its elements. An array goes in
- * as the literal Postgres reads where a query says it goes to such a
- * column: a value of an insert, an upsert or a merge, a `set`, a value
- * compared with such a column of the same query, and the argument of
- * `any()` or `all()`. In raw SQL, or as the argument of another function,
- * it is bound as Bun binds it, which a cast to an array type reads.
+ * and a JavaScript array to a column of arrays of any type, where Bun binds
+ * one only of a type it knows: an array of arrays as one of more
+ * dimensions, as Bun reads one, and an array of json as the JSON of its
+ * elements. An array goes in as the literal Postgres reads where a query
+ * says it goes to such a column: a value of an insert, an upsert or a
+ * merge, a `set`, a value compared with such a column of the same query,
+ * and the argument of `any()` or `all()`. In raw SQL, or as the argument
+ * of another function, it is bound as Bun binds it, which a cast to an
+ * array of a built-in type reads, such as `::text[]`, and a second cast
+ * takes on to an enum's: `::text[]::mood[]`.
  *
  * A `float4` Bun reads with parameters stays as it reads it: its 32-bit
  * value, such as `1.100000023841858` for `1.1`.

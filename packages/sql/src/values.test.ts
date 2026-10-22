@@ -32,11 +32,9 @@ describe("a Date", () => {
     expect(isoOf(caesar)).toBe("0044-03-15T12:00:00.000Z BC");
   });
 
-  test("that is invalid is refused, as Bun would store the epoch", () => {
+  test("that is invalid is refused before it is sent", () => {
     expect(() => isoOf(new Date(Number.NaN))).toThrow(
-      new RangeError(
-        "an invalid Date cannot be written: it holds no time, and Bun would store the epoch",
-      ),
+      new RangeError("an invalid Date cannot be written: it holds no time"),
     );
   });
 });

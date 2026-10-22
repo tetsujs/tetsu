@@ -13,7 +13,8 @@
  *
  * Values go through as Bun binds and reads them, but for three, which it
  * makes what the generated types say. A `Date` is bound as its ISO text,
- * which a `date` reads as well as a timestamp. An `Int32Array` or a
+ * which a `date` reads of any year as well as a timestamp, and an invalid
+ * one is refused before it is sent. An `Int32Array` or a
  * `Float32Array`, which Bun reads an `int4[]` or a `float4[]` as when a
  * query has parameters, is read as an array, as it is without them. And a
  * commit that Postgres turns into a rollback, as it does when a query of
@@ -518,7 +519,12 @@ function lastOf(result: Result): Result {
     : result;
 }
 
-/** A parameter as Bun binds it right: a `Date` as its ISO text. */
+/**
+ * A parameter as Postgres reads it: a `Date` as its ISO text, which Bun
+ * gets wrong for a `date` of a year past 9999 or before 1.
+ *
+ * @throws {RangeError} when it is an invalid `Date`.
+ */
 function bindable(value: unknown): unknown {
   return value instanceof Date ? isoOf(value) : value;
 }
