@@ -34,6 +34,7 @@ and fail once Bun fixes it, so that the workaround goes with the bug.
 | has no cursor | `stream()` throws, saying so | read a long result in pages, by key |
 | cannot describe a query without running it ([#45277](https://github.com/oven-sh/bun/issues/45277)) | describes query files over a connection of its own, by host and port, with TLS as `sslmode` says | give `types:generate` a URL with a host and a port, not a [unix socket](/docs/database/deploy/#a-unix-socket), and an authority of your own in [`NODE_EXTRA_CA_CERTS`](/docs/database/deploy/#tls) |
 | hands a connection that comes free to a waiting reservation before any other query, so reservations beyond the pool's size hold every query up ([#45275](https://github.com/oven-sh/bun/issues/45275)) | lets reservations take turns at one fewer connection than `max` | |
+| from 1.4.4, has `query.cancel()` cancel a query already sent on the server, where Kysely's default `ignore query` lets one run to its end | cancels on abort only a query Bun has not sent yet, and leaves the server's cancel to `cancel query` | |
 | may wait forever to close a connection the server ended | supports `cancel query`, not `kill session` | |
 | gives `error.column` as a number when Postgres names no column, as for a broken constraint ([#45064](https://github.com/oven-sh/bun/issues/45064)) | reads the constraint's name, in `isViolation()` | read `constraint` for a broken constraint |
 

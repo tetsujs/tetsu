@@ -331,7 +331,8 @@ depends on where it was:
   may still be made. Make a write one that can run twice, with a key of its
   own, before trying it again.
 - **Sent, with the default `ignore query`,** it runs to its end on the
-  server, and its answer is dropped.
+  server, and its answer is dropped: a write is made, and a transaction it
+  runs in goes on.
 - **Sent, with `cancel query`,** a connection of the database's own sends
   Postgres the cancel for its backend: Postgres stops it, and inside a
   transaction the transaction then fails to commit. Kysely prints the

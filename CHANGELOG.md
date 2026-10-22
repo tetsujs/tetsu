@@ -3,6 +3,15 @@
 All packages share one version. Until `1.0`, a minor version may change the
 API.
 
+## Unreleased
+
+### Fixed
+
+- `@tetsujs/sql`: on Bun 1.4.4, a query given up by its signal, with
+  Kysely's default `ignore query`, runs to its end again once it was sent,
+  rather than Bun cancelling it on the server, which also failed the
+  transaction it ran in and had Kysely print the cancel.
+
 ## 0.6.5 — 2026-10-19
 
 ### Added

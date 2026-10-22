@@ -547,6 +547,48 @@ describe("a query given up by its signal", () => {
   );
 
   test(
+    "while it runs, as a write, goes on to its end and is kept, inside a transaction too",
+    async () => {
+      const printed = spyOn(console, "error");
+
+      try {
+        const controller = new AbortController();
+        const reason = new Error("gave up");
+        const alone = refusal(
+          raw`insert into notes select 80, 'tetsu_sql_ignore_alone' from pg_sleep(0.5)`.execute(
+            db,
+            { signal: controller.signal },
+          ),
+        );
+
+        await db.transaction().execute(async (trx) => {
+          const inside = refusal(
+            raw`insert into notes select 81, 'tetsu_sql_ignore_inside' from pg_sleep(0.5)`.execute(
+              trx,
+              { signal: controller.signal },
+            ),
+          );
+
+          expect(await runs("tetsu_sql_ignore_alone")).toBe(true);
+          expect(await runs("tetsu_sql_ignore_inside")).toBe(true);
+
+          controller.abort(reason);
+
+          expect(await inside).toBe(reason);
+        });
+
+        expect(await alone).toBe(reason);
+        expect(await runs("tetsu_sql_ignore_alone", false)).toBe(false);
+        expect(await notes()).toEqual(expect.arrayContaining([80, 81]));
+        expect(printed).not.toHaveBeenCalled();
+      } finally {
+        printed.mockRestore();
+      }
+    },
+    DATABASE_MS,
+  );
+
+  test(
     "while it runs is cancelled on the server, with the cancel strategy",
     async () => {
       const controller = new AbortController();
