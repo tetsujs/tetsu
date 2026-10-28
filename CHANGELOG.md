@@ -17,15 +17,6 @@ API.
   composite type, of a range of one's own or of an extension's type is
   still read as its literal.
 
-### Moving from 0.6
-
-Run Bun 1.4.4 or later, and run `tetsu-sql types:generate` again: until
-then `types:generate --check` fails, for the tables and for the rows of
-query files. Code that parsed the literal of one of these arrays reads the
-array as it comes instead. An `int4[]` or a `float4[]` that holds a NULL,
-or has more dimensions, now reads with parameters too, so a `::text` cast
-or a check kept for that alone can go.
-
 ### Fixed
 
 - `@tetsujs/sql`: on Bun 1.4.4, a query given up by its signal, with
@@ -38,6 +29,15 @@ or a check kept for that alone can go.
   was lost until the pool was closed, and once every turn was lost, each
   transaction, `db.connection()` and query with `cancel query` waited
   forever.
+
+### Moving from 0.6
+
+Run Bun 1.4.4 or later, and run `tetsu-sql types:generate` again: until
+then `types:generate --check` fails, for the tables and for the rows of
+query files. Code that parsed the literal of one of these arrays reads the
+array as it comes instead. An `int4[]` or a `float4[]` that holds a NULL,
+or has more dimensions, now reads with parameters too, so a `::text` cast
+or a check kept for that alone can go.
 
 ## 0.6.5 — 2026-10-19
 

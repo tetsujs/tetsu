@@ -48,8 +48,10 @@ the failure, and the transaction goes on.
 A transaction Kysely controls, from `db.startTransaction()`, holds its
 connection until it is committed or rolled back, or, dropped without
 either, until it is garbage-collected: Bun then closes the connection,
-which rolls the transaction back. One whose commit failed still holds it,
-so roll back in the `catch`:
+which rolls the transaction back. That can take a second or more, and
+until then the transaction keeps its locks, so end every transaction you
+start. One whose commit failed still holds it, so roll back in the
+`catch`:
 
 ```ts twoslash
 // @filename: src/db.generated.ts
