@@ -21,6 +21,7 @@ import type {
   Failure,
   Jsonify,
   Raw,
+  ReceivedEvent,
   ServerErrorStatus,
   Success,
   SuccessStatus,
@@ -784,6 +785,27 @@ interface Contract {
     readonly request: Record<never, never>;
     readonly responses: { readonly 200: Raw<"text/csv"> };
   };
+  readonly "GET /feed": {
+    readonly request: Record<never, never>;
+    readonly responses: {
+      readonly 200: Raw<"text/event-stream">;
+      readonly 404: ErrorBody;
+    };
+  };
+  readonly "GET /streaming": {
+    readonly request: Record<never, never>;
+    readonly responses: { readonly 200: Raw<"text/event-streaming"> };
+  };
+  readonly "GET /anything": {
+    readonly request: Record<never, never>;
+    readonly responses: { readonly 200: Raw<string> };
+  };
+  readonly "GET /cased": {
+    readonly request: Record<never, never>;
+    readonly responses: {
+      readonly "2XX": Raw<"Text/Event-Stream; charset=utf-8">;
+    };
+  };
 }
 
 export async function contract() {
@@ -798,6 +820,39 @@ export async function contract() {
 
   if (exported.ok) {
     check<Equal<typeof exported.data, undefined>>();
+
+    // @ts-expect-error: a CSV is no event stream
+    exported.events;
+  }
+
+  const feed = await client.get("/feed");
+
+  if (feed.ok) {
+    check<Equal<typeof feed.data, undefined>>();
+    check<Equal<typeof feed.events, AsyncIterable<ReceivedEvent>>>();
+  } else {
+    // @ts-expect-error: a failure has no events
+    feed.events;
+  }
+
+  const streaming = await client.get("/streaming");
+
+  if (streaming.ok) {
+    // @ts-expect-error: another type that starts the same is no event stream
+    streaming.events;
+  }
+
+  const anything = await client.get("/anything");
+
+  if (anything.ok) {
+    // @ts-expect-error: a type not known may be anything
+    anything.events;
+  }
+
+  const cased = await client.get("/cased");
+
+  if (cased.ok) {
+    check<Equal<typeof cased.events, AsyncIterable<ReceivedEvent>>>();
   }
 
   check<Equal<typeof client, Client<Contract, ClientTypes>>>();

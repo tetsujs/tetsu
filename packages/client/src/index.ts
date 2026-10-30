@@ -36,6 +36,7 @@
  * @module
  */
 
+import { events } from "./events.ts";
 import type { ContractOf, Source, Untyped } from "./routes.ts";
 import type {
   CallArgs,
@@ -70,6 +71,7 @@ export type {
   Method,
   PathsOf,
   Raw,
+  ReceivedEvent,
   Result,
   RouteAt,
   RouteContract,
@@ -290,11 +292,20 @@ export function createClient<
         ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
       });
 
-      const payload = await read(response);
+      const type = media(response);
+      const payload = await read(response, type);
 
-      return response.ok
-        ? { ok: true, status: response.status, data: payload, response }
-        : { ok: false, status: response.status, error: payload, response };
+      if (!response.ok) {
+        return { ok: false, status: response.status, error: payload, response };
+      }
+
+      return {
+        ok: true,
+        status: response.status,
+        data: payload,
+        response,
+        ...(type === "text/event-stream" ? { events: events(response) } : {}),
+      };
     };
 
   const client = {
@@ -513,16 +524,21 @@ function encode(call: Options): {
   return { body: JSON.stringify(body), contentType: "application/json" };
 }
 
-/**
- * The body of a response, parsed when its type is JSON — `application/json`
- * or a `+json` type such as `application/problem+json`. Any other body is
- * left unread on the response; an empty one is `undefined`.
- */
-async function read(response: Response): Promise<unknown> {
+/** The media type of a response, in lower case and without parameters. */
+function media(response: Response): string {
   const type = response.headers.get("content-type")?.split(";")[0];
-  const media = type?.trim().toLowerCase() ?? "";
 
-  if (media !== "application/json" && !media.endsWith("+json")) {
+  return type?.trim().toLowerCase() ?? "";
+}
+
+/**
+ * The body of a response of media type `type`, parsed when it is JSON —
+ * `application/json` or a `+json` type such as `application/problem+json`.
+ * Any other body is left unread on the response; an empty one is
+ * `undefined`.
+ */
+async function read(response: Response, type: string): Promise<unknown> {
+  if (type !== "application/json" && !type.endsWith("+json")) {
     return undefined;
   }
 
