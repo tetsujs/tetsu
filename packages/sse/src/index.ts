@@ -47,7 +47,10 @@ export { stream } from "./stream.ts";
  * of event under different names, so one type parameter would be wrong for
  * all but the simplest feed — and nothing on the server consumes the
  * payload's type anyway: it leaves as JSON. A feed that is uniform can say
- * so where it is written, by typing its own generator.
+ * so where it is written, by typing its own generator. A client learns it
+ * from the route: the `body` of a `text/event-stream` entry of the
+ * response map is the `data` of one event, which `@tetsujs/client` types
+ * its events by.
  */
 export interface ServerSentEvent {
   /**

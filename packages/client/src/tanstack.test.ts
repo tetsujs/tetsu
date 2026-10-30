@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { hashKey, MutationObserver, QueryClient } from "@tanstack/query-core";
 import { createApp, httpError, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
-import type { AnyHeaders, Fetch } from "./index.ts";
+import type { AnyHeaders, Fetch, Raw } from "./index.ts";
 import { ClientError, createClient } from "./index.ts";
 import { queryUtils } from "./tanstack.ts";
 
@@ -48,6 +48,14 @@ interface Api {
       readonly 201: User;
       readonly 409: { status: 409; error: "NAME_TAKEN"; message: string };
     };
+  };
+  readonly "GET /feed": {
+    readonly request: { readonly headers?: AnyHeaders };
+    readonly responses: { readonly 200: Raw<"text/event-stream"> };
+  };
+  readonly "POST /feed": {
+    readonly request: { readonly headers?: AnyHeaders };
+    readonly responses: { readonly 200: Raw<"text/event-stream"> };
   };
   readonly "DELETE /users/:id": {
     readonly request: {
@@ -110,7 +118,54 @@ class UsersController {
   });
 }
 
-const request = serve(createApp({ routes: new UsersController() }));
+/** Resolves when the client cancels the body of the stream it was sent. */
+let cancelled: () => void = () => {};
+
+/** A stream that sends one event and waits, until the client cancels it. */
+function feed(): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data: 1\n\n"));
+    },
+    cancel: () => cancelled(),
+  });
+
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+const left = (): Promise<void> =>
+  new Promise((resolve) => {
+    cancelled = resolve;
+  });
+
+class FeedController {
+  read = route({ method: "GET", path: "/feed", handler: feed });
+  run = route({ method: "POST", path: "/feed", handler: feed });
+}
+
+const request = serve(
+  createApp({ routes: [new UsersController(), new FeedController()] }),
+);
+
+/** The responses of the stream's calls, held so that no collection closes them. */
+const held: Response[] = [];
+
+const keep: Fetch = async (url, init) => {
+  const response = await fetch(url, init);
+
+  held.push(response);
+
+  return response;
+};
+
+const streams = queryUtils(
+  createClient<Api>({ baseUrl: request.url, fetch: keep }),
+);
+
+const STREAMED =
+  "A text/event-stream has no data to unwrap: read res.events (https://tetsujs.com/docs/packages/client/#streams)";
 
 const q = queryUtils(createClient<Api>({ baseUrl: request.url }));
 
@@ -343,6 +398,35 @@ describe("queries", () => {
     await pending;
 
     expect(signals[0]?.aborted).toBe(true);
+  });
+});
+
+describe("a stream", () => {
+  test("fails a query with an error that points at res.events, and closes the stream", async () => {
+    const client = new QueryClient();
+    const closed = left();
+    const error = await client
+      .fetchQuery({ ...streams.get("/feed").queryOptions(), retry: false })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error).toHaveProperty("message", STREAMED);
+    await closed;
+  });
+
+  test("fails a mutation the same way", async () => {
+    const client = new QueryClient();
+    const closed = left();
+    const observer = new MutationObserver(
+      client,
+      streams.post("/feed").mutationOptions(),
+    );
+
+    const error = await observer.mutate().catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error).toHaveProperty("message", STREAMED);
+    await closed;
   });
 });
 

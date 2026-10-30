@@ -141,6 +141,93 @@ export const queryClient = new QueryClient({
 });
 ```
 
+### A stream
+
+A query of a stream is TanStack Query's `streamedQuery`, fed by the call's
+[`events`](/docs/packages/client/#streams). The options of
+`queryUtils` read one body and are done, so on a stream they fail the
+query with a `TypeError` rather than leave the connection open. TanStack
+Query retries that error like any other, so it shows after the retries.
+
+```ts twoslash
+// @filename: app.ts
+import { createApp, route } from "@tetsujs/core";
+import { sse } from "@tetsujs/sse";
+import { z } from "zod";
+const Step = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), delta: z.string() }),
+  z.object({ type: z.literal("done") }),
+]);
+export const app = createApp({
+  routes: [
+    route({
+      method: "POST",
+      path: "/agents/:name/stream",
+      schema: {
+        body: z.object({ input: z.string() }),
+        response: { 200: { contentType: "text/event-stream", body: Step } },
+      },
+      handler: (ctx) =>
+        sse(ctx, async function* () {
+          yield { data: { type: "done" } };
+        }),
+    }),
+  ],
+});
+// @filename: api.contract.d.ts
+import type { ContractOf } from "@tetsujs/client";
+import type { app } from "./app";
+export interface Api extends ContractOf<typeof app> {}
+// @filename: api.ts
+import { createClient } from "@tetsujs/client";
+import type { Api } from "./api.contract";
+export const api = createClient<Api>();
+// @filename: hooks.ts
+// ---cut---
+import {
+  experimental_streamedQuery as streamedQuery,
+  queryOptions,
+  useQuery,
+} from "@tanstack/react-query";
+import { ClientError } from "@tetsujs/client";
+import { api } from "./api";
+
+const reply = (input: string) =>
+  queryOptions({
+    queryKey: ["reply", input],
+    queryFn: streamedQuery({
+      streamFn: async function* ({ signal }) {
+        const res = await api.post("/agents/:name/stream", {
+          params: { name: "chat" },
+          body: { input },
+          init: { signal },
+        });
+
+        if (!res.ok) throw new ClientError(res);
+
+        for await (const event of res.events) {
+          if (event.data.type === "delta") yield event.data.delta;
+        }
+      },
+      reducer: (text, delta) => text + delta,
+      initialValue: "",
+    }),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+
+const { data } = useQuery(reply("Hello"));
+//      ^?
+```
+
+The query shows the text as it grows, and stays fetching until the stream
+ends. Its signal goes to the call, so a query that is cancelled or loses
+its last observer closes the stream. A stream that starts work on the
+server should not start it again by itself: `staleTime` keeps the query
+from refetching when the window regains focus or a component mounts, and
+`retry: false` from running the agent again after a failure.
+`streamedQuery` is still experimental in TanStack Query.
+
 ## Next.js
 
 On the server, a component renders for a request whose cookies the client

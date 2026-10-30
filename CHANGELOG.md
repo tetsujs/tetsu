@@ -9,12 +9,30 @@ API.
 
 - `@tetsujs/client`: a success that comes as `text/event-stream` has
   `events`, which a `for await` reads as the server sends them. It works
-  for any call, a `POST` with a body and headers too. Each event is `{ data, text, event?,
-  id?, retry? }`: `text` is its data as it came, `data` that text parsed
-  as JSON, or `undefined` when it is not JSON. Leaving the loop closes the
-  connection, and the call's signal aborts it. The type of `data` is
-  `unknown` for now
+  for any call, a `POST` with a body and headers too. Each event is
+  `{ data, text, event?, id?, retry? }`: `text` is its data as it came,
+  `data` that text parsed as JSON, or `undefined` when it is not JSON.
+  Leaving the loop closes the connection, and the call's signal aborts it.
+  The route's entry `{ contentType: "text/event-stream", body }` types
+  `data`: `body` is the data of one event, and `data` is `unknown` without
+  one, or for one that may be a string. A route that declares no response
+  has `events` as optional. A contract generated for a stream with a
+  `body` writes `Raw<"text/event-stream", Data>`: `--check` asks for the
+  contract to be generated again, and the client of 0.7.0 does not compile
+  it, or, under `skipLibCheck`, reads the route as `any`. Update the
+  client with the contract
   ([#111](https://github.com/tetsujs/tetsu/issues/111)).
+
+### Changed
+
+- `@tetsujs/client`: `unwrap()` of a `text/event-stream` throws a
+  `TypeError` that points at `res.events`, and closes the stream, where it
+  returned `undefined` and left the connection open. So do the
+  `queryOptions()` and `mutationOptions()` of `@tetsujs/client/tanstack`;
+  the [typed client guide](https://tetsujs.com/docs/guides/typed-client/#a-stream)
+  shows a stream in TanStack Query with `streamedQuery`. Code that
+  unwrapped a stream to check for a failure checks `res.ok` and reads
+  `res.events` instead.
 
 ## 0.7.0 — 2026-10-28
 

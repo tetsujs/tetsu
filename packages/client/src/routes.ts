@@ -158,7 +158,8 @@ type Body<S, B> = B extends "form"
 /**
  * The body of one status of a response map, as the client receives it:
  * JSON as `JSON.parse` returns it, nothing for `null`, a {@link Raw} for a
- * type of its own.
+ * type of its own — with the type of an event's `data`, for a
+ * `text/event-stream`.
  */
 type Status<E> = E extends null
   ? undefined
@@ -167,8 +168,23 @@ type Status<E> = E extends null
     : E extends { readonly contentType: infer C extends string }
       ? Lowercase<C> extends "application/json" | `${string}+json`
         ? Entry<E>
-        : Raw<C>
+        : Lowercase<C> extends "text/event-stream"
+          ? Raw<C, Event<E>>
+          : Raw<C>
       : Entry<E>;
+
+/**
+ * The `data` of one event of a stream whose `body` is `E`'s, as JSON
+ * brings it back: `unknown` without one, or for one that may be text,
+ * which `sse()` sends as it is rather than as JSON.
+ */
+type Event<E> = E extends { readonly body: infer X }
+  ? X extends { readonly "~standard": unknown }
+    ? [Extract<OutputOf<X>, string>] extends [never]
+      ? Jsonify<OutputOf<X>>
+      : unknown
+    : unknown
+  : unknown;
 
 type Entry<E> = E extends { readonly body: infer X }
   ? X extends { readonly "~standard": unknown }

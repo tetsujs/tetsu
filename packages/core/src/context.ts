@@ -508,6 +508,11 @@ export interface ResponseEntry {
    * known in advance. `body`, when there is one, describes the content
    * under this type, and the generated document says both.
    *
+   * For a `"text/event-stream"`, `body` is the `data` of one event, not
+   * the stream: what `@tetsujs/client` types each event's `data` by. The
+   * generated document gives it as the schema of the stream, as OpenAPI
+   * 3.1 cannot describe the events one by one.
+   *
    * The framework sends a value a handler returns as JSON, always, so
    * such a status is answered with a `Response` the handler builds —
    * `sse()`, `stream()`, a file. A value returned for it is refused with a

@@ -49,6 +49,15 @@ const NotFound = z.object({
 
 const Problem = z.object({ title: z.string(), detail: z.string().optional() });
 
+const Step = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), delta: z.string(), at: z.date() }),
+  z.object({ type: z.literal("done") }),
+]);
+
+/** What a handler of an event stream answers with, as `sse()` would. */
+const streamed = () =>
+  new Response("", { headers: { "content-type": "text/event-stream" } });
+
 const Shape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("circle"), radius: z.number() }),
   z.object({ kind: z.literal("square"), side: z.number() }),
@@ -184,6 +193,35 @@ export const app = createApp({
       },
       handler: () =>
         new Response("a,b", { headers: { "content-type": "text/csv" } }),
+    }),
+    route({
+      method: "POST",
+      path: "/agents/:name/stream",
+      schema: {
+        body: z.object({ input: z.string() }),
+        headers: z.object({ authorization: z.string() }),
+        response: {
+          200: { contentType: "text/event-stream", body: Step },
+          404: NotFound,
+        },
+      },
+      handler: streamed,
+    }),
+    route({
+      method: "GET",
+      path: "/tokens",
+      schema: {
+        response: {
+          200: { contentType: "text/event-stream", body: z.string() },
+        },
+      },
+      handler: streamed,
+    }),
+    route({
+      method: "GET",
+      path: "/ticks",
+      schema: { response: { 200: { contentType: "text/event-stream" } } },
+      handler: streamed,
     }),
     route({
       method: "GET",

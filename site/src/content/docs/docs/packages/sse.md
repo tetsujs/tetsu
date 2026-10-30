@@ -261,24 +261,35 @@ sends `x-accel-buffering: no` in `headers`, as `sse()` does on its own.
 Without a response map, the [generated document](/docs/packages/openapi/)
 says only that the route answers `200`, and nothing of what it sends.
 Name the stream's type in the map, and the same for `stream()`, with its
-own type:
+own type. `body` is the `data` of one event:
 
 ```ts twoslash
 import { route } from "@tetsujs/core";
 import { sse } from "@tetsujs/sse";
+import { z } from "zod";
 
-declare function feed(signal: AbortSignal): AsyncGenerator<{ data: string }>;
+const Price = z.object({ symbol: z.string(), price: z.number() });
+
+declare function feed(
+  signal: AbortSignal,
+): AsyncGenerator<{ data: z.infer<typeof Price> }>;
 // ---cut---
 const live = route({
   method: "GET",
   path: "/feed",
-  schema: { response: { 200: { contentType: "text/event-stream" } } },
+  schema: {
+    response: { 200: { contentType: "text/event-stream", body: Price } },
+  },
   handler: (ctx) => sse(ctx, feed),
 });
 ```
 
-OpenAPI 3.1 cannot describe the events one by one, so the stream is
-documented by its type alone.
+The [client](/docs/packages/client/#streams) types each event's `data` by
+`body`. The document gives it as the schema of the stream: OpenAPI 3.1
+cannot describe the events one by one, and a tool that reads it to the
+letter takes it for the schema of the whole body. Nothing checks that the
+generator yields what `body` says: it is documentation, as any `Response`
+a handler builds.
 
 ## Options
 

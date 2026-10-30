@@ -105,9 +105,14 @@ export type ErrorStatus = ClientErrorStatus | ServerErrorStatus;
  * A response whose body is not JSON — a CSV, a file, an event stream. Its
  * result has no `data`: the body is read from `response`, or, for a
  * `text/event-stream`, from the result's `events`.
+ *
+ * `Event` is the `data` of one event of a `text/event-stream`, as
+ * {@link ReceivedEvent} has it: `unknown` where the route does not say,
+ * or says it may be text.
  */
-export interface Raw<Type extends string = string> {
+export interface Raw<Type extends string = string, Event = unknown> {
   readonly "~raw": Type;
+  readonly "~event"?: Event;
 }
 
 /**
@@ -268,10 +273,11 @@ type Body<D> = D extends Raw ? undefined : D;
 
 /**
  * What a success of body `D` has besides: the events of a stream —
- * `text/event-stream`, in any case and with any parameters.
+ * `text/event-stream`, in any case and with any parameters — and maybe of
+ * one, for a body the route does not declare.
  */
 type Streamed<D> =
-  D extends Raw<infer T>
+  D extends Raw<infer T, infer V>
     ? Lowercase<T> extends "text/event-stream" | `text/event-stream;${string}`
       ? {
           /**
@@ -280,10 +286,21 @@ type Streamed<D> =
            * it; a stream that is never read stays open until the signal
            * aborts it or `response.body` is cancelled. Read once.
            */
-          readonly events: AsyncIterable<ReceivedEvent>;
+          readonly events: AsyncIterable<ReceivedEvent<V>>;
         }
       : unknown
-    : unknown;
+    : unknown extends D
+      ? {
+          /**
+           * The events of the stream, there when the response is a
+           * `text/event-stream`: the route does not say what it answers.
+           * Read as they are iterated, and once; a stream that is never
+           * read stays open until the call's signal aborts it or
+           * `response.body` is cancelled.
+           */
+          readonly events?: AsyncIterable<ReceivedEvent>;
+        }
+      : unknown;
 
 type Declared<X> = {
   [S in keyof X]: S extends number

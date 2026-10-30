@@ -206,6 +206,53 @@ export interface Api {
       readonly 200: Raw<"text/csv">;
     };
   };
+  readonly "POST /agents/:name/stream": {
+    readonly request: {
+      readonly params: {
+        readonly name: string | number;
+      };
+      readonly headers: {
+        authorization: string;
+      } & AnyHeaders;
+      readonly body: {
+        input: string;
+      };
+    };
+    readonly responses: {
+      readonly 200: Raw<
+        "text/event-stream",
+        | {
+            type: "delta";
+            delta: string;
+            at: string;
+          }
+        | {
+            type: "done";
+          }
+      >;
+      readonly 404: {
+        status: 404;
+        error: "USER_NOT_FOUND";
+        message: string;
+      };
+    };
+  };
+  readonly "GET /tokens": {
+    readonly request: {
+      readonly headers?: AnyHeaders | undefined;
+    };
+    readonly responses: {
+      readonly 200: Raw<"text/event-stream">;
+    };
+  };
+  readonly "GET /ticks": {
+    readonly request: {
+      readonly headers?: AnyHeaders | undefined;
+    };
+    readonly responses: {
+      readonly 200: Raw<"text/event-stream">;
+    };
+  };
   readonly "GET /pages/:page": {
     readonly request: {
       readonly params: {
