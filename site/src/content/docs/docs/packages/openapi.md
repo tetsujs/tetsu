@@ -116,9 +116,9 @@ Responses follow the route's response map (see
   instead of `application/json`, with `body` as its schema, or by the type
   alone without one: a CSV export, a file, `"text/event-stream"` for
   [`sse()`](/docs/packages/sse/#in-the-openapi-document). See
-  [Responses](/docs/concepts/responses/#a-body-that-is-not-json). OpenAPI
-  3.1 cannot describe the events of a stream one by one, so a stream is
-  documented by its type alone.
+  [Responses](/docs/concepts/responses/#a-body-that-is-not-json). For a
+  stream, `body` is the `data` of one event, written as the schema of the
+  stream: OpenAPI 3.1 cannot describe the events one by one.
 - When several sources answer with one status, the JSON body is one flat
   `anyOf`, the route's own schema first. A body of another type is listed
   next to it under its own media type.

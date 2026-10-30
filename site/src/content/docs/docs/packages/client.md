@@ -140,6 +140,93 @@ const id = 1;
 const user = unwrap(await api.get("/users/:id", { params: { id } }));
 ```
 
+## Streams
+
+A success that comes with `content-type: text/event-stream` has
+`events`: the events of the stream, read as the loop asks for them. The
+route's `body` declares the `data` of one event:
+
+```ts twoslash
+// @filename: app.ts
+import { createApp, httpError, route } from "@tetsujs/core";
+import { sse } from "@tetsujs/sse";
+import { z } from "zod";
+const Step = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), delta: z.string() }),
+  z.object({ type: z.literal("done") }),
+]);
+const AgentNotFound = z.object({ status: z.literal(404), message: z.string(), error: z.literal("AGENT_NOT_FOUND") });
+export const app = createApp({
+  routes: [
+    route({
+      method: "POST",
+      path: "/agents/:name/stream",
+      schema: {
+        body: z.object({ input: z.string() }),
+        response: { 200: { contentType: "text/event-stream", body: Step }, 404: AgentNotFound },
+      },
+      handler: (ctx) => {
+        if (ctx.params.name !== "chat") throw httpError(404, "AGENT_NOT_FOUND");
+        return sse(ctx, async function* () {
+          yield { data: { type: "delta", delta: "Hi" } };
+          yield { data: { type: "done" } };
+        });
+      },
+    }),
+  ],
+});
+// @filename: client.ts
+import { createClient } from "@tetsujs/client";
+import type { app } from "./app";
+const api = createClient<typeof app>();
+// ---cut---
+const res = await api.post("/agents/:name/stream", {
+  params: { name: "chat" },
+  body: { input: "Hello" },
+});
+
+if (res.ok) {
+  for await (const event of res.events) {
+    if (event.data.type === "delta") {
+      console.log(event.data.delta);
+    }
+  }
+}
+```
+
+An event is `{ data, text, event?, id?, retry? }`. `text` is the data as it
+came; `data` is that text parsed as JSON, and `undefined` when it is not
+JSON. `sse()` sends a string as it is and anything else as JSON, so a
+`body` that may be a string, such as `z.string()`, types `data` as
+`unknown`, as no `body` does. A stream of text reads `text`: a token such
+as `" 42"` would be the number `42` as `data`. `event` is the name the
+server gave the event, there only when it gave one; `id` and `retry` are
+the event's own. An `id` or a `retry` sent without `data` is no event, and
+is lost.
+
+A failure that comes before the stream, such as the `404` above, is an
+ordinary failure without `events`. On a route that declares no response,
+`events` is optional: there when the response is a stream.
+
+The body is one stream, read once, and the connection stays open while it
+is:
+
+- Leaving the loop, by `break`, `return` or a throw, closes it.
+- A stream that is never read keeps it open: read it, or abort the call.
+  `unwrap()` throws a `TypeError` for a stream, and closes it.
+- The call's `init.signal` closes it from outside, for a timeout or when
+  the user leaves. The loop then throws the signal's reason: an
+  `AbortError` for `abort()`, a `TimeoutError` for `AbortSignal.timeout()`.
+- A network failure throws. A connection that dies without closing is not
+  noticed: the loop waits until the signal aborts it.
+- A handler that fails mid-stream ends it like a stream that is done.
+  Send an event that says so, such as `done` or `error`, and check for it.
+
+There is no reconnecting: to resume, send `last-event-id` in the call's
+`headers` with the last `id` read. For a `GET` without headers,
+`new EventSource(api.url(path))` reconnects by itself, untyped. For
+TanStack Query, see [the recipe](/docs/guides/typed-client/#a-stream).
+
 ## Options
 
 | Option | Default | |

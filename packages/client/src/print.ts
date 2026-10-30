@@ -13,7 +13,9 @@
  *   the statuses as numbers;
  * - a type the core's DOM and ECMAScript libraries declare — `Date`,
  *   `File`, `Blob` — by its name;
- * - `AnyHeaders` and `Raw` by name, imported from `@tetsujs/client`;
+ * - `AnyHeaders` and `Raw` by name, imported from `@tetsujs/client` — `Raw`
+ *   with the type of an event's data only where it is known, for a
+ *   `text/event-stream` with a `body`;
  * - a recursive type as an interface of its own, named after the type it
  *   came from;
  * - a brand — a property keyed by a symbol — not at all: the frontend
@@ -384,6 +386,30 @@ function after(printed: string): string {
   return printed.startsWith("\n")
     ? printed.replaceAll("\n", "\n  ")
     : ` ${printed}`;
+}
+
+/**
+ * A generic type given its arguments: on one line, or an argument to a
+ * line where one of them takes several — a union of objects among them,
+ * a member to a line, each after a `|`.
+ */
+function applied(name: string, printed: readonly string[]): string {
+  const parts = printed.map((text) =>
+    text.startsWith("\n") ? text.slice(1) : text,
+  );
+
+  if (!parts.some((text) => text.includes("\n"))) {
+    return `${name}<${parts.join(", ")}>`;
+  }
+
+  const lines = parts.map((text) =>
+    text
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n"),
+  );
+
+  return `${name}<\n${lines.join(",\n")}\n>`;
 }
 
 /** A type in parentheses where an array's `[]` needs them. */
@@ -854,9 +880,15 @@ class Printer {
     ) {
       this.imports.add("Raw");
 
-      const [content] = checker.getTypeArguments(reference);
+      const [content, event] = checker.getTypeArguments(reference);
+      const type = content === undefined ? "string" : this.print(content, path);
 
-      return `Raw<${content === undefined ? "string" : this.print(content, path)}>`;
+      return applied(
+        "Raw",
+        event === undefined || (event.flags & ts.TypeFlags.Unknown) !== 0
+          ? [type]
+          : [type, this.print(event, path)],
+      );
     }
 
     if (checker.isArrayType(type)) {
@@ -979,24 +1011,10 @@ class Printer {
       return symbol.name;
     }
 
-    const printed = parameters.map((parameter) => {
-      const text = this.print(parameter, path);
-
-      return text.startsWith("\n") ? grouped(text) : text;
-    });
-
-    if (!printed.some((text) => text.includes("\n"))) {
-      return `${symbol.name}<${printed.join(", ")}>`;
-    }
-
-    const lines = printed.map((text) =>
-      text
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n"),
+    return applied(
+      symbol.name,
+      parameters.map((parameter) => this.print(parameter, path)),
     );
-
-    return `${symbol.name}<\n${lines.join(",\n")}\n>`;
   }
 
   /**

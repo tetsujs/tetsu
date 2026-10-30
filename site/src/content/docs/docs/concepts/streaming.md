@@ -77,6 +77,11 @@ route({
 The package page covers event ids and `Last-Event-ID`, keep-alives, `onEnd`
 summaries and every option.
 
+On the other side, [`@tetsujs/client`](/docs/packages/client/#streams)
+reads a `text/event-stream` as `res.events`, each event's `data` typed by
+the `body` of the route's response entry:
+`200: { contentType: "text/event-stream", body: Price }`.
+
 ## A generator must yield or wait on the signal
 
 The generator behind `sse()` or `stream()` receives an `AbortSignal` that
@@ -124,7 +129,9 @@ leaves. That is not reported as a failure.
 
 A generator that throws ends the stream where it stood. The headers have
 already gone, so the error goes to `reportError` with `source: "stream"`,
-and the client sees an ordinary end of stream.
+and the client sees an ordinary end of stream. A client that has to know
+the stream finished, rather than broke off, needs a last event that says
+so, such as `done`.
 
 An access log in `afterResponse` sees a stream when it starts, so it
 records an hour-long feed as a fast `200`. `onEnd` on `sse()` and

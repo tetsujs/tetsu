@@ -91,6 +91,11 @@ const MaybeBody = mockSchema<
   { a: number } | undefined
 >();
 const Window = mockSchema<{ from: Branded<Date> }>();
+const Delta = mockSchema<
+  { type: "delta"; delta: string; at: Date } | { type: "done" }
+>();
+const Stamp = mockSchema<Date>();
+const Tagged = mockSchema<"done" | { n: number }>();
 
 const app = createApp({
   routes: [
@@ -277,6 +282,63 @@ const app = createApp({
       path: "/maybe",
       schema: { response: Maybe },
       handler: () => undefined,
+    }),
+    route({
+      method: "POST",
+      path: "/agents/:name/stream",
+      schema: {
+        body: Patch,
+        headers: Auth,
+        response: {
+          200: { contentType: "text/event-stream", body: Delta },
+          404: NotFound,
+        },
+      },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/tokens",
+      schema: {
+        response: { 200: { contentType: "text/event-stream", body: Csv } },
+      },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/ticks",
+      schema: { response: { 200: { contentType: "text/event-stream" } } },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/stamps",
+      schema: {
+        response: { 200: { contentType: "text/event-stream", body: Stamp } },
+      },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/tagged",
+      schema: {
+        response: { 200: { contentType: "text/event-stream", body: Tagged } },
+      },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/report",
+      schema: { response: { 200: { contentType: "text/csv", body: Id } } },
+      handler: () => new Response(""),
+    }),
+    route({
+      method: "GET",
+      path: "/loud",
+      schema: {
+        response: { 200: { contentType: "Text/Event-Stream", body: Id } },
+      },
+      handler: () => new Response(""),
     }),
     route({
       method: "GET",
@@ -637,6 +699,104 @@ export async function bodiless() {
   }
 }
 
+export async function streams() {
+  const res = await api.post("/agents/:name/stream", {
+    params: { name: "chat" },
+    body: {},
+    headers: { authorization: "Bearer t" },
+  });
+
+  if (res.ok) {
+    check<Equal<typeof res.data, undefined>>();
+    check<
+      Equal<
+        typeof res.events,
+        AsyncIterable<
+          ReceivedEvent<
+            { type: "delta"; delta: string; at: string } | { type: "done" }
+          >
+        >
+      >
+    >();
+  } else if (res.status === 404) {
+    check<
+      Equal<
+        typeof res.error,
+        { status: 404; error: "USER_NOT_FOUND"; message: string }
+      >
+    >();
+
+    // @ts-expect-error: a failure before the stream has no events
+    res.events;
+  }
+
+  const user = await api.get("/users/:id", { params: { id: 1 } });
+
+  if (user.ok) {
+    // @ts-expect-error: a JSON body has no events
+    user.events;
+  }
+
+  const tokens = await api.get("/tokens");
+
+  if (tokens.ok) {
+    check<Equal<typeof tokens.events, AsyncIterable<ReceivedEvent>>>();
+  }
+
+  const ticks = await api.get("/ticks");
+
+  if (ticks.ok) {
+    check<Equal<typeof ticks.events, AsyncIterable<ReceivedEvent>>>();
+  }
+
+  const stamps = await api.get("/stamps");
+
+  if (stamps.ok) {
+    check<Equal<typeof stamps.events, AsyncIterable<ReceivedEvent<string>>>>();
+  }
+
+  const tagged = await api.get("/tagged");
+
+  if (tagged.ok) {
+    check<Equal<typeof tagged.events, AsyncIterable<ReceivedEvent>>>();
+  }
+
+  const loud = await api.get("/loud");
+
+  if (loud.ok) {
+    check<
+      Equal<typeof loud.events, AsyncIterable<ReceivedEvent<{ id: number }>>>
+    >();
+  }
+
+  check<
+    Equal<
+      Api["POST /agents/:name/stream"]["responses"][200],
+      Raw<
+        "text/event-stream",
+        { type: "delta"; delta: string; at: string } | { type: "done" }
+      >
+    >
+  >();
+  check<Equal<Api["GET /ticks"]["responses"][200], Raw<"text/event-stream">>>();
+  check<
+    Equal<Api["GET /tokens"]["responses"][200], Raw<"text/event-stream">>
+  >();
+  check<Equal<Api["GET /export"]["responses"][200], Raw<"text/csv">>>();
+  check<Equal<Api["GET /report"]["responses"][200], Raw<"text/csv">>>();
+  check<
+    Equal<
+      Raw<"text/event-stream", { a: 1 }> extends Raw<
+        "text/event-stream",
+        { b: 1 }
+      >
+        ? true
+        : false,
+      false
+    >
+  >();
+}
+
 export async function oneSchema() {
   const res = await api.get("/users");
 
@@ -680,6 +840,7 @@ export async function undeclaredResponse() {
   if (res.ok) {
     check<Equal<typeof res.data, unknown>>();
     check<Equal<typeof res.status, SuccessStatus>>();
+    check<Equal<typeof res.events, AsyncIterable<ReceivedEvent> | undefined>>();
   } else if (res.status === 404) {
     check<Equal<typeof res.error, ErrorBody>>();
   } else if (res.status === 503) {
@@ -800,6 +961,12 @@ interface Contract {
     readonly request: Record<never, never>;
     readonly responses: { readonly 200: Raw<string> };
   };
+  readonly "GET /typed": {
+    readonly request: Record<never, never>;
+    readonly responses: {
+      readonly "2XX": Raw<"text/event-stream", { readonly n: number }>;
+    };
+  };
   readonly "GET /cased": {
     readonly request: Record<never, never>;
     readonly responses: {
@@ -849,6 +1016,17 @@ export async function contract() {
     anything.events;
   }
 
+  const typed = await client.get("/typed");
+
+  if (typed.ok) {
+    check<
+      Equal<
+        typeof typed.events,
+        AsyncIterable<ReceivedEvent<{ readonly n: number }>>
+      >
+    >();
+  }
+
   const cased = await client.get("/cased");
 
   if (cased.ok) {
@@ -894,8 +1072,12 @@ export async function untyped() {
 
   if (res.ok) {
     check<Equal<typeof res.data, unknown>>();
+    check<Equal<typeof res.events, AsyncIterable<ReceivedEvent> | undefined>>();
   } else {
     check<Equal<typeof res.error, unknown>>();
+
+    // @ts-expect-error: a failure has no events
+    res.events;
   }
 
   const thrown = unwrap(res);

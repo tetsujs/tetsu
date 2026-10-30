@@ -350,6 +350,10 @@ export class ClientError<F extends Failure = Failure> extends Error {
  * The data of a successful result, or a {@link ClientError} thrown for any
  * other — for code that expects a failure thrown, as TanStack Query does.
  *
+ * A `text/event-stream` has no data: its events are the result's
+ * `events`. Unwrapped, it throws a `TypeError` rather than give
+ * `undefined` and leave the connection open, and cancels the body.
+ *
  * @example
  * ```ts
  * const user = unwrap(await api.get("/users/:id", { params: { id } }));
@@ -358,6 +362,14 @@ export class ClientError<F extends Failure = Failure> extends Error {
 export function unwrap<R extends Success | Failure>(
   result: R,
 ): Extract<R, { readonly ok: true }>["data"] {
+  if ("events" in result) {
+    result.response.body?.cancel().catch(() => {});
+
+    throw new TypeError(
+      "A text/event-stream has no data to unwrap: read res.events (https://tetsujs.com/docs/packages/client/#streams)",
+    );
+  }
+
   if (result.ok) {
     return result.data;
   }

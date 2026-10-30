@@ -12,9 +12,10 @@ import { createApp, httpError, route } from "@tetsujs/core";
 import { serve } from "@tetsujs/core/testing";
 import type { SseSummary } from "@tetsujs/sse";
 import { sse } from "@tetsujs/sse";
+import { z } from "zod";
 import { events } from "./events.ts";
 import type { Raw, ReceivedEvent } from "./index.ts";
-import { createClient } from "./index.ts";
+import { createClient, unwrap } from "./index.ts";
 
 const encoder = new TextEncoder();
 
@@ -368,6 +369,27 @@ const app = createApp({
         );
       },
     }),
+    counted: route({
+      method: "GET",
+      path: "/counted",
+      schema: {
+        response: {
+          200: {
+            contentType: "text/event-stream",
+            body: z.object({ n: z.number(), at: z.date() }),
+          },
+        },
+      },
+      handler: (ctx) =>
+        sse(
+          ctx,
+          async function* () {
+            yield { data: { n: 1, at: new Date(0) } };
+            yield { data: { n: 2, at: new Date(1) } };
+          },
+          { heartbeatMs: 0 },
+        ),
+    }),
     json: route({
       method: "GET",
       path: "/json",
@@ -415,6 +437,20 @@ describe("res.events against sse()", () => {
       { data: undefined, text: "line one\nline two" },
       { data: 42, text: " 42" },
       { data: undefined, text: "hello" },
+    ]);
+  });
+
+  test("the data of an event has the type of the body the route declares", async () => {
+    const res = succeeded(await api.get("/counted"));
+    const read: { n: number; at: string }[] = [];
+
+    for await (const event of res.events) {
+      read.push(event.data);
+    }
+
+    expect(read).toStrictEqual([
+      { n: 1, at: "1970-01-01T00:00:00.000Z" },
+      { n: 2, at: "1970-01-01T00:00:00.001Z" },
     ]);
   });
 
@@ -488,6 +524,34 @@ describe("res.events against sse()", () => {
 
     await expect(reading).rejects.toMatchObject({ name: "AbortError" });
     expect((await done).reason).toBe("cancelled");
+  });
+});
+
+describe("unwrap() of a stream", () => {
+  test("throws, pointing at res.events, and ends the stream on the server", async () => {
+    const id = "unwrap";
+    const done = ended(id);
+    const res = await api.get("/held/:id", { params: { id } });
+
+    expect(() => unwrap(res)).toThrow(
+      new TypeError(
+        "A text/event-stream has no data to unwrap: read res.events (https://tetsujs.com/docs/packages/client/#streams)",
+      ),
+    );
+    expect((await done).reason).toBe("cancelled");
+  });
+
+  test("throws for a stream already read from too", async () => {
+    const res = succeeded(
+      await api.get("/held/:id", { params: { id: "read" } }),
+    );
+
+    for await (const event of res.events) {
+      expect(event.text).toBe("first");
+      break;
+    }
+
+    expect(() => unwrap(res)).toThrow(TypeError);
   });
 });
 
