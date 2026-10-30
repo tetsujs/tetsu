@@ -1,6 +1,6 @@
 {
   "name": "@tetsujs/client",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A typed fetch client for Tetsu applications",
   "keywords": [
     "bun",
