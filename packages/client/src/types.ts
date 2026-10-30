@@ -103,10 +103,32 @@ export type ErrorStatus = ClientErrorStatus | ServerErrorStatus;
 
 /**
  * A response whose body is not JSON — a CSV, a file, an event stream. Its
- * result has no `data`: the body is read from `response`.
+ * result has no `data`: the body is read from `response`, or, for a
+ * `text/event-stream`, from the result's `events`.
  */
 export interface Raw<Type extends string = string> {
   readonly "~raw": Type;
+}
+
+/**
+ * One event of a `text/event-stream` response, as `res.events` gives it.
+ *
+ * `text` is the event's data as it came; `data` is that text parsed as
+ * JSON — `undefined` when it is not JSON, which no JSON value is. A
+ * stream of text reads `text`: a token such as `" 42"` would be the
+ * number `42` as `data`.
+ *
+ * `event`, `id` and `retry` are the event's own, there when the server
+ * sent them with it: an event without a name has no `event`, rather than
+ * the `"message"` of an `EventSource`, and the `id` of one event is not
+ * carried over to the next.
+ */
+export interface ReceivedEvent<D = unknown> {
+  readonly data: D;
+  readonly text: string;
+  readonly event?: string;
+  readonly id?: string;
+  readonly retry?: number;
 }
 
 /** A header's value as a call takes it: sent as text, a `Date` as ISO. */
@@ -244,16 +266,35 @@ export interface Failure<S extends number = number, E = unknown> {
 
 type Body<D> = D extends Raw ? undefined : D;
 
+/**
+ * What a success of body `D` has besides: the events of a stream —
+ * `text/event-stream`, in any case and with any parameters.
+ */
+type Streamed<D> =
+  D extends Raw<infer T>
+    ? Lowercase<T> extends "text/event-stream" | `text/event-stream;${string}`
+      ? {
+          /**
+           * The events of the stream, read as they are iterated. Leaving
+           * the loop closes the connection, and the call's signal aborts
+           * it; a stream that is never read stays open until the signal
+           * aborts it or `response.body` is cancelled. Read once.
+           */
+          readonly events: AsyncIterable<ReceivedEvent>;
+        }
+      : unknown
+    : unknown;
+
 type Declared<X> = {
   [S in keyof X]: S extends number
     ? `${S}` extends `2${string}`
-      ? Success<S, Body<X[S]>>
+      ? Success<S, Body<X[S]>> & Streamed<X[S]>
       : Failure<S, Body<X[S]>>
     : never;
 }[keyof X];
 
 type Ranged<X> = X extends { readonly "2XX": infer D }
-  ? Success<Exclude<SuccessStatus, keyof X>, Body<D>>
+  ? Success<Exclude<SuccessStatus, keyof X>, Body<D>> & Streamed<D>
   : never;
 
 type Undeclared<X, E> =
